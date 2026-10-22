@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { CurrentAuth, type AuthContext } from '../../common/decorators/current-user.decorator';
 import { MinRole } from '../../common/decorators/roles.decorator';
-import { LlmRegistry } from '../llm/llm.registry';
+import { LlmGatewayService } from '../llm/llm-gateway.service';
 import { AgentsService } from './agents.service';
 import { ChatDto, CreateAgentDto, SetAgentToolsDto, UpdateAgentDto } from './dto/agent.dto';
 
@@ -13,12 +13,13 @@ import { ChatDto, CreateAgentDto, SetAgentToolsDto, UpdateAgentDto } from './dto
 export class AgentsController {
   constructor(
     private readonly agents: AgentsService,
-    private readonly llm: LlmRegistry,
+    private readonly gateway: LlmGatewayService,
   ) {}
 
+  /** Alias de GET /llm/catalog (compatibilidad). */
   @Get('providers')
-  providers() {
-    return this.llm.catalog();
+  providers(@CurrentAuth() a: AuthContext) {
+    return this.gateway.catalog(a.workspaceId);
   }
 
   @Get()
@@ -71,7 +72,7 @@ export class AgentsController {
   @Post(':id/chat')
   async chat(@CurrentAuth() a: AuthContext, @Param('id') id: string, @Body() dto: ChatDto, @Res() res: Response) {
     if (!dto.stream) {
-      res.json(await this.agents.chat(a.workspaceId, id, dto));
+      res.json(await this.agents.chat(a.workspaceId, id, { ...dto, userId: a.userId }));
       return;
     }
     res.setHeader('Content-Type', 'text/event-stream');
@@ -82,7 +83,13 @@ export class AgentsController {
     const abort = new AbortController();
     res.on('close', () => abort.abort());
     try {
-      const result = await this.agents.chat(a.workspaceId, id, dto, (e) => send(e.type, e), abort.signal);
+      const result = await this.agents.chat(
+        a.workspaceId,
+        id,
+        { ...dto, userId: a.userId },
+        (e) => send(e.type, e),
+        abort.signal,
+      );
       send('done', result);
     } catch (err) {
       send('error', { message: (err as Error).message });

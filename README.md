@@ -34,6 +34,15 @@ Nexo permite **crear agentes de IA conectados a cualquier sistema** de la empres
 - Disparadores: **manual, webhook** (con respuesta síncrona `?wait=true`), **cron** y **MCP**.
 - Historial de ejecuciones con bitácora por nodo (entrada, salida, error, intentos), cancelación y re-ejecución.
 
+**Gobierno de IA y costos** (consola de administración)
+- **Múltiples LLM**: conexiones Anthropic, OpenAI-compatibles (OpenAI, Azure, Ollama, vLLM, Gemini compatible, gateways) y simuladas, con catálogo de modelos y tarifas configurables.
+- **Unidades corporativas** en árbol, miembros asignados a unidades y centro de costo por agente.
+- **Bolsas de presupuesto en USD** por unidad (mensual, trimestral, anual), jerárquicas: el consumo descuenta de la unidad y de todos sus ancestros.
+- Políticas al agotarse: **bloquear** (HTTP 402), **degradar** a un modelo económico o **solo alertar**; alertas por umbral (50/80/100 %).
+- Control **antes de cada llamada** al modelo y medición exacta por turno (tokens de entrada, salida y caché).
+- Modelos permitidos por unidad, caché automática de prompts y reportes por unidad, modelo, agente, usuario y día.
+- Portal de usuarios con **Mi consumo**: presupuesto disponible y gasto propio.
+
 **Plataforma**
 - Multi-tenant por workspace, roles (OWNER, ADMIN, EDITOR, VIEWER), JWT + API keys.
 - **Servidor MCP** en `/api/mcp`: cada agente y flujo activo se publica como tool.

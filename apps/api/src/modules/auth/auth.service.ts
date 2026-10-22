@@ -37,7 +37,13 @@ export class AuthService {
         memberships: {
           create: {
             role: 'OWNER',
-            workspace: { create: { name: wsName, slug: `${slugify(wsName)}-${Date.now().toString(36)}` } },
+            workspace: {
+              create: {
+                name: wsName,
+                slug: `${slugify(wsName)}-${Date.now().toString(36)}`,
+                orgUnits: { create: { name: wsName } },
+              },
+            },
           },
         },
       },

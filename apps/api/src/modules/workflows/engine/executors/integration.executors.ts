@@ -33,7 +33,11 @@ export class AgentExecutor implements NodeExecutor {
     if (!agentId) throw new Error('Seleccione un agente');
     const message = render<unknown>(node.config.message ?? '{{ input }}', templateContext(ctx));
     const text = typeof message === 'string' ? message : JSON.stringify(message);
-    const result = await this.agents.runOnce(ctx.workspaceId, agentId, text);
+    const result = await this.agents.runOnce(ctx.workspaceId, agentId, text, {
+      source: 'WORKFLOW',
+      workflowId: ctx.workflowId,
+      executionId: ctx.executionId,
+    });
     let parsed: unknown;
     if (node.config.parseJson) {
       const match = /```(?:json)?\s*([\s\S]*?)```/.exec(result.text);

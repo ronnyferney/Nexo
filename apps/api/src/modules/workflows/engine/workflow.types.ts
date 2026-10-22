@@ -44,6 +44,7 @@ export interface StepLog {
 export interface ExecutionContext {
   workspaceId: string;
   executionId: string;
+  workflowId?: string;
   input: Record<string, unknown>;
   nodes: Record<string, { output: unknown }>;
 }

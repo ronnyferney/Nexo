@@ -1,52 +1,31 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import type { LlmProvider, LlmRunRequest, LlmRunResult, ModelInfo } from '../llm-provider';
+import type { LlmClient, LlmCredentials, LlmDriver, LlmRunRequest, LlmRunResult } from '../llm-provider';
 
 type MessageParam = Anthropic.Beta.Messages.BetaMessageParam;
 type ToolResultBlock = Anthropic.Beta.Messages.BetaToolResultBlockParam;
 
-const MODELS: ModelInfo[] = [
-  {
-    id: 'claude-opus-5-5',
-    label: 'Claude Opus 5.5',
-    description: 'Recomendado: razonamiento y agentes de propósito general',
-  },
-  { id: 'claude-fable-5-1', label: 'Claude Fable 5.1', description: 'Máxima capacidad para tareas largas y complejas' },
-  { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', description: 'Equilibrio velocidad / capacidad' },
-  { id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5', description: 'Rápido y económico para alto volumen' },
-];
-
 /**
- * Adaptador Anthropic (Messages API) con bucle de tool use manual:
- * - streaming para no chocar con timeouts y emitir texto en vivo,
- * - thinking adaptativo + effort configurable por agente,
- * - fallback server-side ante rechazos por política,
- * - historial nativo append-only (los bloques de thinking se devuelven sin modificar).
+ * Cliente Anthropic (Messages API) con bucle de tool use manual:
+ * streaming, thinking adaptativo + effort, caché automática de prompts (ahorro de costos),
+ * fallback server-side ante rechazos por política e historial nativo append-only.
  */
-@Injectable()
-export class AnthropicProvider implements LlmProvider {
-  readonly id = 'anthropic';
-  readonly label = 'Anthropic Claude';
-  private readonly logger = new Logger(AnthropicProvider.name);
-  private readonly client?: Anthropic;
+class AnthropicClient implements LlmClient {
+  private readonly logger = new Logger('AnthropicClient');
+  private readonly client: Anthropic;
+  private readonly customEndpoint: boolean;
 
-  constructor(config: ConfigService) {
-    const apiKey = config.get<string>('llm.anthropicApiKey');
-    if (apiKey) this.client = new Anthropic({ apiKey });
+  constructor(credentials: LlmCredentials) {
+    this.client = new Anthropic({ apiKey: credentials.apiKey, baseURL: credentials.baseUrl || undefined });
+    this.customEndpoint = !!credentials.baseUrl;
   }
 
-  isConfigured(): boolean {
-    return !!this.client;
-  }
-
-  models(): ModelInfo[] {
-    return MODELS;
+  async test() {
+    const page = await this.client.models.list({ limit: 5 });
+    return { ok: true, message: `Conexión correcta: ${page.data.map((m) => m.id).join(', ')}` };
   }
 
   async run(req: LlmRunRequest): Promise<LlmRunResult> {
-    if (!this.client) throw new Error('ANTHROPIC_API_KEY no está configurada');
-
     const history = [...(req.history as MessageParam[]), { role: 'user', content: req.userMessage } as MessageParam];
     const tools: Anthropic.Beta.Messages.BetaTool[] = req.tools.map((t) => ({
       name: t.name,
@@ -60,6 +39,7 @@ export class AnthropicProvider implements LlmProvider {
     let turns = 0;
 
     while (turns < req.maxTurns) {
+      await req.beforeTurn?.();
       turns++;
       const stream = this.client.beta.messages.stream(
         {
@@ -70,16 +50,30 @@ export class AnthropicProvider implements LlmProvider {
           tools: tools.length ? tools : undefined,
           thinking: { type: 'adaptive' },
           output_config: { effort: req.effort },
-          betas: ['server-side-fallback-2026-07-01'],
-          fallbacks: 'default',
+          cache_control: { type: 'ephemeral' },
+          // El fallback server-side solo aplica a la API de Anthropic directa (no a proxies/gateways).
+          ...(this.customEndpoint
+            ? {}
+            : {
+                betas: ['server-side-fallback-2026-07-01'] as Anthropic.Beta.AnthropicBeta[],
+                fallbacks: 'default' as const,
+              }),
         },
         { signal: req.signal },
       );
       stream.on('text', (delta) => req.onEvent?.({ type: 'text', text: delta }));
       const message = await stream.finalMessage();
 
-      usage.inputTokens += message.usage.input_tokens;
-      usage.outputTokens += message.usage.output_tokens;
+      const u = message.usage;
+      usage.inputTokens += u.input_tokens;
+      usage.outputTokens += u.output_tokens;
+      await req.onUsage?.({
+        inputTokens: u.input_tokens,
+        outputTokens: u.output_tokens,
+        cacheReadTokens: u.cache_read_input_tokens ?? 0,
+        cacheWriteTokens: u.cache_creation_input_tokens ?? 0,
+      });
+
       stopReason = message.stop_reason ?? 'end_turn';
       history.push({ role: 'assistant', content: message.content });
       text = message.content
@@ -126,5 +120,14 @@ export class AnthropicProvider implements LlmProvider {
       req.onEvent?.({ type: 'notice', message: `Se alcanzó el máximo de ${req.maxTurns} turnos.` });
     }
     return { history, text, stopReason, turns, usage };
+  }
+}
+
+@Injectable()
+export class AnthropicDriver implements LlmDriver {
+  readonly kind = 'ANTHROPIC' as const;
+  create(credentials: LlmCredentials): LlmClient {
+    if (!credentials.apiKey) throw new Error('La conexión Anthropic no tiene API key');
+    return new AnthropicClient(credentials);
   }
 }

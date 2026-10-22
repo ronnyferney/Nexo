@@ -1,6 +1,9 @@
+import type { LlmKind } from '@prisma/client';
+
 /**
- * Puerto de proveedores LLM. Cada proveedor es dueño de su formato de historial nativo
- * (se persiste tal cual, append-only) y de su bucle de tool use.
+ * Puerto de proveedores LLM. Un *driver* por tipo de proveedor crea clientes a partir de las credenciales de una
+ * conexión. Cada cliente es dueño de su formato de historial nativo (se persiste tal cual, append-only) y de su bucle
+ * de tool use, e informa el consumo de cada turno para medición y control de presupuesto.
  */
 export interface ToolSpec {
   name: string;
@@ -27,6 +30,14 @@ export type AgentEvent =
 
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
+/** Tokens consumidos por una llamada al modelo. */
+export interface TurnUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+}
+
 export interface LlmRunRequest {
   model: string;
   system: string;
@@ -37,6 +48,10 @@ export interface LlmRunRequest {
   maxTurns: number;
   executeTool: (call: ToolCall) => Promise<ToolOutcome>;
   onEvent?: (event: AgentEvent) => void;
+  /** Se invoca antes de cada llamada al modelo; si lanza, la ejecución se detiene (control de presupuesto). */
+  beforeTurn?: () => Promise<void>;
+  /** Se invoca después de cada llamada con los tokens reales (medición). */
+  onUsage?: (usage: TurnUsage) => Promise<void>;
   signal?: AbortSignal;
 }
 
@@ -48,18 +63,23 @@ export interface LlmRunResult {
   usage: { inputTokens: number; outputTokens: number };
 }
 
-export interface ModelInfo {
-  id: string;
-  label: string;
-  description: string;
-}
-
-export interface LlmProvider {
-  readonly id: string;
-  readonly label: string;
-  isConfigured(): boolean;
-  models(): ModelInfo[];
+export interface LlmClient {
   run(request: LlmRunRequest): Promise<LlmRunResult>;
+  test(): Promise<{ ok: boolean; message: string }>;
 }
 
-export const LLM_PROVIDERS = Symbol('LLM_PROVIDERS');
+export interface LlmCredentials {
+  apiKey?: string;
+  baseUrl?: string;
+}
+
+export interface LlmDriver {
+  readonly kind: LlmKind;
+  create(credentials: LlmCredentials): LlmClient;
+}
+
+export const LLM_DRIVERS = Symbol('LLM_DRIVERS');
+
+export function emptyUsage(): TurnUsage {
+  return { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+}

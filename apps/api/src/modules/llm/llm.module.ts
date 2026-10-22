@@ -1,19 +1,22 @@
 import { Global, Module } from '@nestjs/common';
-import { LLM_PROVIDERS } from './llm-provider';
-import { LlmRegistry } from './llm.registry';
-import { AnthropicProvider } from './providers/anthropic.provider';
-import { MockProvider } from './providers/mock.provider';
+import { AnthropicDriver } from './drivers/anthropic.driver';
+import { MockDriver } from './drivers/mock.driver';
+import { OpenAiCompatibleDriver } from './drivers/openai-compatible.driver';
+import { LlmAdminController, LlmCatalogController } from './llm-admin.controller';
+import { LlmGatewayService } from './llm-gateway.service';
+import { LLM_DRIVERS } from './llm-provider';
 
-/** Para agregar un proveedor (OpenAI, Gemini, Ollama...) implemente LlmProvider y regístrelo aquí. */
-const PROVIDERS = [AnthropicProvider, MockProvider];
+/** Para agregar un tipo de proveedor (Bedrock, Gemini nativo...) implemente LlmDriver y regístrelo aquí. */
+const DRIVERS = [AnthropicDriver, OpenAiCompatibleDriver, MockDriver];
 
 @Global()
 @Module({
+  controllers: [LlmCatalogController, LlmAdminController],
   providers: [
-    ...PROVIDERS,
-    LlmRegistry,
-    { provide: LLM_PROVIDERS, useFactory: (...p: unknown[]) => p, inject: PROVIDERS },
+    ...DRIVERS,
+    LlmGatewayService,
+    { provide: LLM_DRIVERS, useFactory: (...d: unknown[]) => d, inject: DRIVERS },
   ],
-  exports: [LlmRegistry],
+  exports: [LlmGatewayService],
 })
 export class LlmModule {}

@@ -2,7 +2,8 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import type { AgentEvent } from '../llm/llm-provider';
-import { AgentRuntimeService, toolName, type AgentWithTools } from './agent-runtime.service';
+import { OrgService } from '../governance/org.service';
+import { AgentRuntimeService, toolName, type AgentWithTools, type RunContext } from './agent-runtime.service';
 import { CreateAgentDto, SetAgentToolsDto, UpdateAgentDto } from './dto/agent.dto';
 
 const WITH_TOOLS = { tools: { include: { operation: { include: { connector: true } } } } } as const;
@@ -12,6 +13,7 @@ export class AgentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly runtime: AgentRuntimeService,
+    private readonly org: OrgService,
   ) {}
 
   list(workspaceId: string) {
@@ -42,12 +44,14 @@ export class AgentsService {
     };
   }
 
-  create(workspaceId: string, dto: CreateAgentDto) {
+  async create(workspaceId: string, dto: CreateAgentDto) {
+    if (dto.costCenterId) await this.org.unit(workspaceId, dto.costCenterId);
     return this.prisma.agent.create({ data: { ...dto, workspaceId } });
   }
 
   async update(workspaceId: string, id: string, dto: UpdateAgentDto) {
     await this.get(workspaceId, id);
+    if (dto.costCenterId) await this.org.unit(workspaceId, dto.costCenterId);
     return this.prisma.agent.update({ where: { id }, data: dto });
   }
 
@@ -93,11 +97,11 @@ export class AgentsService {
     return c;
   }
 
-  /** Ejecuta un turno de chat y persiste el historial nativo del proveedor. */
+  /** Ejecuta un turno de chat, aplica el gobierno de costos y persiste el historial nativo del proveedor. */
   async chat(
     workspaceId: string,
     agentId: string,
-    input: { message: string; conversationId?: string; approvedTools?: string[] },
+    input: { message: string; conversationId?: string; approvedTools?: string[]; userId?: string },
     onEvent?: (e: AgentEvent) => void,
     signal?: AbortSignal,
   ) {
@@ -105,28 +109,22 @@ export class AgentsService {
     let conversation = input.conversationId
       ? await this.conversation(workspaceId, agentId, input.conversationId)
       : null;
-    let history: unknown[] = [];
-    if (conversation && conversation.provider === agent.provider) {
-      history = conversation.messages as unknown[];
-    } else if (conversation) {
-      onEvent?.({ type: 'notice', message: 'El proveedor del agente cambió; se inicia un historial nuevo.' });
-    }
 
     const result = await this.runtime.run(agent, {
-      history,
+      history: (conversation?.messages as unknown[]) ?? [],
+      historyProviderId: conversation?.provider,
       message: input.message,
       approvedTools: input.approvedTools,
       onEvent,
       signal,
+      context: { source: 'CHAT', userId: input.userId, conversationId: conversation?.id },
     });
     const messages = result.history as Prisma.InputJsonValue;
+    const provider = result.providerId;
     conversation = conversation
-      ? await this.prisma.conversation.update({
-          where: { id: conversation.id },
-          data: { messages, provider: agent.provider },
-        })
+      ? await this.prisma.conversation.update({ where: { id: conversation.id }, data: { messages, provider } })
       : await this.prisma.conversation.create({
-          data: { agentId, provider: agent.provider, messages, title: input.message.slice(0, 60) },
+          data: { agentId, provider, messages, title: input.message.slice(0, 60) },
         });
 
     return {
@@ -134,14 +132,22 @@ export class AgentsService {
       text: result.text,
       stopReason: result.stopReason,
       turns: result.turns,
-      usage: result.usage,
+      providerId: result.providerId,
+      model: result.model,
+      usage: { ...result.usage, costUsd: result.costUsd },
     };
   }
 
   /** Ejecución sin estado (usada por flujos y por el servidor MCP). */
-  async runOnce(workspaceId: string, agentId: string, message: string) {
+  async runOnce(workspaceId: string, agentId: string, message: string, context: RunContext) {
     const agent = await this.get(workspaceId, agentId);
-    const r = await this.runtime.run(agent, { message });
-    return { text: r.text, stopReason: r.stopReason, turns: r.turns, usage: r.usage };
+    const r = await this.runtime.run(agent, { message, context });
+    return {
+      text: r.text,
+      stopReason: r.stopReason,
+      turns: r.turns,
+      model: r.model,
+      usage: { ...r.usage, costUsd: r.costUsd },
+    };
   }
 }

@@ -55,7 +55,7 @@ export class McpServerService {
         },
         async ({ message }) => {
           try {
-            const r = await this.agents.runOnce(workspaceId, agent.id, message);
+            const r = await this.agents.runOnce(workspaceId, agent.id, message, { source: 'MCP' });
             return text(r.text);
           } catch (err) {
             return text((err as Error).message, true);

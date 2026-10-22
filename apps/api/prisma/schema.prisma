@@ -32,6 +32,36 @@ enum ExecutionStatus {
   CANCELLED
 }
 
+enum LlmKind {
+  ANTHROPIC
+  OPENAI_COMPATIBLE
+  MOCK
+}
+
+enum ModelTier {
+  PREMIUM
+  STANDARD
+  ECONOMY
+}
+
+enum BudgetPeriod {
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum BudgetPolicy {
+  BLOCK
+  DOWNGRADE
+  ALERT_ONLY
+}
+
+enum UsageSource {
+  CHAT
+  WORKFLOW
+  MCP
+}
+
 enum TriggerType {
   MANUAL
   WEBHOOK
@@ -51,18 +81,21 @@ model User {
 }
 
 model Workspace {
-  id          String       @id @default(cuid())
-  name        String
-  slug        String       @unique
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  memberships Membership[]
-  connectors  Connector[]
-  agents      Agent[]
-  workflows   Workflow[]
-  executions  Execution[]
-  apiKeys     ApiKey[]
-  secrets     Secret[]
+  id             String          @id @default(cuid())
+  name           String
+  slug           String          @unique
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  memberships    Membership[]
+  connectors     Connector[]
+  agents         Agent[]
+  workflows      Workflow[]
+  executions     Execution[]
+  apiKeys        ApiKey[]
+  secrets        Secret[]
+  llmConnections LlmConnection[]
+  orgUnits       OrgUnit[]
+  usage          UsageRecord[]
 }
 
 model Membership {
@@ -70,8 +103,11 @@ model Membership {
   role        Role      @default(EDITOR)
   userId      String
   workspaceId String
+  /// Unidad corporativa a la que se imputa el consumo del usuario (null = raíz).
+  orgUnitId   String?
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  orgUnit     OrgUnit?  @relation(fields: [orgUnitId], references: [id], onDelete: SetNull)
   createdAt   DateTime  @default(now())
 
   @@unique([userId, workspaceId])
@@ -104,105 +140,108 @@ model Secret {
 
 /// Sistema externo: API REST, servicio SOAP, endpoint GraphQL o servidor MCP.
 model Connector {
-  id          String              @id @default(cuid())
+  id          String               @id @default(cuid())
   name        String
   description String?
   type        ConnectorType
   /// Configuración específica del tipo (baseUrl, wsdl, transporte MCP, headers...).
-  config      Json                @default("{}")
+  config      Json                 @default("{}")
   /// Autenticación: { type: none|apiKey|bearer|basic|oauth2, ... } con referencias a secretos.
-  auth        Json                @default("{\"type\":\"none\"}")
+  auth        Json                 @default("{\"type\":\"none\"}")
   workspaceId String
-  workspace   Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace   Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   operations  ConnectorOperation[]
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
 
   @@index([workspaceId])
 }
 
 /// Operación invocable de un conector. Cada operación se expone como "tool" para agentes.
 model ConnectorOperation {
-  id           String    @id @default(cuid())
-  key          String
-  name         String
-  description  String?
+  id          String      @id @default(cuid())
+  key         String
+  name        String
+  description String?
   /// JSON Schema de entrada.
-  inputSchema  Json      @default("{\"type\":\"object\",\"properties\":{}}")
+  inputSchema Json        @default("{\"type\":\"object\",\"properties\":{}}")
   /// Definición: REST {method,path,query,headers,body}; SOAP {action,bodyTemplate}; GraphQL {query}; MCP {toolName}.
-  definition   Json      @default("{}")
-  connectorId  String
-  connector    Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  agentTools   AgentTool[]
+  definition  Json        @default("{}")
+  connectorId String
+  connector   Connector   @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  agentTools  AgentTool[]
 
   @@unique([connectorId, key])
 }
 
 model Agent {
-  id           String      @id @default(cuid())
-  name         String
-  description  String?
-  provider     String      @default("anthropic")
-  model        String      @default("claude-opus-5-5")
-  systemPrompt String      @default("")
+  id            String         @id @default(cuid())
+  name          String
+  description   String?
+  provider      String         @default("anthropic")
+  model         String         @default("claude-opus-5-5")
+  systemPrompt  String         @default("")
   /// low | medium | high | xhigh | max
-  effort       String      @default("medium")
-  maxTurns     Int         @default(12)
-  workspaceId  String
-  workspace    Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  tools        AgentTool[]
+  effort        String         @default("medium")
+  maxTurns      Int            @default(12)
+  /// Centro de costo cuando el agente corre sin usuario (flujos, webhooks, MCP).
+  costCenterId  String?
+  costCenter    OrgUnit?       @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+  workspaceId   String
+  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tools         AgentTool[]
   conversations Conversation[]
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 
   @@index([workspaceId])
 }
 
 model AgentTool {
-  id          String             @id @default(cuid())
-  agentId     String
-  operationId String
+  id               String             @id @default(cuid())
+  agentId          String
+  operationId      String
   /// Si es true, la llamada requiere aprobación humana (human-in-the-loop).
-  requiresApproval Boolean       @default(false)
-  agent       Agent              @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  operation   ConnectorOperation @relation(fields: [operationId], references: [id], onDelete: Cascade)
+  requiresApproval Boolean            @default(false)
+  agent            Agent              @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  operation        ConnectorOperation @relation(fields: [operationId], references: [id], onDelete: Cascade)
 
   @@unique([agentId, operationId])
 }
 
 model Conversation {
-  id        String    @id @default(cuid())
-  title     String    @default("Nueva conversación")
+  id        String   @id @default(cuid())
+  title     String   @default("Nueva conversación")
   /// Proveedor que produjo el historial (los formatos no son intercambiables).
-  provider  String    @default("anthropic")
+  provider  String   @default("anthropic")
   agentId   String
-  agent     Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
   /// Historial completo en formato del proveedor (append-only).
-  messages  Json      @default("[]")
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  messages  Json     @default("[]")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 /// Flujo de automatización como grafo dirigido (nodos + aristas).
 model Workflow {
-  id          String      @id @default(cuid())
-  name        String
-  description String?
-  active      Boolean     @default(false)
+  id           String      @id @default(cuid())
+  name         String
+  description  String?
+  active       Boolean     @default(false)
   /// { nodes: WorkflowNode[], edges: WorkflowEdge[] }
-  definition  Json        @default("{\"nodes\":[],\"edges\":[]}")
+  definition   Json        @default("{\"nodes\":[],\"edges\":[]}")
   /// Cron para disparador programado (opcional).
-  schedule    String?
+  schedule     String?
   /// Token público para disparo vía webhook.
-  webhookToken String     @unique @default(cuid())
-  version     Int         @default(1)
-  workspaceId String
-  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  executions  Execution[]
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  webhookToken String      @unique @default(cuid())
+  version      Int         @default(1)
+  workspaceId  String
+  workspace    Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  executions   Execution[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
 
   @@index([workspaceId])
 }
@@ -226,4 +265,131 @@ model Execution {
 
   @@index([workspaceId, createdAt])
   @@index([workflowId])
+}
+
+// ===================== Gobierno de IA (ADR 0002) =====================
+
+/// Conexión a un proveedor LLM configurada por el administrador.
+model LlmConnection {
+  id           String     @id @default(cuid())
+  name         String
+  kind         LlmKind
+  baseUrl      String?
+  /// API key cifrada con AES-256-GCM.
+  apiKeyCipher String?
+  enabled      Boolean    @default(true)
+  workspaceId  String
+  workspace    Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  models       LlmModel[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([workspaceId])
+}
+
+/// Modelo habilitado en una conexión, con su tarifa (USD por millón de tokens).
+model LlmModel {
+  id                  String        @id @default(cuid())
+  modelId             String
+  label               String
+  tier                ModelTier     @default(STANDARD)
+  inputUsdPerMTok     Decimal       @db.Decimal(12, 6)
+  outputUsdPerMTok    Decimal       @db.Decimal(12, 6)
+  cacheReadUsdPerMTok Decimal?      @db.Decimal(12, 6)
+  enabled             Boolean       @default(true)
+  connectionId        String
+  connection          LlmConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  @@unique([connectionId, modelId])
+}
+
+/// Unidad corporativa (árbol). La raíz (parentId = null) es el tope global del workspace.
+model OrgUnit {
+  id            String         @id @default(cuid())
+  name          String
+  code          String?
+  /// Modelos permitidos "<providerId>:<modelId>". Vacío = hereda del padre.
+  allowedModels String[]       @default([])
+  parentId      String?
+  parent        OrgUnit?       @relation("OrgTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children      OrgUnit[]      @relation("OrgTree")
+  workspaceId   String
+  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  memberships   Membership[]
+  agents        Agent[]
+  budget        Budget?
+  ledger        BudgetLedger[]
+  alerts        BudgetAlert[]
+  usage         UsageRecord[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([workspaceId])
+}
+
+/// Bolsa de presupuesto de una unidad (descuenta también el consumo de sus descendientes).
+model Budget {
+  id                  String       @id @default(cuid())
+  orgUnitId           String       @unique
+  orgUnit             OrgUnit      @relation(fields: [orgUnitId], references: [id], onDelete: Cascade)
+  period              BudgetPeriod @default(MONTHLY)
+  limitUsd            Decimal      @db.Decimal(14, 4)
+  policy              BudgetPolicy @default(BLOCK)
+  alertThresholds     Int[]        @default([50, 80, 100])
+  downgradeProviderId String?
+  downgradeModel      String?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+}
+
+/// Gasto acumulado por unidad y periodo (incluye descendientes). Incrementos atómicos.
+model BudgetLedger {
+  orgUnitId String
+  orgUnit   OrgUnit  @relation(fields: [orgUnitId], references: [id], onDelete: Cascade)
+  periodKey String
+  spentUsd  Decimal  @default(0) @db.Decimal(18, 8)
+  updatedAt DateTime @updatedAt
+
+  @@id([orgUnitId, periodKey])
+}
+
+model BudgetAlert {
+  id        String   @id @default(cuid())
+  orgUnitId String
+  orgUnit   OrgUnit  @relation(fields: [orgUnitId], references: [id], onDelete: Cascade)
+  periodKey String
+  threshold Int
+  spentUsd  Decimal  @db.Decimal(18, 8)
+  limitUsd  Decimal  @db.Decimal(14, 4)
+  createdAt DateTime @default(now())
+
+  @@unique([orgUnitId, periodKey, threshold])
+}
+
+/// Registro de consumo por llamada al modelo. No guarda contenido de prompts ni respuestas.
+model UsageRecord {
+  id               String      @id @default(cuid())
+  workspaceId      String
+  workspace        Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  orgUnitId        String?
+  orgUnit          OrgUnit?    @relation(fields: [orgUnitId], references: [id], onDelete: SetNull)
+  userId           String?
+  agentId          String?
+  workflowId       String?
+  executionId      String?
+  conversationId   String?
+  source           UsageSource
+  providerId       String
+  model            String
+  inputTokens      Int
+  outputTokens     Int
+  cacheReadTokens  Int         @default(0)
+  cacheWriteTokens Int         @default(0)
+  costUsd          Decimal     @db.Decimal(18, 8)
+  createdAt        DateTime    @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@index([orgUnitId, createdAt])
 }

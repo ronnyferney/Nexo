@@ -1,29 +1,25 @@
 import { Injectable } from '@nestjs/common';
-import type { LlmProvider, LlmRunRequest, LlmRunResult, ModelInfo } from '../llm-provider';
+import type { LlmClient, LlmDriver, LlmRunRequest, LlmRunResult } from '../llm-provider';
 
 interface MockMessage {
   role: 'user' | 'assistant';
   content: string;
 }
 
+const estimateTokens = (text: string) => Math.ceil(text.length / 4);
+
 /**
- * Proveedor determinista para desarrollo y pruebas sin credenciales.
- * Si el mensaje es `/tool <nombre> <json>` ejecuta esa tool; si no, responde en eco.
+ * Cliente determinista para desarrollo y pruebas sin credenciales.
+ * `/tool <nombre> <json>` ejecuta esa tool; cualquier otro mensaje responde en eco.
+ * Informa un consumo estimado (caracteres / 4) para poder probar presupuestos.
  */
-@Injectable()
-export class MockProvider implements LlmProvider {
-  readonly id = 'mock';
-  readonly label = 'Mock (desarrollo)';
-
-  isConfigured(): boolean {
-    return true;
-  }
-
-  models(): ModelInfo[] {
-    return [{ id: 'mock-echo', label: 'Mock Echo', description: 'Respuestas deterministas para pruebas' }];
+class MockClient implements LlmClient {
+  async test() {
+    return { ok: true, message: 'Proveedor simulado disponible' };
   }
 
   async run(req: LlmRunRequest): Promise<LlmRunResult> {
+    await req.beforeTurn?.();
     const history = [...(req.history as MockMessage[]), { role: 'user' as const, content: req.userMessage }];
     let text: string;
     const match = /^\/tool\s+(\S+)\s*(.*)$/s.exec(req.userMessage.trim());
@@ -39,8 +35,21 @@ export class MockProvider implements LlmProvider {
       const tools = req.tools.map((t) => t.name).join(', ') || 'ninguna';
       text = `Eco: ${req.userMessage}\n(tools disponibles: ${tools})`;
     }
+    const usage = {
+      inputTokens: estimateTokens(req.system + JSON.stringify(history)),
+      outputTokens: estimateTokens(text),
+    };
+    await req.onUsage?.({ ...usage, cacheReadTokens: 0, cacheWriteTokens: 0 });
     req.onEvent?.({ type: 'text', text });
     history.push({ role: 'assistant', content: text });
-    return { history, text, stopReason: 'end_turn', turns: 1, usage: { inputTokens: 0, outputTokens: 0 } };
+    return { history, text, stopReason: 'end_turn', turns: 1, usage };
+  }
+}
+
+@Injectable()
+export class MockDriver implements LlmDriver {
+  readonly kind = 'MOCK' as const;
+  create(): LlmClient {
+    return new MockClient();
   }
 }

@@ -25,6 +25,10 @@ export class CreateAgentDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(50_000) systemPrompt?: string;
   @ApiPropertyOptional({ enum: EFFORTS }) @IsOptional() @IsIn(EFFORTS) effort?: (typeof EFFORTS)[number];
   @ApiPropertyOptional({ default: 12 }) @IsOptional() @IsInt() @Min(1) @Max(50) maxTurns?: number;
+  @ApiPropertyOptional({ description: 'Unidad a la que se imputa el consumo sin usuario (flujos, MCP)' })
+  @IsOptional()
+  @IsString()
+  costCenterId?: string | null;
 }
 
 export class UpdateAgentDto extends PartialType(CreateAgentDto) {}

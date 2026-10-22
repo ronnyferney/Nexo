@@ -47,9 +47,18 @@
 - **Cliente**: `McpAdapter` mantiene un pool de sesiones por conector (cierre por inactividad, reconexión automática) y convierte las tools remotas en operaciones.
 - **Servidor**: `/api/mcp` (Streamable HTTP sin estado). Por cada solicitud se construye un `McpServer` con los agentes y flujos activos del workspace autenticado por API key.
 
+## Gobierno de IA (ADR 0002)
+
+- `LlmGatewayService` resuelve `Agent.provider` (conexión de sistema `anthropic`/`mock` o `LlmConnection`) y `Agent.model`
+  a un cliente (`LlmDriver` por tipo: Anthropic, OpenAI-compatible, Mock) con su tarifa.
+- `AgentRuntimeService` aplica, en orden: centro de costo (`OrgService.resolveCostCenter`), decisión previa
+  (`BudgetsService.plan`: modelos permitidos, bloqueo o degradación), control antes de cada turno (`assertCanSpend`)
+  y registro por turno (`record`: `UsageRecord` + incremento atómico del libro mayor en toda la cadena + alertas).
+- La lógica de decisión vive en funciones puras (`governance/budget-policy.ts`) con pruebas unitarias.
+
 ## Evolución sugerida
 
-- Proveedores LLM adicionales (OpenAI, Gemini, Ollama/on-premise).
+- Proveedor Bedrock y notificaciones de alertas por correo/Slack.
 - Nodos `loop`/`map` para iterar listas y sub-flujos.
 - Agentes como herramientas de otros agentes (multi-agente).
 - Versionado y despliegue por entornos (dev/qa/prod) de flujos.

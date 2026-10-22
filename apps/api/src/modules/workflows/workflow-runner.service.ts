@@ -53,7 +53,13 @@ export class WorkflowRunnerService {
 
     const result = await this.engine.run(
       execution.workflow.definition as unknown as WorkflowDefinition,
-      { workspaceId: execution.workspaceId, executionId, input: execution.input as Record<string, unknown>, nodes: {} },
+      {
+        workspaceId: execution.workspaceId,
+        executionId,
+        workflowId: execution.workflowId,
+        input: execution.input as Record<string, unknown>,
+        nodes: {},
+      },
       {
         signal: abort.signal,
         onStep: async (_: StepLog, all: StepLog[]) => {
