@@ -128,3 +128,9 @@ cd apps/web && npm run build
 ```
 
 Más detalle en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+
+
+## Equipo de agentes de desarrollo
+
+El repositorio incluye 8 subagentes de Claude Code en `.claude/agents/` (1 arquitecto, 2 frontend, 3 backend y 2 QA) con ámbitos, convenciones y criterios de terminado. Ver [docs/AGENTS-TEAM.md](docs/AGENTS-TEAM.md).
