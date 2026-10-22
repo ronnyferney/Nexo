@@ -1,0 +1,154 @@
+@if (connector(); as c) {
+  <div class="page">
+    <div class="page-header">
+      <div class="row">
+        <a class="btn ghost icon" routerLink="/connectors"><nx-icon name="arrowLeft" /></a>
+        <div class="icon-tile {{ c.type }}"><nx-icon name="plug" /></div>
+        <div><h1>{{ c.name }}</h1><p><span class="badge">{{ c.type }}</span> · {{ c.operations?.length ?? 0 }} operaciones</p></div>
+      </div>
+      <div class="row">
+        <button class="btn" [disabled]="busy()" (click)="test()"><nx-icon name="zap" />{{ busy() === 'test' ? 'Probando…' : 'Probar conexión' }}</button>
+        @if (c.type !== 'GRAPHQL' && auth.canEdit()) {
+          <button class="btn" [disabled]="busy()" (click)="discover()"><nx-icon name="search" />{{ busy() === 'discover' ? 'Importando…' : discoverLabel(c.type) }}</button>
+        }
+        @if (auth.canEdit()) { <button class="btn danger icon" title="Eliminar" (click)="remove()"><nx-icon name="trash" /></button> }
+      </div>
+    </div>
+
+    @if (testResult(); as t) {
+      <div class="card" style="margin-bottom:16px" [style.border-color]="t.ok ? 'var(--success)' : 'var(--danger)'">
+        <span class="badge" [class.success]="t.ok" [class.danger]="!t.ok">{{ t.ok ? 'Conexión exitosa' : 'Falló la conexión' }}</span>
+        <span style="margin-left:8px">{{ t.message }}</span>
+      </div>
+    }
+
+    <div class="tabs">
+      <button class="tab" [class.active]="tab() === 'config'" (click)="tab.set('config')">Configuración</button>
+      <button class="tab" [class.active]="tab() === 'operations'" (click)="tab.set('operations')">Operaciones ({{ c.operations?.length ?? 0 }})</button>
+    </div>
+
+    @if (tab() === 'config') {
+      <div class="grid grid-2">
+        <div class="card stack">
+          <h2>General</h2>
+          <div class="field"><label>Nombre</label><input class="input" [(ngModel)]="name" /></div>
+          <div class="field"><label>Descripción</label><textarea class="input" rows="2" [(ngModel)]="description"></textarea></div>
+
+          @switch (c.type) {
+            @case ('REST') {
+              <div class="field"><label>URL base</label><input class="input mono" [(ngModel)]="config['baseUrl']" placeholder="https://api.ejemplo.com/v1" /></div>
+              <div class="field"><label>URL de especificación OpenAPI (JSON)</label><input class="input mono" [(ngModel)]="config['openApiUrl']" placeholder="https://api.ejemplo.com/openapi.json" />
+                <span class="hint">Permite importar operaciones automáticamente.</span></div>
+              <div class="field"><label>Timeout (ms)</label><input class="input" type="number" [(ngModel)]="config['timeoutMs']" placeholder="30000" /></div>
+            }
+            @case ('SOAP') {
+              <div class="field"><label>Endpoint</label><input class="input mono" [(ngModel)]="config['endpoint']" /></div>
+              <div class="field"><label>URL WSDL</label><input class="input mono" [(ngModel)]="config['wsdlUrl']" placeholder="https://servicio/Service.asmx?wsdl" /></div>
+              <div class="field"><label>Versión SOAP</label>
+                <select class="input" [(ngModel)]="config['soapVersion']"><option value="1.1">SOAP 1.1</option><option value="1.2">SOAP 1.2</option></select></div>
+              <div class="field"><label>Plantilla de &lt;soap:Header&gt; (opcional)</label>
+                <textarea class="input code" rows="4" [(ngModel)]="config['headerTemplate']" [placeholder]="'<Auth><Token>' + ('secrets.SOAP_TOKEN' | tpl) + '</Token></Auth>'"></textarea></div>
+            }
+            @case ('GRAPHQL') {
+              <div class="field"><label>Endpoint GraphQL</label><input class="input mono" [(ngModel)]="config['endpoint']" /></div>
+            }
+            @case ('MCP') {
+              <div class="field"><label>Transporte</label>
+                <select class="input" [(ngModel)]="config['transport']"><option value="streamable-http">Streamable HTTP</option><option value="sse">SSE (legado)</option></select></div>
+              <div class="field"><label>URL del servidor MCP</label><input class="input mono" [(ngModel)]="config['url']" placeholder="https://mcp.ejemplo.com/mcp" /></div>
+            }
+          }
+          <div class="field"><label>Headers adicionales (JSON)</label><nx-json-editor [(value)]="headers" [rows]="4" /></div>
+        </div>
+
+        <div class="card stack">
+          <h2><nx-icon name="lock" [size]="16" /> Autenticación</h2>
+          <div class="field"><label>Tipo</label>
+            <select class="input" [ngModel]="authCfg['type']" (ngModelChange)="setAuthType($event)">
+              @for (a of authTypes; track a.type) { <option [value]="a.type">{{ a.label }}</option> }
+            </select></div>
+          @switch (authCfg['type']) {
+            @case ('apiKey') {
+              <div class="grid grid-2">
+                <div class="field"><label>Ubicación</label><select class="input" [(ngModel)]="authCfg['in']"><option value="header">Header</option><option value="query">Query string</option></select></div>
+                <div class="field"><label>Nombre</label><input class="input mono" [(ngModel)]="authCfg['name']" /></div>
+              </div>
+              <div class="field"><label>Valor</label><input class="input mono" [(ngModel)]="authCfg['value']" /></div>
+            }
+            @case ('bearer') { <div class="field"><label>Token</label><input class="input mono" [(ngModel)]="authCfg['token']" [placeholder]="'secrets.MI_TOKEN' | tpl" /></div> }
+            @case ('basic') {
+              <div class="field"><label>Usuario</label><input class="input mono" [(ngModel)]="authCfg['username']" /></div>
+              <div class="field"><label>Contraseña</label><input class="input mono" [(ngModel)]="authCfg['password']" [placeholder]="'secrets.CLAVE' | tpl" /></div>
+            }
+            @case ('oauth2') {
+              <div class="field"><label>Token URL</label><input class="input mono" [(ngModel)]="authCfg['tokenUrl']" /></div>
+              <div class="grid grid-2">
+                <div class="field"><label>Client ID</label><input class="input mono" [(ngModel)]="authCfg['clientId']" /></div>
+                <div class="field"><label>Client secret</label><input class="input mono" [(ngModel)]="authCfg['clientSecret']" [placeholder]="'secrets.CLIENT_SECRET' | tpl" /></div>
+              </div>
+              <div class="field"><label>Scope</label><input class="input mono" [(ngModel)]="authCfg['scope']" /></div>
+            }
+          }
+          <div class="card" style="background:var(--surface-2); box-shadow:none">
+            <div class="small"><strong>Buenas prácticas:</strong> no escriba credenciales en claro. Guárdelas en
+              <a routerLink="/settings">Configuración → Secretos</a> y refiéralas como <code>{{ 'secrets.NOMBRE' | tpl }}</code>.
+              Se cifran con AES-256-GCM y solo se descifran al ejecutar.</div>
+          </div>
+        </div>
+      </div>
+      @if (auth.canEdit()) {
+        <div class="row" style="margin-top:16px"><span class="spacer"></span>
+          <button class="btn primary" [disabled]="busy()" (click)="save()"><nx-icon name="save" />Guardar cambios</button></div>
+      }
+    }
+
+    @if (tab() === 'operations') {
+      <div class="ops">
+        <div class="card" style="padding:10px">
+          @if (auth.canEdit()) { <button class="btn sm" style="width:100%; justify-content:center; margin-bottom:8px" (click)="newOperation()"><nx-icon name="plus" />Nueva operación</button> }
+          @for (op of c.operations; track op.id) {
+            <button class="op-item" [class.active]="selected()?.id === op.id" (click)="selectOperation(op)">
+              <div><strong>{{ op.name }}</strong></div><code>{{ op.key }}</code>
+            </button>
+          } @empty {
+            <p class="muted small" style="padding:8px">Sin operaciones. Créelas manualmente o use «{{ discoverLabel(c.type) }}».</p>
+          }
+        </div>
+
+        @if (selected(); as op) {
+          <div class="stack">
+            <div class="card stack">
+              <div class="row"><h2>{{ op.isNew ? 'Nueva operación' : op.name }}</h2><span class="spacer"></span>
+                @if (!op.isNew && auth.canEdit()) { <button class="btn danger sm" (click)="deleteOperation()"><nx-icon name="trash" />Eliminar</button> }</div>
+              <div class="grid grid-2">
+                <div class="field"><label>Clave (identificador de la tool)</label><input class="input mono" [ngModel]="op.key" (ngModelChange)="patchSelected({ key: $event })" placeholder="buscar_cliente" /></div>
+                <div class="field"><label>Nombre</label><input class="input" [ngModel]="op.name" (ngModelChange)="patchSelected({ name: $event })" /></div>
+              </div>
+              <div class="field"><label>Descripción (la lee el agente para decidir cuándo usarla)</label>
+                <textarea class="input" rows="2" [ngModel]="op.description" (ngModelChange)="patchSelected({ description: $event })"></textarea></div>
+              <div class="grid grid-2">
+                <div class="field"><label>Definición ({{ c.type }})</label><nx-json-editor [value]="op.definition" (valueChange)="patchSelected({ definition: $any($event) })" [rows]="10" />
+                  <span class="hint">Use <code>{{ 'input.campo' | tpl }}</code> para mapear la entrada.</span></div>
+                <div class="field"><label>JSON Schema de entrada</label><nx-json-editor [value]="op.inputSchema" (valueChange)="patchSelected({ inputSchema: $any($event) })" [rows]="10" /></div>
+              </div>
+              @if (auth.canEdit()) {
+                <div class="row"><span class="spacer"></span><button class="btn primary" [disabled]="busy() || !op.key || !op.name" (click)="saveOperation()"><nx-icon name="save" />Guardar operación</button></div>
+              }
+            </div>
+
+            @if (!op.isNew) {
+              <div class="card stack">
+                <h3><nx-icon name="play" [size]="15" /> Probar operación</h3>
+                <nx-json-editor [(value)]="invokeInput" [rows]="5" placeholder='{ "id": "123" }' />
+                <div class="row"><span class="spacer"></span><button class="btn" [disabled]="busy()" (click)="invoke()">{{ busy() === 'invoke' ? 'Ejecutando…' : 'Ejecutar' }}</button></div>
+                @if (invokeResult()) { <pre class="code-block result">{{ json(invokeResult()) }}</pre> }
+              </div>
+            }
+          </div>
+        } @else {
+          <div class="card empty"><nx-icon name="tool" [size]="32" /><h3>Seleccione una operación</h3><p>Cada operación se convierte en una herramienta para sus agentes y en un paso para sus flujos.</p></div>
+        }
+      </div>
+    }
+  </div>
+}

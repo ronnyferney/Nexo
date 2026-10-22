@@ -1,0 +1,13 @@
+import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+
+export interface AuthContext {
+  userId?: string;
+  workspaceId: string;
+  role: 'OWNER' | 'ADMIN' | 'EDITOR' | 'VIEWER';
+  via: 'jwt' | 'apiKey';
+}
+
+/** Inyecta el contexto autenticado (usuario + workspace activo). */
+export const CurrentAuth = createParamDecorator((_: unknown, ctx: ExecutionContext): AuthContext => {
+  return ctx.switchToHttp().getRequest().user as AuthContext;
+});

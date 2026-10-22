@@ -1,0 +1,229 @@
+// Nexo — modelo de datos
+// Multi-tenant por Workspace: todo recurso de negocio pertenece a un workspace.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+enum ConnectorType {
+  REST
+  SOAP
+  GRAPHQL
+  MCP
+}
+
+enum ExecutionStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum TriggerType {
+  MANUAL
+  WEBHOOK
+  SCHEDULE
+  AGENT
+  MCP
+}
+
+model User {
+  id           String       @id @default(cuid())
+  email        String       @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  memberships  Membership[]
+}
+
+model Workspace {
+  id          String       @id @default(cuid())
+  name        String
+  slug        String       @unique
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  memberships Membership[]
+  connectors  Connector[]
+  agents      Agent[]
+  workflows   Workflow[]
+  executions  Execution[]
+  apiKeys     ApiKey[]
+  secrets     Secret[]
+}
+
+model Membership {
+  id          String    @id @default(cuid())
+  role        Role      @default(EDITOR)
+  userId      String
+  workspaceId String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@unique([userId, workspaceId])
+}
+
+/// Llaves de API para integraciones máquina-a-máquina (webhooks, servidor MCP).
+model ApiKey {
+  id          String    @id @default(cuid())
+  name        String
+  prefix      String
+  hash        String    @unique
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  lastUsedAt  DateTime?
+  createdAt   DateTime  @default(now())
+}
+
+/// Credenciales cifradas (AES-256-GCM). Nunca se devuelven en claro por la API.
+model Secret {
+  id          String    @id @default(cuid())
+  name        String
+  ciphertext  String
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([workspaceId, name])
+}
+
+/// Sistema externo: API REST, servicio SOAP, endpoint GraphQL o servidor MCP.
+model Connector {
+  id          String              @id @default(cuid())
+  name        String
+  description String?
+  type        ConnectorType
+  /// Configuración específica del tipo (baseUrl, wsdl, transporte MCP, headers...).
+  config      Json                @default("{}")
+  /// Autenticación: { type: none|apiKey|bearer|basic|oauth2, ... } con referencias a secretos.
+  auth        Json                @default("{\"type\":\"none\"}")
+  workspaceId String
+  workspace   Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  operations  ConnectorOperation[]
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([workspaceId])
+}
+
+/// Operación invocable de un conector. Cada operación se expone como "tool" para agentes.
+model ConnectorOperation {
+  id           String    @id @default(cuid())
+  key          String
+  name         String
+  description  String?
+  /// JSON Schema de entrada.
+  inputSchema  Json      @default("{\"type\":\"object\",\"properties\":{}}")
+  /// Definición: REST {method,path,query,headers,body}; SOAP {action,bodyTemplate}; GraphQL {query}; MCP {toolName}.
+  definition   Json      @default("{}")
+  connectorId  String
+  connector    Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  agentTools   AgentTool[]
+
+  @@unique([connectorId, key])
+}
+
+model Agent {
+  id           String      @id @default(cuid())
+  name         String
+  description  String?
+  provider     String      @default("anthropic")
+  model        String      @default("claude-opus-5-5")
+  systemPrompt String      @default("")
+  /// low | medium | high | xhigh | max
+  effort       String      @default("medium")
+  maxTurns     Int         @default(12)
+  workspaceId  String
+  workspace    Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tools        AgentTool[]
+  conversations Conversation[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([workspaceId])
+}
+
+model AgentTool {
+  id          String             @id @default(cuid())
+  agentId     String
+  operationId String
+  /// Si es true, la llamada requiere aprobación humana (human-in-the-loop).
+  requiresApproval Boolean       @default(false)
+  agent       Agent              @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  operation   ConnectorOperation @relation(fields: [operationId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, operationId])
+}
+
+model Conversation {
+  id        String    @id @default(cuid())
+  title     String    @default("Nueva conversación")
+  /// Proveedor que produjo el historial (los formatos no son intercambiables).
+  provider  String    @default("anthropic")
+  agentId   String
+  agent     Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  /// Historial completo en formato del proveedor (append-only).
+  messages  Json      @default("[]")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+/// Flujo de automatización como grafo dirigido (nodos + aristas).
+model Workflow {
+  id          String      @id @default(cuid())
+  name        String
+  description String?
+  active      Boolean     @default(false)
+  /// { nodes: WorkflowNode[], edges: WorkflowEdge[] }
+  definition  Json        @default("{\"nodes\":[],\"edges\":[]}")
+  /// Cron para disparador programado (opcional).
+  schedule    String?
+  /// Token público para disparo vía webhook.
+  webhookToken String     @unique @default(cuid())
+  version     Int         @default(1)
+  workspaceId String
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  executions  Execution[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([workspaceId])
+}
+
+model Execution {
+  id          String          @id @default(cuid())
+  status      ExecutionStatus @default(QUEUED)
+  trigger     TriggerType     @default(MANUAL)
+  input       Json            @default("{}")
+  output      Json?
+  error       String?
+  /// Bitácora por nodo: [{ nodeId, status, startedAt, finishedAt, input, output, error }]
+  steps       Json            @default("[]")
+  workflowId  String
+  workflow    Workflow        @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  workspaceId String
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  createdAt   DateTime        @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@index([workflowId])
+}

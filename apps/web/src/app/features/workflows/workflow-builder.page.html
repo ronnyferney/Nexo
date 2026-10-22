@@ -1,0 +1,199 @@
+@if (workflow(); as wf) {
+  <div class="builder">
+    <header class="toolbar">
+      <a class="btn ghost icon" routerLink="/workflows"><nx-icon name="arrowLeft" /></a>
+      <input class="input title" [(ngModel)]="name" (ngModelChange)="dirty.set(true)" />
+      @if (wf.active) { <span class="badge success"><span class="dot"></span>Activo</span> } @else { <span class="badge">Borrador</span> }
+      <span class="muted small">v{{ wf.version }}{{ dirty() ? ' · cambios sin guardar' : '' }}</span>
+      <span class="spacer"></span>
+      @if (auth.canEdit()) {
+        <button class="btn" (click)="toggleActive()">{{ wf.active ? 'Desactivar' : 'Activar' }}</button>
+        <button class="btn" (click)="panel.set('run')"><nx-icon name="play" />Ejecutar</button>
+        <button class="btn primary" [disabled]="saving() || !dirty()" (click)="save()"><nx-icon name="save" />Guardar</button>
+      }
+    </header>
+
+    <div class="body">
+      <aside class="palette">
+        <div class="muted small section">NODOS</div>
+        @for (n of catalog; track n.type) {
+          <button class="palette-item" (click)="addNode(n.type)" [disabled]="!auth.canEdit()">
+            <span class="swatch" [style.background]="n.color"><nx-icon [name]="n.icon" [size]="15" /></span>
+            <span><strong>{{ n.label }}</strong><small>{{ n.description }}</small></span>
+          </button>
+        }
+        <div class="muted small section" style="margin-top:16px">ATAJOS</div>
+        <p class="muted small help">Arrastre desde el punto derecho de un nodo hasta el izquierdo de otro para conectarlos.<br />Supr: eliminar · Ctrl+S: guardar · Rueda: zoom</p>
+      </aside>
+
+      <div class="canvas" #canvas (pointerdown)="onCanvasDown($event)" (wheel)="onWheel($event)">
+        <div class="viewport" [style.transform]="'translate(' + pan().x + 'px,' + pan().y + 'px) scale(' + zoom() + ')'">
+          <svg class="edges" width="1" height="1">
+            @for (e of edges(); track e.id) {
+              <path class="edge-hit" [attr.d]="edgePath(e)" (pointerdown)="$event.stopPropagation(); selectedEdgeId.set(e.id); selectedNodeId.set(null)" />
+              <path class="edge" [class.selected]="selectedEdgeId() === e.id" [class.active]="stepOf(e.source)?.status === 'succeeded'" [attr.d]="edgePath(e)" />
+              @if (edgeLabel(e); as l) { <text class="edge-label" [attr.x]="l.x" [attr.y]="l.y">{{ l.text }}</text> }
+            }
+            @if (pending(); as p) { <path class="edge pending" [attr.d]="curve(p.x1, p.y1, p.x2, p.y2)" /> }
+          </svg>
+
+          @for (n of nodes(); track n.id) {
+            <div class="node" [class.selected]="selectedNodeId() === n.id" [attr.data-status]="stepOf(n.id)?.status"
+              [style.left.px]="n.position.x" [style.top.px]="n.position.y" [style.width.px]="W" [style.height.px]="H"
+              (pointerdown)="onNodeDown($event, n)">
+              @if (n.type !== 'trigger') { <span class="port in" (pointerup)="onInputPortUp($event, n)"></span> }
+              <span class="swatch" [style.background]="meta(n.type).color"><nx-icon [name]="meta(n.type).icon" [size]="16" /></span>
+              <div class="node-text"><strong>{{ n.name }}</strong><small>{{ nodeSubtitle(n) }}</small></div>
+              @if (stepOf(n.id); as s) { <span class="status-dot {{ s.status }}" [title]="s.status"></span> }
+              @if (n.type === 'condition') {
+                <span class="port out true" title="Verdadero" (pointerdown)="onPortDown($event, n, 'true')"></span>
+                <span class="port out false" title="Falso" (pointerdown)="onPortDown($event, n, 'false')"></span>
+              } @else if (n.type !== 'output') {
+                <span class="port out" (pointerdown)="onPortDown($event, n)"></span>
+              }
+            </div>
+          }
+        </div>
+        <div class="zoom-ctl">
+          <button class="btn sm icon" (click)="zoom.set(zoom() * 1.1)">+</button>
+          <span class="small">{{ (zoom() * 100).toFixed(0) }}%</span>
+          <button class="btn sm icon" (click)="zoom.set(zoom() * 0.9)">−</button>
+          <button class="btn sm" (click)="fitView()">Ajustar</button>
+        </div>
+      </div>
+
+      <aside class="inspector">
+        <div class="tabs" style="margin-bottom:12px">
+          <button class="tab" [class.active]="panel() === 'node'" [disabled]="!selectedNode()" (click)="panel.set('node')">Nodo</button>
+          <button class="tab" [class.active]="panel() === 'run'" (click)="panel.set('run')">Ejecución</button>
+          <button class="tab" [class.active]="panel() === 'settings'" (click)="panel.set('settings')">Flujo</button>
+        </div>
+
+        @if (panel() === 'node' && selectedNode(); as n) {
+          <div class="stack">
+            <div class="row"><span class="swatch" [style.background]="meta(n.type).color"><nx-icon [name]="meta(n.type).icon" [size]="15" /></span>
+              <strong>{{ meta(n.type).label }}</strong><span class="spacer"></span><code class="muted small">{{ n.id }}</code></div>
+            <div class="field"><label>Nombre</label><input class="input" [ngModel]="n.name" (ngModelChange)="updateNode({ name: $event })" /></div>
+
+            @switch (n.type) {
+              @case ('trigger') {
+                <p class="muted small">Recibe la entrada del flujo. Acceda a ella con <code>{{ 'input.campo' | tpl }}</code>.</p>
+                <p class="muted small">Configure webhook y cron en la pestaña <strong>Flujo</strong>.</p>
+              }
+              @case ('connector') {
+                <div class="field"><label>Operación</label>
+                  <select class="input" [ngModel]="n.config['operationId']" (ngModelChange)="updateConfig({ operationId: $event })">
+                    <option value="">— Seleccione —</option>
+                    @for (c of connectors(); track c.id) {
+                      <optgroup [label]="c.name + ' (' + c.type + ')'">
+                        @for (op of c.operations; track op.id) { <option [value]="op.id">{{ op.name }}</option> }
+                      </optgroup>
+                    }
+                  </select></div>
+                <div class="field"><label>Entrada (mapeo con plantillas)</label>
+                  <nx-json-editor [value]="n.config['input']" (valueChange)="updateConfig({ input: $event })" [rows]="7" /></div>
+                <div class="grid grid-2">
+                  <div class="field"><label>Reintentos</label><input class="input" type="number" min="0" max="5" [ngModel]="n.config['retries']" (ngModelChange)="updateConfig({ retries: +$event })" /></div>
+                  <div class="field"><label>Si falla</label>
+                    <select class="input" [ngModel]="n.config['onError'] ?? 'fail'" (ngModelChange)="updateConfig({ onError: $event })">
+                      <option value="fail">Detener flujo</option><option value="continue">Continuar</option></select></div>
+                </div>
+                <label class="checkbox small"><input type="checkbox" [checked]="n.config['failOnHttpError'] !== false" (change)="updateConfig({ failOnHttpError: $any($event.target).checked })" />Tratar HTTP 4xx/5xx como error</label>
+              }
+              @case ('agent') {
+                <div class="field"><label>Agente</label>
+                  <select class="input" [ngModel]="n.config['agentId']" (ngModelChange)="updateConfig({ agentId: $event })">
+                    <option value="">— Seleccione —</option>
+                    @for (a of agents(); track a.id) { <option [value]="a.id">{{ a.name }}</option> }
+                  </select></div>
+                <div class="field"><label>Mensaje / tarea</label>
+                  <textarea class="input code" rows="6" [ngModel]="n.config['message']" (ngModelChange)="updateConfig({ message: $event })"></textarea>
+                  <span class="hint">La respuesta queda en <code>nodes.{{ n.id }}.output.text</code></span></div>
+                <label class="checkbox small"><input type="checkbox" [checked]="n.config['parseJson']" (change)="updateConfig({ parseJson: $any($event.target).checked })" />Interpretar respuesta como JSON (<code>output.json</code>)</label>
+              }
+              @case ('condition') {
+                <div class="field"><label>Combinar reglas</label>
+                  <select class="input" [ngModel]="n.config['combinator']" (ngModelChange)="updateConfig({ combinator: $event })">
+                    <option value="and">Todas deben cumplirse (Y)</option><option value="or">Alguna debe cumplirse (O)</option></select></div>
+                @for (r of n.config['rules']; track $index; let i = $index) {
+                  <div class="rule">
+                    <input class="input mono" [placeholder]="'nodes.x.output.valor' | tpl" [ngModel]="r.left" (ngModelChange)="updateRule(i, { left: $event })" />
+                    <div class="row">
+                      <select class="input" [ngModel]="r.operator" (ngModelChange)="updateRule(i, { operator: $event })">
+                        @for (o of operators; track o.id) { <option [value]="o.id">{{ o.label }}</option> }
+                      </select>
+                      <button class="btn ghost icon sm" (click)="removeRule(i)"><nx-icon name="x" [size]="14" /></button>
+                    </div>
+                    @if (r.operator !== 'exists' && r.operator !== 'empty') {
+                      <input class="input mono" placeholder="valor" [ngModel]="r.right" (ngModelChange)="updateRule(i, { right: $event })" />
+                    }
+                  </div>
+                }
+                <button class="btn sm" (click)="addRule()"><nx-icon name="plus" [size]="14" />Agregar regla</button>
+                <p class="muted small">Use el punto superior derecho (verde) para la rama <strong>sí</strong> y el inferior (rojo) para <strong>no</strong>.</p>
+              }
+              @case ('delay') {
+                <div class="field"><label>Milisegundos (máx. 300000)</label><input class="input" type="number" [ngModel]="n.config['ms']" (ngModelChange)="updateConfig({ ms: +$event })" /></div>
+              }
+              @default {
+                <div class="field"><label>{{ n.type === 'output' ? 'Respuesta del flujo' : 'Objeto de salida' }}</label>
+                  <nx-json-editor [value]="n.config['output']" (valueChange)="updateConfig({ output: $event })" [rows]="9" /></div>
+              }
+            }
+
+            @if (upstream().length) {
+              <div class="divider"></div>
+              <div class="muted small">Referencias disponibles (clic para copiar)</div>
+              <div class="refs">
+                <code (click)="copyRef(ref('input'))">{{ 'input' | tpl }}</code>
+                @for (u of upstream(); track u.id) {
+                  @if (u.type !== 'trigger') { <code (click)="copyRef(ref('nodes.' + u.id + '.output'))">{{ 'nodes.' + u.id + '.output' | tpl }}</code> }
+                }
+              </div>
+            }
+            @if (stepOf(n.id); as s) {
+              <div class="divider"></div>
+              <div class="row"><strong class="small">Última ejecución</strong><nx-status [status]="s.status" /></div>
+              @if (s.error) { <div class="error-text">{{ s.error }}</div> }
+              @if (s.output !== undefined) { <pre class="code-block">{{ json(s.output) }}</pre> }
+            }
+            @if (auth.canEdit()) { <button class="btn danger sm" (click)="deleteSelected()"><nx-icon name="trash" [size]="14" />Eliminar nodo</button> }
+          </div>
+        }
+
+        @if (panel() === 'run') {
+          <div class="stack">
+            <div class="field"><label>Entrada de prueba (JSON)</label><nx-json-editor [(value)]="runInput" [rows]="6" /></div>
+            <button class="btn primary" [disabled]="!auth.canEdit()" (click)="run()"><nx-icon name="play" />Ejecutar ahora</button>
+            @if (execution(); as ex) {
+              <div class="divider"></div>
+              <div class="row"><nx-status [status]="ex.status" /><span class="spacer"></span><a class="small" [routerLink]="['/executions', ex.id]">Ver detalle</a></div>
+              @for (s of ex.steps ?? []; track s.nodeId) {
+                <div class="row small step"><nx-status [status]="s.status" /><span>{{ s.nodeName }}</span>
+                  @if (s.attempts > 1) { <span class="muted">({{ s.attempts }} intentos)</span> }</div>
+              }
+              @if (ex.error) { <div class="error-text">{{ ex.error }}</div> }
+              @if (ex.output !== undefined && ex.output !== null) { <div class="muted small">Salida</div><pre class="code-block">{{ json(ex.output) }}</pre> }
+            }
+          </div>
+        }
+
+        @if (panel() === 'settings') {
+          <div class="stack">
+            <div class="field"><label>Descripción (visible para clientes MCP)</label><textarea class="input" rows="3" [(ngModel)]="description" (ngModelChange)="dirty.set(true)"></textarea></div>
+            <div class="field"><label>Programación (cron)</label><input class="input mono" [(ngModel)]="schedule" (ngModelChange)="dirty.set(true)" placeholder="0 8 * * 1-5" />
+              <span class="hint">Se ejecuta automáticamente mientras el flujo esté activo. Ej: <code>*/15 * * * *</code> cada 15 min.</span></div>
+            <div class="field"><label>Webhook</label>
+              <div class="row"><input class="input mono small" readonly [value]="webhookUrl()" />
+                <button class="btn icon" title="Copiar" (click)="copyRef(webhookUrl())"><nx-icon name="copy" [size]="15" /></button></div>
+              <span class="hint">POST con JSON. Agregue <code>?wait=true</code> para respuesta síncrona. Requiere flujo activo.</span>
+              @if (auth.canEdit()) { <button class="btn sm" style="align-self:flex-start" (click)="regenerateWebhook()">Regenerar token</button> }
+            </div>
+            <div class="divider"></div>
+            @if (auth.canEdit()) { <button class="btn danger sm" style="align-self:flex-start" (click)="remove()"><nx-icon name="trash" [size]="14" />Eliminar flujo</button> }
+          </div>
+        }
+      </aside>
+    </div>
+  </div>
+}

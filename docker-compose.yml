@@ -1,0 +1,65 @@
+# Nexo — entorno completo: docker compose up -d --build
+# Antes: cp .env.example .env y complete JWT_SECRET, ENCRYPTION_KEY y ANTHROPIC_API_KEY.
+x-api-env: &api-env
+  DATABASE_URL: postgresql://nexo:${POSTGRES_PASSWORD:-nexo}@postgres:5432/nexo?schema=public
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  JWT_SECRET: ${JWT_SECRET:?Defina JWT_SECRET en .env}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Defina ENCRYPTION_KEY en .env}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
+  NODE_ENV: production
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: nexo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nexo}
+      POSTGRES_DB: nexo
+    volumes: [pgdata:/var/lib/postgresql/data]
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexo"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: [redisdata:/data]
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  # API HTTP (sin worker: escala por réplicas detrás de un balanceador)
+  api:
+    build: ./apps/api
+    environment:
+      <<: *api-env
+      WORKER_ENABLED: "false"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    ports: ["3000:3000"]
+
+  # Workers de flujos (escale con: docker compose up -d --scale worker=3)
+  worker:
+    build: ./apps/api
+    environment:
+      <<: *api-env
+      WORKER_ENABLED: "true"
+      WORKER_CONCURRENCY: 10
+    depends_on:
+      api: { condition: service_started }
+
+  web:
+    build: ./apps/web
+    depends_on: [api]
+    ports: ["8080:80"]
+
+volumes:
+  pgdata:
+  redisdata:
