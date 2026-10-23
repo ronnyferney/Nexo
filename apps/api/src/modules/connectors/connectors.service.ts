@@ -1,10 +1,10 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, HttpException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { Connector, ConnectorOperation, ConnectorType, Prisma } from '@prisma/client';
 import Ajv, { type ValidateFunction } from 'ajv';
 import addFormats from 'ajv-formats';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { SecretsService } from '../workspaces/secrets.service';
-import { CONNECTOR_ADAPTERS, type ConnectorAdapter } from './domain/connector-adapter';
+import { CONNECTOR_ADAPTERS, type ConnectorAdapter, type DiscoverOptions } from './domain/connector-adapter';
 import type { ConnectorAuth, ConnectorRuntime, InvocationResult } from './domain/connector.types';
 import { CreateConnectorDto, CreateOperationDto, UpdateConnectorDto, UpdateOperationDto } from './dto/connector.dto';
 
@@ -115,14 +115,14 @@ export class ConnectorsService {
   }
 
   /** Descubre operaciones (OpenAPI, WSDL o tools MCP) y las sincroniza por `key`. */
-  async discover(workspaceId: string, id: string) {
+  async discover(workspaceId: string, id: string, options?: DiscoverOptions) {
     const connector = await this.get(workspaceId, id);
     const adapter = this.adapter(connector.type);
     if (!adapter.discover)
       throw new BadRequestException(`El tipo ${connector.type} no soporta descubrimiento automático`);
     let discovered;
     try {
-      discovered = await adapter.discover(await this.runtime(connector));
+      discovered = await adapter.discover(await this.runtime(connector), options);
     } catch (err) {
       throw new BadRequestException(`Descubrimiento fallido: ${(err as Error).message}`);
     }
@@ -141,6 +141,20 @@ export class ConnectorsService {
       ),
     );
     return { imported: discovered.length, operations: discovered.map((o) => o.key) };
+  }
+
+  /** Tablas, vistas y columnas de un conector de base de datos. */
+  async schema(workspaceId: string, id: string) {
+    const connector = await this.get(workspaceId, id);
+    const adapter = this.adapter(connector.type);
+    if (!adapter.describeSchema)
+      throw new BadRequestException(`El tipo ${connector.type} no expone un esquema de datos`);
+    try {
+      return await adapter.describeSchema(await this.runtime(connector));
+    } catch (err) {
+      if (err instanceof HttpException) throw err;
+      throw new BadRequestException(`No se pudo leer el esquema: ${(err as Error).message}`);
+    }
   }
 
   async invokeById(workspaceId: string, opId: string, input: Record<string, unknown>): Promise<InvocationResult> {

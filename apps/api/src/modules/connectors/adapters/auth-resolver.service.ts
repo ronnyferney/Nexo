@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { HttpClientService } from '../../../common/http/http-client.service';
 import { render } from '../../../common/template/template.engine';
+import { OAuthService } from '../../oauth/oauth.service';
 import type { ConnectorAuth, ConnectorRuntime } from '../domain/connector.types';
 
 export interface ResolvedAuth {
@@ -8,12 +9,15 @@ export interface ResolvedAuth {
   query: Record<string, string>;
 }
 
-/** Traduce la autenticación declarativa a headers/query, con caché de tokens OAuth2. */
+/** Traduce la autenticación declarativa a headers/query (tokens client credentials en caché y oauth2_code). */
 @Injectable()
 export class AuthResolverService {
   private readonly tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
-  constructor(private readonly http: HttpClientService) {}
+  constructor(
+    private readonly http: HttpClientService,
+    private readonly oauth: OAuthService,
+  ) {}
 
   async resolve(connector: ConnectorRuntime): Promise<ResolvedAuth> {
     const auth = render<ConnectorAuth>(connector.auth ?? { type: 'none' }, { secrets: connector.secrets });
@@ -31,6 +35,9 @@ export class AuthResolverService {
         };
       case 'oauth2':
         return { headers: { authorization: `Bearer ${await this.clientCredentials(connector.id, auth)}` }, query: {} };
+      case 'oauth2_code':
+        // Token de usuario (ADR 0005, D3): se renueva con refresh_token si expira en < 60 s.
+        return { headers: { authorization: `Bearer ${await this.oauth.accessToken(connector.id, auth)}` }, query: {} };
       default:
         return { headers: {}, query: {} };
     }

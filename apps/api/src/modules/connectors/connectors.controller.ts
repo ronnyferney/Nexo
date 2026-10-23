@@ -6,6 +6,7 @@ import { ConnectorsService } from './connectors.service';
 import {
   CreateConnectorDto,
   CreateOperationDto,
+  DiscoverConnectorDto,
   InvokeOperationDto,
   UpdateConnectorDto,
   UpdateOperationDto,
@@ -54,8 +55,13 @@ export class ConnectorsController {
   @MinRole('EDITOR')
   @HttpCode(200)
   @Post(':id/discover')
-  discover(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
-    return this.connectors.discover(a.workspaceId, id);
+  discover(@CurrentAuth() a: AuthContext, @Param('id') id: string, @Body() dto: DiscoverConnectorDto) {
+    return this.connectors.discover(a.workspaceId, id, dto);
+  }
+
+  @Get(':id/schema')
+  schema(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
+    return this.connectors.schema(a.workspaceId, id);
   }
 
   @MinRole('EDITOR')

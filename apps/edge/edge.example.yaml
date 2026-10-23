@@ -1,0 +1,43 @@
+# Nexo Edge — conexiones locales. Copie este archivo como edge.yaml (no lo versione: puede contener credenciales).
+# Los valores admiten variables de entorno: ${VARIABLE} (obligatoria) o ${VARIABLE:-valor_por_defecto}.
+# Nexo solo conoce el NOMBRE de cada conexión (connectionKey); host, usuario y contraseña nunca salen de su red.
+
+connections:
+  # SQL Server del TMS (solo lectura, tablas restringidas)
+  astrans:
+    engine: mssql            # postgres | mysql | mssql
+    host: 10.0.0.15
+    port: 1433
+    database: ASTRANS
+    user: nexo_lectura
+    password: ${ASTRANS_DB_PASSWORD}
+    ssl: false               # true = TLS verificando el certificado; o bien:
+    # ssl: { rejectUnauthorized: false }   # TLS con certificado autofirmado
+    # ssl: { caFile: /app/certs/ca.pem }   # TLS con CA propia (monte el archivo en el contenedor)
+    allowWrites: false       # por defecto false; Nexo además exige allowWrites en el conector
+    maxRows: 1000            # tope local de filas por consulta (máx. 5000)
+    timeoutMs: 30000         # tope local de tiempo por consulta (máx. 60000)
+    allowedTables:           # opcional: solo estas tablas/vistas (tabla o esquema.tabla)
+      - dbo.vehiculos
+      - dbo.viajes
+      - dbo.vw_estado_flota
+
+  # PostgreSQL de reportes
+  reportes:
+    engine: postgres
+    host: ${REPORTES_DB_HOST:-db-reportes.interno}
+    port: 5432
+    database: reportes
+    user: nexo
+    password: ${REPORTES_DB_PASSWORD}
+    ssl: true
+
+  # MySQL de la bodega, con escrituras habilitadas (p. ej. para registrar novedades)
+  bodega:
+    engine: mysql
+    host: 192.168.10.20
+    database: bodega
+    user: nexo_app
+    password: ${BODEGA_DB_PASSWORD}
+    allowWrites: true
+    maxRows: 500

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { HttpClientService } from '../../../common/http/http-client.service';
-import { render } from '../../../common/template/template.engine';
+import { getPath, render } from '../../../common/template/template.engine';
 import type { ConnectorAdapter } from '../domain/connector-adapter';
 import type {
   ConnectorRuntime,
@@ -66,7 +66,8 @@ export class RestAdapter implements ConnectorAdapter {
       body,
       timeoutMs: config.timeoutMs,
     });
-    return { ok: res.ok, status: res.status, data: res.body, durationMs: res.durationMs };
+    const ok = res.ok && (!def.successPath || getPath(res.body, def.successPath) === true);
+    return { ok, status: res.status, data: res.body, durationMs: res.durationMs };
   }
 
   async test(connector: ConnectorRuntime): Promise<TestResult> {

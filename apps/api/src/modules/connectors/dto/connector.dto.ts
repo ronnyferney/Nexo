@@ -1,6 +1,16 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { ConnectorType } from '@prisma/client';
-import { IsEnum, IsObject, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsEnum,
+  IsObject,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 export class CreateConnectorDto {
   @ApiProperty() @IsString() @MinLength(2) @MaxLength(80) name!: string;
@@ -24,4 +34,15 @@ export class UpdateOperationDto extends PartialType(CreateOperationDto) {}
 
 export class InvokeOperationDto {
   @ApiPropertyOptional({ type: Object }) @IsOptional() @IsObject() input?: Record<string, unknown>;
+}
+
+/** `POST /connectors/:id/discover`: en conectores DATABASE, tablas (`tabla` o `esquema.tabla`) a importar. */
+export class DiscoverConnectorDto {
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @IsString({ each: true })
+  @MaxLength(256, { each: true })
+  tables?: string[];
 }

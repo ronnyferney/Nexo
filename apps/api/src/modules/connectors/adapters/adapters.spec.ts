@@ -1,5 +1,5 @@
 import { isPrivateAddress } from '../../../common/http/http-client.service';
-import { openApiToOperations } from './rest.adapter';
+import { openApiToOperations, RestAdapter } from './rest.adapter';
 import { wsdlToOperations } from './soap.adapter';
 
 describe('openApiToOperations', () => {
@@ -57,4 +57,33 @@ describe('isPrivateAddress', () => {
     ['8.8.8.8', false],
     ['172.32.0.1', false],
   ])('%s -> %s', (ip, expected) => expect(isPrivateAddress(ip)).toBe(expected));
+});
+
+describe('RestAdapter successPath', () => {
+  const run = async (body: unknown, successPath?: string) => {
+    const http = { request: jest.fn().mockResolvedValue({ ok: true, status: 200, body, rawBody: '', durationMs: 1 }) };
+    const auth = { resolve: jest.fn().mockResolvedValue({ headers: {}, query: {} }) };
+    const adapter = new RestAdapter(http as never, auth as never);
+    return adapter.invoke(
+      {
+        id: 'c',
+        workspaceId: 'w',
+        type: 'REST',
+        config: { baseUrl: 'https://slack.com/api' },
+        auth: { type: 'none' },
+        secrets: {},
+      },
+      { key: 'post', definition: { method: 'POST', path: '/chat.postMessage', body: {}, successPath } },
+      {},
+    );
+  };
+
+  it('marca como fallida una respuesta HTTP 200 con ok: false (Slack)', async () => {
+    expect((await run({ ok: false, error: 'channel_not_found' }, 'ok')).ok).toBe(false);
+    expect((await run({ ok: true }, 'ok')).ok).toBe(true);
+  });
+
+  it('sin successPath conserva el comportamiento por estado HTTP', async () => {
+    expect((await run({ ok: false })).ok).toBe(true);
+  });
 });

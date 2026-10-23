@@ -61,6 +61,20 @@ services:
     depends_on: [api]
     ports: ["8080:80"]
 
+  # Nexo Edge (ADR 0005): agente on-premise de ejemplo. Normalmente corre en la red del CLIENTE, no junto a la API.
+  # Para probarlo en local: registre un Edge en Administración → Nexo Edge, copie apps/edge/edge.example.yaml como
+  # apps/edge/edge.yaml, descomente el servicio y ejecute: NEXO_EDGE_TOKEN=nexoedge_... docker compose --profile edge up -d edge
+  # edge:
+  #   build: ./apps/edge
+  #   profiles: [edge]
+  #   environment:
+  #     NEXO_URL: http://api:3000
+  #     NEXO_EDGE_TOKEN: ${NEXO_EDGE_TOKEN:?Defina NEXO_EDGE_TOKEN}
+  #     EDGE_ALLOW_INSECURE: "true"   # solo en esta red interna de Compose; en producción use https://
+  #   volumes:
+  #     - ./apps/edge/edge.yaml:/app/edge.yaml:ro
+  #   depends_on: [api]
+
 volumes:
   pgdata:
   redisdata:

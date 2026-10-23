@@ -24,6 +24,25 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  edge:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/edge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/edge/package-lock.json
+      # El núcleo SQL del Edge es una copia del de la API: deben ser idénticos.
+      - run: npm run check:core
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - run: docker build -t nexo/edge:ci .
+
   web:
     runs-on: ubuntu-latest
     defaults:
