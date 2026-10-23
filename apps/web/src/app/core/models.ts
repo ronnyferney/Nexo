@@ -2,10 +2,12 @@ export type ConnectorType = 'REST' | 'SOAP' | 'GRAPHQL' | 'MCP';
 export type ExecutionStatus = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
+export type Role = 'OWNER' | 'ADMIN' | 'EDITOR' | 'VIEWER';
+
 export interface Session {
   accessToken: string;
   workspaceId: string;
-  role: 'OWNER' | 'ADMIN' | 'EDITOR' | 'VIEWER';
+  role: Role;
 }
 
 export interface Me {
@@ -54,16 +56,240 @@ export interface Agent {
   systemPrompt: string;
   effort: Effort;
   maxTurns: number;
+  /** Unidad organizacional a la que se imputa el consumo cuando el agente corre sin usuario. */
+  costCenterId: string | null;
   tools?: AgentToolBinding[];
   _count?: { tools: number; conversations: number };
   updatedAt: string;
 }
 
+// ===== Gobierno de IA (ADR 0002) =====
+
+export type LlmKind = 'ANTHROPIC' | 'OPENAI_COMPATIBLE' | 'MOCK';
+export type ModelTier = 'PREMIUM' | 'STANDARD' | 'ECONOMY';
+export type BudgetPeriod = 'MONTHLY' | 'QUARTERLY' | 'YEARLY';
+export type BudgetPolicy = 'BLOCK' | 'DOWNGRADE' | 'ALERT_ONLY';
+export type UsageGroupBy = 'orgUnit' | 'model' | 'agent' | 'user' | 'day';
+
+/** Modelo del catálogo (`GET /llm/catalog`). Precios en USD por millón de tokens. */
+export interface CatalogModel {
+  id: string;
+  label: string;
+  description: string;
+  tier: ModelTier;
+  inputUsdPerMTok: number;
+  outputUsdPerMTok: number;
+}
+
+/** Entrada del catálogo `GET /llm/catalog` (alias `GET /agents/providers`). Solo conexiones y modelos habilitados. */
 export interface ProviderInfo {
   id: string;
   label: string;
+  kind: LlmKind;
+  system: boolean;
   configured: boolean;
-  models: { id: string; label: string; description: string }[];
+  models: CatalogModel[];
+}
+export type LlmCatalogEntry = ProviderInfo;
+
+/** `GET /org/units` — unidades para selectores (cualquier rol). */
+export interface OrgUnitOption {
+  id: string;
+  name: string;
+  parentId: string | null;
+}
+
+export interface MyBudgetEntry {
+  orgUnitId: string;
+  orgUnitName: string;
+  period: string;
+  periodKey: string;
+  limitUsd: number;
+  spentUsd: number;
+  pct: number;
+  policy: BudgetPolicy;
+}
+
+/** `GET /me/usage` — presupuestos de la cadena unidad del usuario → raíz y consumo propio del mes. */
+export interface MyUsage {
+  orgUnit: { id: string; name: string };
+  budgets: MyBudgetEntry[];
+  me: { costUsd: number; calls: number; inputTokens: number; outputTokens: number; since: string };
+}
+
+export interface LlmModel {
+  id: string;
+  connectionId: string;
+  modelId: string;
+  label: string;
+  tier: ModelTier;
+  inputUsdPerMTok: number;
+  outputUsdPerMTok: number;
+  cacheReadUsdPerMTok: number | null;
+  enabled: boolean;
+}
+
+export interface LlmConnection {
+  id: string;
+  name: string;
+  kind: LlmKind;
+  baseUrl: string | null;
+  hasApiKey: boolean;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  models: LlmModel[];
+}
+
+export interface LlmConnectionInput {
+  name: string;
+  kind: LlmKind;
+  baseUrl?: string;
+  apiKey?: string;
+  enabled?: boolean;
+}
+
+/** `PATCH /admin/llm/connections/:id` — parcial; `apiKey` solo si se envía; `baseUrl: null` la elimina. */
+export type LlmConnectionUpdateInput = Partial<Omit<LlmConnectionInput, 'baseUrl'>> & { baseUrl?: string | null };
+
+export interface LlmModelInput {
+  modelId: string;
+  label: string;
+  tier: ModelTier;
+  inputUsdPerMTok: number;
+  outputUsdPerMTok: number;
+  cacheReadUsdPerMTok?: number;
+  enabled?: boolean;
+}
+
+/** `GET /admin/org/units`. */
+export interface OrgUnit {
+  id: string;
+  name: string;
+  code: string | null;
+  parentId: string | null;
+  allowedModels: string[];
+  memberCount: number;
+  isRoot: boolean;
+}
+
+export interface OrgUnitCreateInput {
+  name: string;
+  code?: string;
+  parentId: string;
+}
+
+/** `code: null` elimina el código. */
+export interface OrgUnitUpdateInput {
+  name?: string;
+  code?: string | null;
+  parentId?: string;
+  allowedModels?: string[];
+}
+
+export interface OrgMember {
+  membershipId: string;
+  userId: string;
+  name: string;
+  email: string;
+  role: Role;
+  orgUnitId: string;
+  createdAt: string;
+}
+
+export interface OrgMemberCreateInput {
+  email: string;
+  name: string;
+  role: Role;
+  orgUnitId?: string;
+  password?: string;
+}
+
+export interface BudgetConfig {
+  period: BudgetPeriod;
+  limitUsd: number;
+  policy: BudgetPolicy;
+  alertThresholds: number[];
+  downgradeProviderId: string | null;
+  downgradeModel: string | null;
+}
+
+/** `GET /admin/budgets` — una fila por unidad. */
+export interface BudgetRow {
+  orgUnitId: string;
+  orgUnitName: string;
+  parentId: string | null;
+  budget: BudgetConfig | null;
+  periodKey: string | null;
+  spentUsd: number;
+  pct: number | null;
+}
+
+export interface BudgetInput {
+  period: BudgetPeriod;
+  limitUsd: number;
+  policy: BudgetPolicy;
+  alertThresholds?: number[];
+  downgradeProviderId?: string;
+  downgradeModel?: string;
+}
+
+export interface UsageGroup {
+  key: string;
+  label: string;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  calls: number;
+}
+
+/** `GET /admin/usage/summary`. */
+export interface UsageSummary {
+  from: string;
+  to: string;
+  totalCostUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  calls: number;
+  groups: UsageGroup[];
+}
+
+export interface UsageRecord {
+  id: string;
+  createdAt: string;
+  source: string;
+  model: string;
+  providerId: string;
+  orgUnitName: string;
+  userName: string | null;
+  agentName: string | null;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+}
+
+export interface UsageRecordsPage {
+  items: UsageRecord[];
+  nextCursor: string | null;
+}
+
+/** `GET /admin/alerts` (últimas 100). */
+export interface BudgetAlert {
+  id: string;
+  orgUnitId: string;
+  orgUnitName: string;
+  periodKey: string;
+  threshold: number;
+  spentUsd: number;
+  limitUsd: number;
+  createdAt: string;
+}
+
+/** Consumo de un turno de chat (evento SSE `done`). */
+export interface TurnUsage {
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
 }
 
 export type NodeType = 'trigger' | 'connector' | 'agent' | 'condition' | 'transform' | 'delay' | 'output';
@@ -136,5 +362,14 @@ export type AgentStreamEvent =
   | { type: 'tool_call'; id: string; name: string; input: unknown }
   | { type: 'tool_result'; id: string; name: string; output: string; isError: boolean }
   | { type: 'notice'; message: string }
-  | { type: 'done'; conversationId: string; text: string; stopReason: string; turns: number }
+  | {
+      type: 'done';
+      conversationId: string;
+      text: string;
+      stopReason: string;
+      turns: number;
+      usage: TurnUsage;
+      model: string;
+      providerId: string;
+    }
   | { type: 'error'; message: string };

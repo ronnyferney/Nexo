@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { authGuard, guestGuard } from './core/auth.guard';
+import { adminGuard, authGuard, guestGuard } from './core/auth.guard';
 import { ShellComponent } from './layout/shell.component';
 
 export const routes: Routes = [
@@ -10,6 +10,7 @@ export const routes: Routes = [
     component: ShellComponent,
     canActivate: [authGuard],
     children: [
+      // Portal de usuarios (todos los roles)
       { path: '', loadComponent: () => import('./features/dashboard/dashboard.page').then((m) => m.DashboardPage) },
       { path: 'agents', loadComponent: () => import('./features/agents/agents-list.page').then((m) => m.AgentsListPage) },
       { path: 'agents/:id', loadComponent: () => import('./features/agents/agent-detail.page').then((m) => m.AgentDetailPage) },
@@ -19,7 +20,22 @@ export const routes: Routes = [
       { path: 'workflows/:id', loadComponent: () => import('./features/workflows/workflow-builder.page').then((m) => m.WorkflowBuilderPage) },
       { path: 'executions', loadComponent: () => import('./features/executions/executions-list.page').then((m) => m.ExecutionsListPage) },
       { path: 'executions/:id', loadComponent: () => import('./features/executions/execution-detail.page').then((m) => m.ExecutionDetailPage) },
-      { path: 'settings', loadComponent: () => import('./features/settings/settings.page').then((m) => m.SettingsPage) },
+      { path: 'my-usage', loadComponent: () => import('./features/usage/my-usage.page').then((m) => m.MyUsagePage) },
+      { path: 'settings', redirectTo: 'admin/security', pathMatch: 'full' },
+
+      // Consola de administración (ADMIN / OWNER)
+      {
+        path: 'admin',
+        canActivate: [adminGuard],
+        children: [
+          { path: '', loadComponent: () => import('./features/admin/costs.page').then((m) => m.CostsPage) },
+          { path: 'providers', loadComponent: () => import('./features/admin/providers.page').then((m) => m.ProvidersPage) },
+          { path: 'organization', loadComponent: () => import('./features/admin/organization.page').then((m) => m.OrganizationPage) },
+          { path: 'budgets', loadComponent: () => import('./features/admin/budgets.page').then((m) => m.BudgetsPage) },
+          { path: 'alerts', loadComponent: () => import('./features/admin/alerts.page').then((m) => m.AlertsPage) },
+          { path: 'security', loadComponent: () => import('./features/admin/security.page').then((m) => m.SecurityPage) },
+        ],
+      },
     ],
   },
   { path: '**', redirectTo: '' },

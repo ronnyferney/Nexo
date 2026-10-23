@@ -26,15 +26,24 @@
             <div class="field"><label>Nombre</label><input class="input" [(ngModel)]="form.name" /></div>
             <div class="field"><label>Descripción (visible para clientes MCP)</label><input class="input" [(ngModel)]="form.description" /></div>
             <div class="grid grid-2">
-              <div class="field"><label>Proveedor</label>
-                <select class="input" [ngModel]="form.provider" (ngModelChange)="onProviderChange($event)">
+              <div class="field"><label for="agent-provider">Proveedor</label>
+                <select id="agent-provider" class="input" [ngModel]="form.provider" (ngModelChange)="onProviderChange($event)">
                   @for (p of providers(); track p.id) { <option [value]="p.id" [disabled]="!p.configured">{{ p.label }}{{ p.configured ? '' : ' (no configurado)' }}</option> }
                 </select></div>
-              <div class="field"><label>Modelo</label>
-                <select class="input" [(ngModel)]="form.model">
-                  @for (m of models(); track m.id) { <option [value]="m.id">{{ m.label }}</option> }
-                </select></div>
+              <div class="field"><label for="agent-model">Modelo</label>
+                <select id="agent-model" class="input" [(ngModel)]="form.model">
+                  @for (m of models(); track m.id) { <option [value]="m.id">{{ modelOption(m) }}</option> }
+                </select>
+                @if (selectedModel(); as m) {
+                  <span class="hint"><span class="badge">{{ tierLabels[m.tier] }}</span>&nbsp;{{ price(m.inputUsdPerMTok) }} entrada · {{ price(m.outputUsdPerMTok) }} salida por MTok{{ m.description ? ' · ' + m.description : '' }}</span>
+                }</div>
             </div>
+            <div class="field"><label for="agent-cc">Centro de costo</label>
+              <select id="agent-cc" class="input" [(ngModel)]="form.costCenterId">
+                <option [ngValue]="null">Unidad del usuario / raíz</option>
+                @for (u of units(); track u.item.id) { <option [ngValue]="u.item.id">{{ pad(u.depth) }}{{ u.item.name }}</option> }
+              </select>
+              <span class="hint">El chat de un usuario se cobra a su unidad. Las ejecuciones sin usuario (flujos, webhooks, MCP) se cobran a este centro de costo; si no hay, a la raíz.</span></div>
             <div class="grid grid-2">
               <div class="field"><label>Nivel de esfuerzo</label>
                 <select class="input" [(ngModel)]="form.effort">
@@ -81,6 +90,8 @@
               @case ('user') { <div class="msg user">{{ item.text }}</div> }
               @case ('assistant') { <div class="msg assistant">{{ item.text }}</div> }
               @case ('notice') { <div class="msg notice">{{ item.text }}</div> }
+              @case ('usage') { <div class="msg usage" title="Costo estimado según precios configurados">{{ item.text }}</div> }
+              @case ('error') { <div class="msg error" role="alert"><nx-icon name="alert" [size]="16" /><span>{{ item.text }}</span></div> }
               @case ('tool') {
                 <details class="tool">
                   <summary>

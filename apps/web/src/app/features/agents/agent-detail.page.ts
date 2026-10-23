@@ -1,14 +1,16 @@
-import { ChangeDetectionStrategy, Component, computed, ElementRef, inject, input, OnInit, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, inject, input, OnInit, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
-import type { Agent, Connector, Effort, ProviderInfo } from '../../core/models';
+import type { Agent, CatalogModel, Connector, Effort, OrgUnitOption, ProviderInfo } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
+import { TIER_LABELS, treeOrder } from '../../shared/budget';
 import { IconComponent } from '../../shared/icon.component';
+import { formatUsd } from '../../shared/usd.pipe';
 
 interface ChatItem {
-  kind: 'user' | 'assistant' | 'tool' | 'notice';
+  kind: 'user' | 'assistant' | 'tool' | 'notice' | 'usage' | 'error';
   text?: string;
   tool?: { id: string; name: string; input: unknown; output?: string; isError?: boolean };
   needsApproval?: boolean;
@@ -31,6 +33,8 @@ export class AgentDetailPage implements OnInit {
 
   readonly agent = signal<Agent | null>(null);
   readonly providers = signal<ProviderInfo[]>([]);
+  readonly units = signal<{ item: OrgUnitOption; depth: number }[]>([]);
+  readonly tierLabels = TIER_LABELS;
   readonly connectors = signal<Connector[]>([]);
   readonly tab = signal<'config' | 'tools'>('config');
   readonly saving = signal(false);
@@ -43,10 +47,38 @@ export class AgentDetailPage implements OnInit {
   ];
 
   // Formulario
-  form = { name: '', description: '', provider: 'anthropic', model: '', systemPrompt: '', effort: 'medium' as Effort, maxTurns: 12 };
+  form = {
+    name: '',
+    description: '',
+    provider: 'anthropic',
+    model: '',
+    systemPrompt: '',
+    effort: 'medium' as Effort,
+    maxTurns: 12,
+    costCenterId: null as string | null,
+  };
   readonly toolSelection = signal(new Map<string, boolean>()); // operationId -> requiresApproval
 
-  readonly models = computed(() => this.providers().find((p) => p.id === this.form.provider)?.models ?? []);
+  /** Modelos del proveedor elegido (el formulario no es reactivo, por eso es un método y no un `computed`). */
+  models(): CatalogModel[] {
+    return this.providers().find((p) => p.id === this.form.provider)?.models ?? [];
+  }
+
+  selectedModel(): CatalogModel | undefined {
+    return this.models().find((m) => m.id === this.form.model);
+  }
+
+  modelOption(m: CatalogModel) {
+    return `${m.label} · ${TIER_LABELS[m.tier]} · ${formatUsd(m.inputUsdPerMTok)} / ${formatUsd(m.outputUsdPerMTok)} por MTok`;
+  }
+
+  price(v: number) {
+    return formatUsd(v);
+  }
+
+  pad(depth: number) {
+    return '\u00a0\u00a0\u00a0'.repeat(depth);
+  }
 
   // Chat
   readonly chat = signal<ChatItem[]>([]);
@@ -57,8 +89,14 @@ export class AgentDetailPage implements OnInit {
   private abort?: AbortController;
 
   async ngOnInit() {
-    const [agent, providers, list] = await Promise.all([this.api.agent(this.id()), this.api.providers(), this.api.connectors()]);
+    const [agent, providers, list, units] = await Promise.all([
+      this.api.agent(this.id()),
+      this.api.llmCatalog().catch(() => this.api.providers()),
+      this.api.connectors(),
+      this.api.orgUnits().catch(() => [] as OrgUnitOption[]),
+    ]);
     this.providers.set(providers);
+    this.units.set(treeOrder(units, (u) => u.id, (u) => u.parentId));
     this.connectors.set(await Promise.all(list.map((c) => this.api.connector(c.id))));
     this.apply(agent);
   }
@@ -73,6 +111,7 @@ export class AgentDetailPage implements OnInit {
       systemPrompt: agent.systemPrompt,
       effort: agent.effort,
       maxTurns: agent.maxTurns,
+      costCenterId: agent.costCenterId ?? null,
     };
     this.toolSelection.set(new Map((agent.tools ?? []).map((t) => [t.operationId, t.requiresApproval])));
   }
@@ -166,9 +205,12 @@ export class AgentDetailPage implements OnInit {
               break;
             case 'done':
               this.conversationId = e.conversationId;
+              current = null;
+              if (e.usage || e.model) this.push({ kind: 'usage', text: this.usageLine(e.model, e.providerId, e.usage) });
               break;
             case 'error':
-              this.push({ kind: 'notice', text: `Error: ${e.message}` });
+              current = null;
+              this.push({ kind: 'error', text: e.message });
               break;
           }
           queueMicrotask(() => this.scrollToEnd());
@@ -176,7 +218,7 @@ export class AgentDetailPage implements OnInit {
         this.abort.signal,
       );
     } catch (e) {
-      if ((e as Error).name !== 'AbortError') this.push({ kind: 'notice', text: `Error: ${errorMessage(e)}` });
+      if ((e as Error).name !== 'AbortError') this.push({ kind: 'error', text: errorMessage(e) });
     } finally {
       this.streaming.set(false);
     }
@@ -201,6 +243,17 @@ export class AgentDetailPage implements OnInit {
       }
     }
     return JSON.stringify(v, null, 2);
+  }
+
+  /** Línea discreta bajo la respuesta: modelo usado, tokens y costo estimado. */
+  private usageLine(model: string | undefined, providerId: string | undefined, usage: { inputTokens: number; outputTokens: number; costUsd: number } | undefined) {
+    const n = new Intl.NumberFormat('es');
+    const parts = [model ? `${model}${providerId ? ` (${providerId})` : ''}` : null];
+    if (usage) {
+      parts.push(`${n.format(usage.inputTokens)} tokens entrada · ${n.format(usage.outputTokens)} salida`);
+      parts.push(formatUsd(usage.costUsd, 'precise'));
+    }
+    return parts.filter(Boolean).join(' · ');
   }
 
   private push(item: ChatItem) {

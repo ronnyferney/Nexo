@@ -16,6 +16,10 @@ export class AuthService {
   readonly me = signal<Me | null>(null);
   readonly isAuthenticated = computed(() => !!this.session());
   readonly canEdit = computed(() => this.session()?.role !== 'VIEWER');
+  readonly isAdmin = computed(() => {
+    const role = this.session()?.role;
+    return role === 'ADMIN' || role === 'OWNER';
+  });
 
   get token(): string | null {
     return this.session()?.accessToken ?? null;

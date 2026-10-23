@@ -1,0 +1,180 @@
+<div class="page">
+  <div class="page-header">
+    <div><h1>Organización</h1><p>Unidades corporativas (centros de costo), políticas de modelos y miembros del workspace</p></div>
+    <button class="btn" (click)="load()" [disabled]="loading()"><nx-icon name="refresh" [size]="15" />Actualizar</button>
+  </div>
+
+  @if (loading()) {
+    <div class="card empty"><p>Cargando organización…</p></div>
+  } @else if (error()) {
+    <div class="card empty"><nx-icon name="alert" [size]="28" /><h3>No se pudo cargar la organización</h3><p>{{ error() }}</p>
+      <button class="btn" (click)="load()">Reintentar</button></div>
+  } @else {
+    <div class="grid grid-2" style="align-items:start">
+      <div class="card" style="padding:0">
+        <div class="card-title" style="padding:16px 20px 0"><nx-icon name="building" /><h2>Unidades</h2></div>
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>Unidad</th><th>Código</th><th class="num">Miembros</th><th>Modelos</th><th></th></tr></thead>
+            <tbody>
+              @for (n of tree(); track n.item.id) {
+                <tr [class.selected]="editing()?.id === n.item.id">
+                  <td>
+                    <div class="tree-name" [style.--depth]="n.depth">
+                      @if (n.depth > 0) { <nx-icon class="branch" name="subunit" [size]="14" /> }
+                      <strong>{{ n.item.name }}</strong>
+                      @if (n.item.isRoot) { <span class="badge primary" title="Tope global del workspace">Raíz</span> }
+                    </div>
+                  </td>
+                  <td class="mono small nowrap">{{ n.item.code || '—' }}</td>
+                  <td class="num">{{ n.item.memberCount }}</td>
+                  <td>
+                    @if (n.item.allowedModels.length) {
+                      <span class="badge warning" [title]="n.item.allowedModels.join(', ')">{{ n.item.allowedModels.length }} permitidos</span>
+                    } @else { <span class="muted small">Hereda</span> }
+                  </td>
+                  <td class="num nowrap">
+                    <button class="btn ghost icon sm" title="Crear subunidad" aria-label="Crear subunidad" (click)="startCreate(n.item.id)"><nx-icon name="plus" [size]="14" /></button>
+                    <button class="btn ghost icon sm" title="Editar unidad" aria-label="Editar unidad" (click)="startEdit(n.item)"><nx-icon name="pencil" [size]="14" /></button>
+                    @if (!n.item.isRoot) {
+                      <button class="btn ghost icon sm danger" title="Eliminar unidad" aria-label="Eliminar unidad" (click)="removeUnit(n.item)"><nx-icon name="trash" [size]="14" /></button>
+                    }
+                  </td>
+                </tr>
+              } @empty {
+                <tr><td colspan="5" class="muted">No hay unidades. La unidad raíz se crea automáticamente.</td></tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="stack">
+        @if (creating(); as c) {
+          <div class="card stack editor">
+            <div class="card-title"><nx-icon name="plus" /><h2>Nueva subunidad</h2><span class="spacer"></span>
+              <button class="btn ghost icon" title="Cerrar" aria-label="Cerrar" (click)="creating.set(null)"><nx-icon name="x" /></button></div>
+            <p class="muted small" style="margin:0">Dentro de <strong>{{ unitName(c.parentId) }}</strong></p>
+            <div class="field"><label for="nu-name">Nombre</label><input id="nu-name" class="input" [(ngModel)]="c.name" placeholder="Ej. Ventas" /></div>
+            <div class="field"><label for="nu-code">Código (opcional)</label><input id="nu-code" class="input mono" [(ngModel)]="c.code" placeholder="Ej. CC-200" />
+              <span class="hint">Código del centro de costo en su ERP o contabilidad.</span></div>
+            <div class="row"><span class="spacer"></span><button class="btn" (click)="creating.set(null)">Cancelar</button>
+              <button class="btn primary" [disabled]="busy() || c.name.trim().length < 2" (click)="create()"><nx-icon name="save" />Crear</button></div>
+          </div>
+        } @else if (editing(); as d) {
+          <div class="card stack editor">
+            <div class="card-title"><nx-icon name="pencil" /><h2>Editar unidad</h2><span class="spacer"></span>
+              <button class="btn ghost icon" title="Cerrar" aria-label="Cerrar" (click)="editing.set(null)"><nx-icon name="x" /></button></div>
+            <div class="grid grid-2">
+              <div class="field"><label for="eu-name">Nombre</label><input id="eu-name" class="input" [(ngModel)]="d.name" /></div>
+              <div class="field"><label for="eu-code">Código</label><input id="eu-code" class="input mono" [(ngModel)]="d.code" placeholder="opcional" /></div>
+            </div>
+            @if (!d.isRoot) {
+              <div class="field"><label for="eu-parent">Unidad superior</label>
+                <select id="eu-parent" class="input" [(ngModel)]="d.parentId">
+                  @for (o of parentOptions(d.id); track o.item.id) {
+                    <option [ngValue]="o.item.id">{{ pad(o.depth) }}{{ o.item.name }}</option>
+                  }
+                </select>
+                <span class="hint">Mover la unidad mueve también sus subunidades. El consumo futuro se descontará de la nueva cadena.</span></div>
+            } @else {
+              <div class="callout info"><nx-icon name="info" [size]="16" /><span>La unidad raíz es el tope global del workspace: no se puede mover ni eliminar.</span></div>
+            }
+            <div class="field">
+              <label id="eu-models">Modelos permitidos</label>
+              <span class="hint">Sin selección = hereda la política de la unidad superior. Si alguna unidad de la cadena restringe, solo se podrán usar los modelos permitidos.</span>
+              <div class="checklist" role="group" aria-labelledby="eu-models">
+                @for (o of allowedOptions(d); track o.value) {
+                  <label class="checkbox small">
+                    <input type="checkbox" [checked]="d.allowedModels.includes(o.value)" (change)="toggleAllowed(d, o.value, $any($event.target).checked)" />
+                    <span>{{ o.label }} <span class="muted">· {{ o.provider }}</span></span>
+                  </label>
+                } @empty { <span class="muted small">El catálogo no tiene modelos habilitados.</span> }
+              </div>
+              <div class="row small">
+                <span class="muted">{{ d.allowedModels.length ? d.allowedModels.length + ' seleccionados' : 'Hereda' }}</span>
+                @if (d.allowedModels.length) { <button class="btn ghost sm" (click)="clearAllowed(d)">Limpiar (heredar)</button> }
+              </div>
+            </div>
+            <div class="row"><span class="spacer"></span><button class="btn" (click)="editing.set(null)">Cancelar</button>
+              <button class="btn primary" [disabled]="busy() || d.name.trim().length < 2" (click)="saveEdit()"><nx-icon name="save" />Guardar</button></div>
+          </div>
+        } @else {
+          <div class="card stack">
+            <div class="card-title"><nx-icon name="info" /><h3>Cómo funciona</h3></div>
+            <ul class="muted small" style="margin:0; padding-left:18px; display:grid; gap:6px">
+              <li>Cada miembro pertenece a una unidad; por defecto, la raíz.</li>
+              <li>El chat de un usuario se cobra a su unidad; las ejecuciones sin usuario (flujos, webhooks, MCP) al centro de costo del agente o, si no tiene, a la raíz.</li>
+              <li>Todo consumo descuenta también de las unidades superiores. Defina los límites en Presupuestos.</li>
+              <li>Use <nx-icon name="plus" [size]="12" /> para crear subunidades y <nx-icon name="pencil" [size]="12" /> para renombrar, mover o restringir modelos.</li>
+            </ul>
+          </div>
+        }
+      </div>
+    </div>
+
+    <div class="section-title"><nx-icon name="users" /><h2>Miembros</h2><span class="spacer"></span>
+      @if (!memberDraft()) { <button class="btn primary" (click)="startAddMember()"><nx-icon name="plus" />Agregar miembro</button> }</div>
+
+    @if (memberDraft(); as m) {
+      <div class="card stack editor" style="margin-bottom:16px">
+        <div class="grid grid-3">
+          <div class="field"><label for="am-email">Correo</label><input id="am-email" class="input" type="email" [(ngModel)]="m.email" placeholder="persona@empresa.com" /></div>
+          <div class="field"><label for="am-name">Nombre</label><input id="am-name" class="input" [(ngModel)]="m.name" /></div>
+          <div class="field"><label for="am-role">Rol</label>
+            <select id="am-role" class="input" [(ngModel)]="m.role">
+              @for (r of roles(); track r) { <option [value]="r">{{ roleLabels[r] }}</option> }
+            </select></div>
+        </div>
+        <div class="grid grid-2">
+          <div class="field"><label for="am-unit">Unidad</label>
+            <select id="am-unit" class="input" [(ngModel)]="m.orgUnitId">
+              @for (n of tree(); track n.item.id) { <option [value]="n.item.id">{{ pad(n.depth) }}{{ n.item.name }}</option> }
+            </select></div>
+          <div class="field"><label for="am-pass">Contraseña (opcional)</label>
+            <input id="am-pass" class="input" type="password" autocomplete="new-password" [(ngModel)]="m.password" />
+            <span class="hint">Obligatoria si el usuario no existe (mínimo 8 caracteres). Si ya tiene cuenta, se ignora.</span></div>
+        </div>
+        <div class="row"><span class="spacer"></span><button class="btn" (click)="memberDraft.set(null)">Cancelar</button>
+          <button class="btn primary" [disabled]="busy() || memberInvalid(m)" (click)="addMember()"><nx-icon name="plus" />Agregar</button></div>
+      </div>
+    }
+
+    <div class="card" style="padding:0">
+      @if (membersError()) {
+        <div class="empty"><p class="error-text">{{ membersError() }}</p><button class="btn" (click)="loadMembers()">Reintentar</button></div>
+      } @else {
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Unidad</th><th></th></tr></thead>
+            <tbody>
+              @for (m of members(); track m.membershipId) {
+                <tr>
+                  <td><strong>{{ m.name }}</strong>@if (isMe(m)) { &nbsp;<span class="badge">usted</span> }</td>
+                  <td class="small">{{ m.email }}</td>
+                  <td>
+                    <select class="input" [attr.aria-label]="'Rol de ' + m.name" [ngModel]="m.role" (ngModelChange)="updateMember(m, { role: $event })"
+                      [disabled]="roleLocked(m)">
+                      @for (r of roleOptions(m); track r) { <option [value]="r">{{ roleLabels[r] }}</option> }
+                    </select>
+                  </td>
+                  <td>
+                    <select class="input" [attr.aria-label]="'Unidad de ' + m.name" [ngModel]="m.orgUnitId" (ngModelChange)="updateMember(m, { orgUnitId: $event })">
+                      @for (n of tree(); track n.item.id) { <option [value]="n.item.id">{{ pad(n.depth) }}{{ n.item.name }}</option> }
+                    </select>
+                  </td>
+                  <td class="num">
+                    <button class="btn ghost icon sm danger" [title]="isMe(m) ? 'No puede quitarse a sí mismo' : 'Quitar del workspace'" aria-label="Quitar miembro"
+                      [disabled]="isMe(m)" (click)="removeMember(m)"><nx-icon name="trash" [size]="14" /></button>
+                  </td>
+                </tr>
+              } @empty {
+                <tr><td colspan="5" class="muted">Sin miembros.</td></tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    </div>
+  }
+</div>

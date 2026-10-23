@@ -1,0 +1,133 @@
+<div class="page">
+  <div class="page-header">
+    <div><h1>Presupuestos</h1><p>Bolsas de dinero (USD) por unidad corporativa y qué ocurre al agotarse</p></div>
+    <button class="btn" (click)="load()" [disabled]="loading()"><nx-icon name="refresh" [size]="15" />Actualizar</button>
+  </div>
+
+  <div class="callout info" style="margin-bottom:16px">
+    <nx-icon name="info" [size]="16" />
+    <span>Los presupuestos son jerárquicos: cada consumo descuenta de su unidad <strong>y de todas sus unidades superiores</strong>
+      hasta la raíz. Para que una llamada se permita debe haber saldo en toda la cadena. Los costos son estimados según los precios
+      configurados; la factura del proveedor prevalece.</span>
+  </div>
+
+  @if (draft(); as d) {
+    <div class="card stack editor" style="margin-bottom:16px">
+      <div class="card-title"><div class="icon-tile"><nx-icon name="wallet" /></div>
+        <div><h2>{{ d.exists ? 'Editar' : 'Definir' }} presupuesto</h2><p class="muted small" style="margin:0">{{ d.orgUnitName }}</p></div>
+        <span class="spacer"></span>
+        <button class="btn ghost icon" title="Cerrar" aria-label="Cerrar" (click)="draft.set(null)"><nx-icon name="x" /></button></div>
+
+      <div class="grid grid-3">
+        <div class="field"><label for="b-period">Periodo</label>
+          <select id="b-period" class="input" [(ngModel)]="d.period">
+            @for (p of periods; track p) { <option [value]="p">{{ periodLabels[p] }}</option> }
+          </select>
+          <span class="hint">Se reinicia al comenzar cada periodo (UTC).</span></div>
+        <div class="field"><label for="b-limit">Límite (USD)</label>
+          <input id="b-limit" class="input" type="number" min="0.01" step="0.01" [(ngModel)]="d.limitUsd" placeholder="Ej. 500"
+            [class.invalid]="d.limitUsd !== null && d.limitUsd <= 0" /></div>
+        <div class="field"><label for="b-thr">Umbrales de alerta (%)</label>
+          <input id="b-thr" class="input" [(ngModel)]="d.thresholds" placeholder="50, 80, 100" [class.invalid]="parseThresholds(d.thresholds) === null" />
+          <span class="hint">Separados por comas. Se crea una alerta al cruzar cada uno.</span></div>
+      </div>
+
+      <div class="field">
+        <label id="b-policy">Política al agotarse</label>
+        <div class="grid grid-3" role="radiogroup" aria-labelledby="b-policy">
+          @for (p of policies; track p) {
+            <label class="choice">
+              <input type="radio" name="policy" [value]="p" [(ngModel)]="d.policy" />
+              <span><strong>{{ policyLabels[p] }}</strong><span class="muted small" style="display:block">{{ policyHelp[p] }}</span></span>
+            </label>
+          }
+        </div>
+      </div>
+
+      @if (d.policy === 'DOWNGRADE') {
+        <div class="grid grid-2">
+          <div class="field"><label for="b-dprov">Proveedor de degradación</label>
+            <select id="b-dprov" class="input" [ngModel]="d.downgradeProviderId" (ngModelChange)="onDowngradeProvider(d, $event)">
+              <option value="">— Seleccione —</option>
+              @for (p of catalog(); track p.id) { <option [value]="p.id" [disabled]="!p.configured">{{ p.label }}</option> }
+            </select></div>
+          <div class="field"><label for="b-dmodel">Modelo económico</label>
+            <select id="b-dmodel" class="input" [(ngModel)]="d.downgradeModel" [disabled]="!d.downgradeProviderId">
+              @for (m of modelsFor(d.downgradeProviderId); track m.id) {
+                <option [value]="m.id">{{ m.label }} · {{ tierLabels[m.tier] }} · {{ m.inputUsdPerMTok | usd }} / {{ m.outputUsdPerMTok | usd }} por MTok</option>
+              }
+            </select></div>
+        </div>
+        @if (!d.downgradeProviderId || !d.downgradeModel) {
+          <div class="callout warning"><nx-icon name="alert" [size]="16" /><span>Sin modelo de degradación, la política se comporta como «Bloquear».</span></div>
+        }
+      }
+
+      <div class="row"><span class="spacer"></span>
+        <button class="btn" (click)="draft.set(null)">Cancelar</button>
+        <button class="btn primary" [disabled]="saving() || invalid(d)" (click)="save()"><nx-icon name="save" />{{ saving() ? 'Guardando…' : 'Guardar' }}</button></div>
+    </div>
+  }
+
+  @if (loading()) {
+    <div class="card empty"><p>Cargando presupuestos…</p></div>
+  } @else if (error()) {
+    <div class="card empty"><nx-icon name="alert" [size]="28" /><h3>No se pudieron cargar los presupuestos</h3><p>{{ error() }}</p>
+      <button class="btn" (click)="load()">Reintentar</button></div>
+  } @else {
+    <p class="muted small">{{ configured() }} de {{ rows().length }} unidades con presupuesto ·
+      <span [class.error-text]="atRisk() > 0">{{ atRisk() }} al 80 % o más</span></p>
+    <div class="card" style="padding:0">
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Unidad</th><th style="min-width:220px">Consumo</th><th>Periodo</th><th>Política</th><th></th></tr></thead>
+          <tbody>
+            @for (n of tree(); track n.item.orgUnitId) {
+              <tr [class.selected]="draft()?.orgUnitId === n.item.orgUnitId">
+                <td>
+                  <div class="tree-name" [style.--depth]="n.depth">
+                    @if (n.depth > 0) { <nx-icon class="branch" name="subunit" [size]="14" /> }
+                    <strong>{{ n.item.orgUnitName }}</strong>
+                  </div>
+                </td>
+                <td>
+                  @if (n.item.budget; as b) {
+                    <nx-progress [pct]="n.item.pct" [label]="'Consumo de ' + n.item.orgUnitName" />
+                    <div class="row small" style="margin-top:4px; gap:6px">
+                      <span><strong>{{ n.item.spentUsd | usd }}</strong><span class="muted">&nbsp;de {{ b.limitUsd | usd }}</span></span>
+                      <span class="spacer"></span><span class="pct {{ level(n.item.pct) }}">{{ n.item.pct | num: 1 }} %</span>
+                    </div>
+                  } @else {
+                    <span class="muted small">Sin presupuesto · gastado {{ n.item.spentUsd | usd }}</span>
+                  }
+                </td>
+                <td class="nowrap">
+                  @if (n.item.budget; as b) { {{ periodLabels[b.period] }}<div class="mono small muted">{{ n.item.periodKey }}</div> }
+                  @else { <span class="muted">—</span> }
+                </td>
+                <td>
+                  @if (n.item.budget; as b) {
+                    <span class="badge" [class.danger]="b.policy === 'BLOCK'" [class.warning]="b.policy === 'DOWNGRADE'" [class.info]="b.policy === 'ALERT_ONLY'"
+                      [title]="policyHelp[b.policy]">{{ policyLabels[b.policy] }}</span>
+                    @if (b.policy === 'DOWNGRADE' && b.downgradeModel) {
+                      <div class="muted small">→ {{ providerLabel(b.downgradeProviderId) }} · <code>{{ b.downgradeModel }}</code></div>
+                    }
+                    <div class="muted small">Alertas: {{ b.alertThresholds.join(', ') }} %</div>
+                  } @else { <span class="muted">—</span> }
+                </td>
+                <td class="num nowrap">
+                  <button class="btn sm" (click)="edit(n.item)"><nx-icon [name]="n.item.budget ? 'pencil' : 'plus'" [size]="14" />{{ n.item.budget ? 'Editar' : 'Definir' }}</button>
+                  @if (n.item.budget) {
+                    <button class="btn ghost icon sm danger" title="Quitar presupuesto" aria-label="Quitar presupuesto" (click)="remove(n.item)"><nx-icon name="trash" [size]="14" /></button>
+                  }
+                </td>
+              </tr>
+            } @empty {
+              <tr><td colspan="5"><div class="empty"><p>No hay unidades. Créelas en Organización.</p></div></td></tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  }
+</div>

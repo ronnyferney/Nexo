@@ -8,12 +8,12 @@ import { RelativeTimePipe } from '../../shared/relative-time.pipe';
 import { TemplateRefPipe } from '../../shared/template-ref.pipe';
 
 @Component({
-  selector: 'nx-settings',
+  selector: 'nx-admin-security',
   imports: [FormsModule, IconComponent, RelativeTimePipe, TemplateRefPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page">
-      <div class="page-header"><div><h1>Configuración</h1><p>Secretos, llaves de API y servidor MCP del workspace</p></div></div>
+      <div class="page-header"><div><h1>Seguridad</h1><p>Secretos, llaves de API y servidor MCP del workspace</p></div></div>
 
       <div class="grid grid-2">
         <div class="card stack">
@@ -69,7 +69,7 @@ import { TemplateRefPipe } from '../../shared/template-ref.pipe';
     </div>
   `,
 })
-export class SettingsPage implements OnInit {
+export class SecurityPage implements OnInit {
   private readonly api = inject(ApiService);
   private readonly toast = inject(ToastService);
   protected readonly auth = inject(AuthService);

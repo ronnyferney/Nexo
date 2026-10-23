@@ -11,3 +11,11 @@ export const guestGuard: CanActivateFn = () => {
   const auth = inject(AuthService);
   return auth.isAuthenticated() ? inject(Router).createUrlTree(['/']) : true;
 };
+
+/** Consola de administración: solo ADMIN y OWNER. El resto vuelve al portal. */
+export const adminGuard: CanActivateFn = () => {
+  const auth = inject(AuthService);
+  const router = inject(Router);
+  if (!auth.isAuthenticated()) return router.createUrlTree(['/login']);
+  return auth.isAdmin() ? true : router.createUrlTree(['/']);
+};

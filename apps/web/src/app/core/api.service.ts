@@ -6,11 +6,30 @@ import { AuthService } from './auth.service';
 import type {
   Agent,
   AgentStreamEvent,
+  BudgetAlert,
+  BudgetInput,
+  BudgetRow,
   Connector,
   Execution,
+  LlmConnection,
+  LlmConnectionInput,
+  LlmConnectionUpdateInput,
+  LlmModel,
+  LlmModelInput,
+  MyUsage,
   Operation,
+  OrgMember,
+  OrgMemberCreateInput,
+  OrgUnit,
+  OrgUnitCreateInput,
+  OrgUnitOption,
+  OrgUnitUpdateInput,
   ProviderInfo,
+  Role,
   Stats,
+  UsageGroupBy,
+  UsageRecordsPage,
+  UsageSummary,
   Workflow,
 } from './models';
 
@@ -62,6 +81,7 @@ export class ApiService {
     this.post<{ ok: boolean; status?: number; data: unknown; durationMs: number }>(`/connectors/${cid}/operations/${id}/invoke`, { input });
 
   // Agentes
+  /** Alias histórico de `llmCatalog()`. */
   providers = () => this.get<ProviderInfo[]>('/agents/providers');
   agents = () => this.get<Agent[]>('/agents');
   agent = (id: string) => this.get<Agent>(`/agents/${id}`);
@@ -106,6 +126,46 @@ export class ApiService {
     }
   }
 
+  // Catálogo de IA, unidades y consumo propio (cualquier rol)
+  llmCatalog = () => this.get<ProviderInfo[]>('/llm/catalog');
+  orgUnits = () => this.get<OrgUnitOption[]>('/org/units');
+  myUsage = () => this.get<MyUsage>('/me/usage');
+
+  // Administración: conexiones y modelos LLM
+  llmConnections = () => this.get<LlmConnection[]>('/admin/llm/connections');
+  createLlmConnection = (data: LlmConnectionInput) => this.post<LlmConnection>('/admin/llm/connections', data);
+  updateLlmConnection = (id: string, data: LlmConnectionUpdateInput) =>
+    this.patch<LlmConnection>(`/admin/llm/connections/${id}`, data);
+  deleteLlmConnection = (id: string) => this.delete(`/admin/llm/connections/${id}`);
+  testLlmConnection = (id: string) => this.post<{ ok: boolean; message: string }>(`/admin/llm/connections/${id}/test`);
+  createLlmModel = (connectionId: string, data: LlmModelInput) =>
+    this.post<LlmModel>(`/admin/llm/connections/${connectionId}/models`, data);
+  updateLlmModel = (id: string, data: Partial<LlmModelInput>) => this.patch<LlmModel>(`/admin/llm/models/${id}`, data);
+  deleteLlmModel = (id: string) => this.delete(`/admin/llm/models/${id}`);
+
+  // Administración: organización
+  adminOrgUnits = () => this.get<OrgUnit[]>('/admin/org/units');
+  createOrgUnit = (data: OrgUnitCreateInput) => this.post<OrgUnit>('/admin/org/units', data);
+  updateOrgUnit = (id: string, data: OrgUnitUpdateInput) => this.patch<OrgUnit>(`/admin/org/units/${id}`, data);
+  deleteOrgUnit = (id: string) => this.delete(`/admin/org/units/${id}`);
+  orgMembers = () => this.get<OrgMember[]>('/admin/org/members');
+  addOrgMember = (data: OrgMemberCreateInput) => this.post<OrgMember>('/admin/org/members', data);
+  updateOrgMember = (membershipId: string, data: { role?: Role; orgUnitId?: string }) =>
+    this.patch<OrgMember>(`/admin/org/members/${membershipId}`, data);
+  removeOrgMember = (membershipId: string) => this.delete(`/admin/org/members/${membershipId}`);
+
+  // Administración: presupuestos
+  budgets = () => this.get<BudgetRow[]>('/admin/budgets');
+  setBudget = (orgUnitId: string, data: BudgetInput) => this.put(`/admin/budgets/${orgUnitId}`, data);
+  deleteBudget = (orgUnitId: string) => this.delete(`/admin/budgets/${orgUnitId}`);
+
+  // Administración: consumo y alertas
+  usageSummary = (params: { from?: string; to?: string; groupBy?: UsageGroupBy } = {}) =>
+    this.get<UsageSummary>('/admin/usage/summary', compact(params));
+  usageRecords = (params: { take?: number; cursor?: string } = {}) =>
+    this.get<UsageRecordsPage>('/admin/usage/records', compact(params));
+  alerts = () => this.get<BudgetAlert[]>('/admin/alerts');
+
   // Flujos
   workflows = () => this.get<Workflow[]>('/workflows');
   workflow = (id: string) => this.get<Workflow>(`/workflows/${id}`);
@@ -122,6 +182,13 @@ export class ApiService {
   execution = (id: string) => this.get<Execution>(`/executions/${id}`);
   cancelExecution = (id: string) => this.post<Execution>(`/executions/${id}/cancel`);
   retryExecution = (id: string) => this.post<Execution>(`/executions/${id}/retry`);
+}
+
+/** Elimina parámetros vacíos y convierte los valores a texto para `HttpParams`. */
+function compact(params: Record<string, string | number | undefined | null>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null && v !== '') out[k] = String(v);
+  return out;
 }
 
 export function errorMessage(err: unknown): string {
