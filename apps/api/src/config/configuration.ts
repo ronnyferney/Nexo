@@ -1,5 +1,9 @@
 export interface AppConfig {
   port: number;
+  /** URL pública de la API (callbacks OAuth, conexión de Nexo Edge). */
+  publicUrl: string;
+  /** URL de la aplicación web (redirecciones tras OAuth). */
+  webUrl: string;
   corsOrigins: string[];
   jwt: { secret: string; expiresIn: string };
   encryptionKey: string;
@@ -11,6 +15,8 @@ export interface AppConfig {
 
 export default (): AppConfig => ({
   port: parseInt(process.env.PORT ?? '3000', 10),
+  publicUrl: (process.env.PUBLIC_URL ?? 'http://localhost:3000').replace(/\/+$/, ''),
+  webUrl: (process.env.WEB_URL ?? 'http://localhost:4200').replace(/\/+$/, ''),
   corsOrigins: (process.env.CORS_ORIGINS ?? 'http://localhost:4200').split(',').map((o) => o.trim()),
   jwt: {
     secret: process.env.JWT_SECRET ?? '',

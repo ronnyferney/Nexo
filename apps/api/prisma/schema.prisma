@@ -22,6 +22,7 @@ enum ConnectorType {
   SOAP
   GRAPHQL
   MCP
+  DATABASE
 }
 
 enum ExecutionStatus {
@@ -142,6 +143,7 @@ model Workspace {
   skills         Skill[]
   knowledgeBases KnowledgeBase[]
   agentRoutines  AgentRoutine[]
+  edgeAgents     EdgeAgent[]
 }
 
 model Membership {
@@ -194,9 +196,12 @@ model Connector {
   config      Json                 @default("{}")
   /// Autenticación: { type: none|apiKey|bearer|basic|oauth2, ... } con referencias a secretos.
   auth        Json                 @default("{\"type\":\"none\"}")
+  /// Integración del catálogo que originó el conector (ADR 0005), si aplica.
+  catalogId   String?
   workspaceId String
   workspace   Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   operations  ConnectorOperation[]
+  oauth       OAuthCredential?
   createdAt   DateTime             @default(now())
   updatedAt   DateTime             @updatedAt
 
@@ -713,4 +718,39 @@ model PromptSuggestion {
   createdAt   DateTime         @default(now())
 
   @@index([agentId, createdAt])
+}
+
+// ===================== Catálogo, OAuth2 y Nexo Edge (ADR 0005) =====================
+
+/// Tokens OAuth2 (authorization code) de un conector, cifrados con AES-256-GCM.
+model OAuthCredential {
+  id                 String    @id @default(cuid())
+  connectorId        String    @unique
+  connector          Connector @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+  accessTokenCipher  String
+  refreshTokenCipher String?
+  expiresAt          DateTime?
+  scope              String?
+  accountLabel       String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+}
+
+/// Agente on-premise que conecta Nexo con bases de datos en redes privadas (conexión saliente WSS).
+model EdgeAgent {
+  id          String    @id @default(cuid())
+  name        String
+  tokenHash   String    @unique
+  tokenPrefix String
+  lastSeenAt  DateTime?
+  version     String?
+  hostname    String?
+  /// Claves de conexión que el Edge declara disponibles (sin credenciales).
+  connections String[]  @default([])
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId])
 }

@@ -12,11 +12,13 @@ import { PrismaModule } from './infrastructure/prisma/prisma.module';
 import { AgentsModule } from './modules/agents/agents.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ConnectorsModule } from './modules/connectors/connectors.module';
+import { EdgeModule } from './modules/edge/edge.module';
 import { GovernanceModule } from './modules/governance/governance.module';
 import { HealthModule } from './modules/health/health.module';
 import { LlmModule } from './modules/llm/llm.module';
 import { KnowledgeModule } from './modules/knowledge/knowledge.module';
 import { McpServerModule } from './modules/mcp-server/mcp-server.module';
+import { OAuthModule } from './modules/oauth/oauth.module';
 import { RoutinesModule } from './modules/routines/routines.module';
 import { SkillsModule } from './modules/skills/skills.module';
 import { TrainingModule } from './modules/training/training.module';
@@ -54,6 +56,8 @@ import { WorkspacesModule } from './modules/workspaces/workspaces.module';
     LlmModule,
     GovernanceModule,
     ConnectorsModule,
+    OAuthModule,
+    EdgeModule,
     AgentsModule,
     SkillsModule,
     KnowledgeModule,
