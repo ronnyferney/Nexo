@@ -1,0 +1,18 @@
+[
+  {
+    "id": "diagnose-usa-fallos-recientes",
+    "description": "En diagnóstico consulta los fallos recientes del agente antes de explicar.",
+    "mode": "DIAGNOSE",
+    "agentId": "agent_fixture",
+    "turns": ["Diagnostica por qué mi agente está fallando"],
+    "expect": { "toolsCalled": ["get_recent_failures"], "language": "es" }
+  },
+  {
+    "id": "improve-propone-cambios",
+    "description": "En mejora entrega una propuesta de cambios sobre el agente en foco.",
+    "mode": "IMPROVE",
+    "agentId": "agent_fixture",
+    "turns": ["Mejora mi agente para que no invente respuestas. Prepara directamente la propuesta de cambios."],
+    "expect": { "proposal": "UPDATE_AGENT" }
+  }
+]

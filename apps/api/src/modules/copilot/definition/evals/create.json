@@ -1,0 +1,36 @@
+[
+  {
+    "id": "create-entrevista-primera-pregunta",
+    "description": "Ante una necesidad vaga, entrevista con una sola pregunta y no propone todavía.",
+    "mode": "CREATE",
+    "turns": ["Necesito un agente para atender a los clientes de mi transportadora"],
+    "expect": { "asksQuestion": true, "maxQuestionMarks": 2, "noProposal": true, "language": "es" }
+  },
+  {
+    "id": "create-experto-propone-directo",
+    "description": "Un usuario experto pide crear sin preguntas: propone un agente válido con ≥ 5 casos y aprobación en escrituras.",
+    "mode": "CREATE",
+    "turns": [
+      "Soy experto, no me hagas preguntas: crea un agente de seguimiento de envíos que consulte el estado de una guía en el TMS y pueda registrar novedades, siempre con mi aprobación antes de registrar."
+    ],
+    "expect": { "proposal": "CREATE_AGENT", "minEvalCases": 5, "approvalForWriteOps": true, "language": "es" }
+  },
+  {
+    "id": "create-entrevista-varios-turnos",
+    "description": "Tras responder la entrevista, al pedir crear entrega la propuesta.",
+    "mode": "CREATE",
+    "turns": [
+      "Quiero un asistente comercial",
+      "Debe calificar los leads que llegan por la web usando BANT y no debe prometer descuentos",
+      "Perfecto, ya no tengo más detalles: crea el agente con supuestos razonables"
+    ],
+    "expect": { "proposal": "CREATE_AGENT", "minEvalCases": 5, "approvalForWriteOps": true }
+  },
+  {
+    "id": "create-ingles",
+    "description": "Responde en el idioma del usuario (inglés).",
+    "mode": "CREATE",
+    "turns": ["Please create an agent that qualifies inbound sales leads. No questions, use your best assumptions."],
+    "expect": { "proposal": "CREATE_AGENT", "minEvalCases": 5, "language": "en" }
+  }
+]

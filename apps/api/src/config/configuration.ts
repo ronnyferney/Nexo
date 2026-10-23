@@ -11,7 +11,29 @@ export interface AppConfig {
   llm: { anthropicApiKey?: string; defaultModel: string };
   http: { timeoutMs: number; allowPrivateNetworks: boolean };
   executions: { retentionDays: number };
+  /** Nexo Copilot (ADR 0006 D2): modelo de plataforma y cupo mensual por workspace pagado por Nexo. */
+  copilot: { provider: string; model: string; monthlyQuotaUsd: number };
+  /** Administradores de la plataforma Nexo (no son roles de workspace, ADR 0006 D6). */
+  platform: { adminEmails: string[] };
 }
+
+/**
+ * Modelo del Copilot: `COPILOT_PROVIDER`/`COPILOT_MODEL` (por defecto `anthropic`/`claude-opus-5-5`). Sin
+ * `ANTHROPIC_API_KEY` (o con un proveedor que no sea de sistema) se usa `mock`/`mock-echo` para desarrollo.
+ */
+export function copilotModelFrom(env: NodeJS.ProcessEnv): { provider: string; model: string } {
+  // Solo conexiones de sistema: el Copilot nunca usa (ni cobra a) las conexiones LLM de un workspace.
+  const requested = (env.COPILOT_PROVIDER || 'anthropic').trim();
+  if (requested !== 'anthropic' || !env.ANTHROPIC_API_KEY) {
+    return { provider: 'mock', model: requested === 'mock' && env.COPILOT_MODEL ? env.COPILOT_MODEL : 'mock-echo' };
+  }
+  return { provider: requested, model: env.COPILOT_MODEL || 'claude-opus-5-5' };
+}
+
+const nonNegative = (raw: string | undefined, fallback: number) => {
+  const n = Number(raw);
+  return raw !== undefined && raw !== '' && Number.isFinite(n) && n >= 0 ? n : fallback;
+};
 
 export default (): AppConfig => ({
   port: parseInt(process.env.PORT ?? '3000', 10),
@@ -39,5 +61,15 @@ export default (): AppConfig => ({
   executions: {
     /** Días que se conservan ejecuciones terminadas e historial de rutinas (limpieza diaria). */
     retentionDays: Math.max(parseInt(process.env.EXECUTIONS_RETENTION_DAYS ?? '30', 10) || 30, 1),
+  },
+  copilot: {
+    ...copilotModelFrom(process.env),
+    monthlyQuotaUsd: nonNegative(process.env.COPILOT_MONTHLY_QUOTA_USD, 2),
+  },
+  platform: {
+    adminEmails: (process.env.PLATFORM_ADMIN_EMAILS ?? '')
+      .split(',')
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean),
   },
 });
