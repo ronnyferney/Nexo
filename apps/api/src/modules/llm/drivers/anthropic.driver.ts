@@ -1,9 +1,26 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { Injectable, Logger } from '@nestjs/common';
-import type { LlmClient, LlmCredentials, LlmDriver, LlmRunRequest, LlmRunResult } from '../llm-provider';
+import {
+  LlmHttpError,
+  type LlmClient,
+  type LlmCredentials,
+  type LlmDriver,
+  type LlmRunRequest,
+  type LlmRunResult,
+} from '../llm-provider';
 
 type MessageParam = Anthropic.Beta.Messages.BetaMessageParam;
 type ToolResultBlock = Anthropic.Beta.Messages.BetaToolResultBlockParam;
+
+/** Un proxy/gateway propio (no la API directa de Anthropic): sin fallback server-side. */
+export function isCustomAnthropicEndpoint(baseUrl?: string): boolean {
+  if (!baseUrl) return false;
+  try {
+    return new URL(baseUrl).hostname !== 'api.anthropic.com';
+  } catch {
+    return true;
+  }
+}
 
 /**
  * Cliente Anthropic (Messages API) con bucle de tool use manual:
@@ -16,13 +33,44 @@ class AnthropicClient implements LlmClient {
   private readonly customEndpoint: boolean;
 
   constructor(credentials: LlmCredentials) {
-    this.client = new Anthropic({ apiKey: credentials.apiKey, baseURL: credentials.baseUrl || undefined });
-    this.customEndpoint = !!credentials.baseUrl;
+    this.client = new Anthropic({
+      apiKey: credentials.apiKey,
+      baseURL: credentials.baseUrl || undefined,
+      defaultHeaders: credentials.headers,
+    });
+    this.customEndpoint = isCustomAnthropicEndpoint(credentials.baseUrl);
   }
 
   async test() {
     const page = await this.client.models.list({ limit: 5 });
     return { ok: true, message: `Conexión correcta: ${page.data.map((m) => m.id).join(', ')}` };
+  }
+
+  /** Errores HTTP del SDK como `LlmHttpError` (estado + mensaje del proveedor). */
+  private async probe<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (err) {
+      if (err instanceof Anthropic.APIError && typeof err.status === 'number') {
+        throw new LlmHttpError(err.status, err.message.slice(0, 300));
+      }
+      throw err;
+    }
+  }
+
+  async verify(): Promise<void> {
+    await this.probe(() => this.client.models.list({ limit: 1 }, { timeout: 15_000, maxRetries: 0 }));
+  }
+
+  async listModels(): Promise<string[]> {
+    return this.probe(async () => {
+      const ids: string[] = [];
+      for await (const m of this.client.models.list({ limit: 100 }, { timeout: 15_000, maxRetries: 0 })) {
+        ids.push(m.id);
+        if (ids.length >= 500) break;
+      }
+      return ids;
+    });
   }
 
   async run(req: LlmRunRequest): Promise<LlmRunResult> {

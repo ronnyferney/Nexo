@@ -11,7 +11,6 @@ import {
   Post,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import type { LlmConnection, LlmModel } from '@prisma/client';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { CurrentAuth, type AuthContext } from '../../common/decorators/current-user.decorator';
 import { MinRole } from '../../common/decorators/roles.decorator';
@@ -23,36 +22,7 @@ import {
   UpdateLlmModelDto,
 } from './dto/llm-admin.dto';
 import { LlmGatewayService } from './llm-gateway.service';
-
-const num = (d: { toString(): string } | null) => (d === null ? null : Number(d));
-
-function serializeModel(m: LlmModel) {
-  return {
-    id: m.id,
-    connectionId: m.connectionId,
-    modelId: m.modelId,
-    label: m.label,
-    tier: m.tier,
-    inputUsdPerMTok: num(m.inputUsdPerMTok),
-    outputUsdPerMTok: num(m.outputUsdPerMTok),
-    cacheReadUsdPerMTok: num(m.cacheReadUsdPerMTok),
-    enabled: m.enabled,
-  };
-}
-
-function serializeConnection(c: LlmConnection & { models?: LlmModel[] }) {
-  return {
-    id: c.id,
-    name: c.name,
-    kind: c.kind,
-    baseUrl: c.baseUrl,
-    hasApiKey: !!c.apiKeyCipher,
-    enabled: c.enabled,
-    createdAt: c.createdAt,
-    updatedAt: c.updatedAt,
-    models: (c.models ?? []).map(serializeModel),
-  };
-}
+import { serializeConnection, serializeModel } from './llm-serializers';
 
 /** Catálogo visible para todos los roles (selectores de modelo). */
 @ApiTags('llm')
@@ -136,7 +106,12 @@ export class LlmAdminController {
   @Patch('models/:id')
   async updateModel(@CurrentAuth() a: AuthContext, @Param('id') id: string, @Body() dto: UpdateLlmModelDto) {
     const model = await this.model(a.workspaceId, id);
-    const row = await this.prisma.llmModel.update({ where: { id }, data: dto });
+    // Al fijar una tarifa, el modelo deja de estar pendiente de precio.
+    const priced = dto.inputUsdPerMTok !== undefined || dto.outputUsdPerMTok !== undefined;
+    const row = await this.prisma.llmModel.update({
+      where: { id },
+      data: { ...dto, ...(priced ? { needsPricing: false } : {}) },
+    });
     await this.touch(model.connectionId);
     return serializeModel(row);
   }

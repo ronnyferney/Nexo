@@ -58,6 +58,45 @@ costos, proveedores, organización) y un **portal de usuarios** (agentes, flujos
 - Caché automática de prompts en Anthropic (`cache_control` de nivel superior) y precio de lectura de caché en el catálogo.
 - Recomendación operativa: modelos `ECONOMY` como degradación para áreas de alto volumen.
 
+### D8. Catálogo de proveedores (addendum, 2026-10-23)
+**Decisión de negocio (no negociable):** Nexo **no conecta suscripciones personales** (Claude Pro/Max vía claude.ai,
+ChatGPT Plus, GitHub Copilot u otras): sus términos no permiten que una plataforma de terceros las use y su consumo no
+se puede medir para los presupuestos de D4/D5. Solo se admiten conexiones oficiales:
+- **Clave de API de pago por uso** del proveedor (Anthropic, OpenAI, Gemini, Mistral, xAI, DeepSeek, Moonshot, Groq,
+  Cerebras, Fireworks, Together, NVIDIA, Hugging Face).
+- **Nube empresarial** (Azure OpenAI v1 con cabecera `api-key`; Amazon Bedrock por su endpoint compatible con OpenAI
+  `bedrock-mantle` con clave de API de Bedrock).
+- **Modelos locales** (Ollama, LM Studio): desde la nube requieren Nexo Edge o una red alcanzable; la protección SSRF
+  bloquea redes privadas salvo `CONNECTOR_ALLOW_PRIVATE_NETWORKS=true` (solo on-premise).
+- **OpenRouter** para modelos de terceros, con su **OAuth PKCE oficial** (o clave de API).
+
+Diseño:
+- El catálogo vive en código (`apps/api/src/modules/llm/providers/*.providers.ts`, un archivo por familia). Cada entrada
+  define categoría, facturación, driver (`ANTHROPIC` nativo u `OPENAI_COMPATIBLE`), plantilla de URL base renderizada
+  con el motor de plantillas de Nexo, campos del formulario (solo `apiKey` es secreto), pasos verificados para obtener
+  la clave (`keySteps`), prefijo documentado (`keyPrefix`, solo advertencia), modelos sugeridos y
+  `pendingVerification` (lo que no se pudo verificar en la fuente oficial).
+- **Precios:** solo los verificados en la fuente oficial (hoy, Anthropic). El resto se importa con precio 0 y
+  `LlmModel.needsPricing = true`; la consola pide completarlo (fijar una tarifa lo apaga). Los modelos locales no lo
+  necesitan. Mientras un modelo tenga precio 0 su consumo no descuenta presupuesto: se recomienda completar la tarifa
+  antes de habilitarlo para áreas con presupuesto.
+- **Conectar = probar antes de guardar:** se validan campos y URL, se llama a un endpoint sin costo (`/models`, o `/key`
+  en OpenRouter) y solo si pasa se crea la `LlmConnection` con la clave cifrada (AES-256-GCM) y `providerId`.
+- Por conexión se guardan `providerFields` (valores no secretos), `headers` (cabeceras fijas no secretas, p. ej.
+  `X-OpenRouter-Title`) y `driverOptions` (`authHeader`: `bearer` | `api-key` | `none`; `verifyPath`;
+  `replayReasoning`). Las conexiones anteriores (`providerId` null) conservan el comportamiento heredado (clave en
+  `Authorization` y `api-key`).
+- El historial del driver compatible con OpenAI guarda el mensaje completo del proveedor (append-only, incluido
+  `reasoning_content`) y al reenviarlo proyecta solo `role`, `content`, `tool_calls`, `tool_call_id`, `name`, más
+  `reasoning_content` si la conexión lo exige (Kimi K3).
+- `LLM_PROVIDER_URL_OVERRIDES` (JSON `{ "<providerId>": "<url>" }`) sustituye la URL base de un proveedor (gateways
+  corporativos de salida y pruebas); `OPENROUTER_AUTH_URL` sustituye la pantalla de consentimiento.
+- **OAuth de OpenRouter:** `state` firmado de un solo uso con el `code_verifier` cifrado (reutiliza `OAuthStateService`
+  del ADR 0005 con `connectorId = 'llm-provider:openrouter'`). Como OpenRouter no tiene parámetro `state`, viaja en la
+  query del `callback_url`. El callback canjea el código en `POST https://openrouter.ai/api/v1/auth/keys`
+  (`{ code, code_verifier, code_challenge_method: 'S256' }` → `{ key }`), exige que quien inició siga siendo ADMIN+ y
+  redirige siempre a `${WEB_URL}/admin/providers`.
+
 ## Contrato de API
 
 Todas las cantidades monetarias son `number` en USD. Rutas bajo `/api`.
@@ -116,6 +155,27 @@ Solo incluye conexiones y modelos habilitados.
   (`from`/`to` ISO; por defecto el mes en curso; `groups` ordenado por costo desc., salvo `day` que va cronológico)
 - `GET /admin/usage/records?take&cursor` → `{ items: { id; createdAt; source; model; providerId; orgUnitName; userName; agentName; inputTokens; outputTokens; costUsd }[]; nextCursor }`
 - `GET /admin/alerts` → `{ id; orgUnitId; orgUnitName; periodKey; threshold; spentUsd; limitUsd; createdAt }[]` (últimas 100)
+
+### Catálogo de proveedores (ADMIN/OWNER, D8)
+- `GET /admin/llm/providers` → `{ providers: ProviderView[] }`, con
+  `ProviderView = { id; name; description; logo; category: 'FRONTIER'|'OPEN_MODELS'|'ENTERPRISE_CLOUD'|'LOCAL'|'ROUTER';
+  billing: 'PAY_AS_YOU_GO'|'FREE_TIER'|'ENTERPRISE'|'LOCAL'; kind: 'ANTHROPIC'|'OPENAI_COMPATIBLE'; baseUrl;
+  auth: 'API_KEY'|'OAUTH'|'NONE'; fields: { key; label; secret; required; placeholder?; help?; pattern?; default? }[];
+  docsUrl; keyUrl?; keySteps: string[]; keyPrefix?; suggestedModels: { id; label; tier; inputUsdPerMTok?;
+  outputUsdPerMTok?; cacheReadUsdPerMTok?; contextTokens? }[]; notes?; pendingVerification: string[];
+  connected: { connectionId; name; modelCount; enabled }[]; modelCount: number;
+  platform: { configured: boolean; models: number } | null }` (`platform` solo en `anthropic`).
+- `POST /admin/llm/providers/:id/connect` `{ name?, fields: Record<string,string>, models?: string[] }` → 201
+  `{ connection: LlmConnection; models: LlmModel[]; discoveredModels: string[] }`; 400 con mensaje claro si los campos
+  no son válidos o la prueba falla (clave rechazada, URL 404, inalcanzable, SSRF); 404 si el proveedor no existe.
+  Sin `models` se importan los sugeridos que el proveedor expone (Azure agrega su `deployment`).
+- `GET /admin/llm/providers/:id/discover?connectionId=` → `{ connectionId; models: string[]; discoveredModels: string[]; importedModels: string[] }` (`models` = `discoveredModels`).
+- `POST /admin/llm/providers/openrouter/oauth/start` `{ limit? }` → `{ authorizeUrl }`.
+- `GET /llm/oauth/openrouter/callback?code&state` (público, 30/min) → 302 a
+  `${WEB_URL}/admin/providers?llm=connected&provider=openrouter&connectionId=…` o
+  `?llm=error&provider=openrouter&reason=invalid_state|access_denied|missing_code|forbidden|exchange_failed`.
+- `LlmConnection` agrega `providerId: string|null` y `providerFields: Record<string,string>`; `LlmModel` agrega
+  `needsPricing: boolean`.
 
 ### Cambios en contratos existentes
 - `Agent` incluye `costCenterId: string | null` (crear/actualizar).

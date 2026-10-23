@@ -1,6 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { HttpClientService } from '../../../common/http/http-client.service';
-import type { LlmClient, LlmCredentials, LlmDriver, LlmRunRequest, LlmRunResult } from '../llm-provider';
+import {
+  LlmHttpError,
+  type LlmClient,
+  type LlmCredentials,
+  type LlmDriver,
+  type LlmRunRequest,
+  type LlmRunResult,
+} from '../llm-provider';
 
 interface ChatToolCall {
   id: string;
@@ -13,6 +20,9 @@ interface ChatMessage {
   content: string | null;
   tool_calls?: ChatToolCall[];
   tool_call_id?: string;
+  /** Razonamiento visible de algunos proveedores (DeepSeek, Kimi); se guarda tal cual en el historial. */
+  reasoning_content?: string;
+  [extra: string]: unknown;
 }
 
 interface ChatResponse {
@@ -22,6 +32,30 @@ interface ChatResponse {
 }
 
 const LLM_TIMEOUT_MS = 300_000;
+const PROBE_TIMEOUT_MS = 15_000;
+/** Campos que se reenvían al proveedor; el historial guardado conserva el mensaje completo (append-only). */
+const REPLAY_KEYS = ['role', 'content', 'tool_calls', 'tool_call_id', 'name'] as const;
+
+/** Mensaje de error del proveedor (`{ error: { message } }`, `[{ error }]` de Gemini o texto). */
+export function providerErrorMessage(body: unknown, rawBody: string): string {
+  const first = Array.isArray(body) ? (body[0] as unknown) : body;
+  const err = (first as { error?: { message?: unknown } | string } | null)?.error;
+  const msg = typeof err === 'string' ? err : err?.message;
+  return typeof msg === 'string' && msg ? msg.slice(0, 300) : rawBody.slice(0, 300);
+}
+
+/** Ids de modelos de una respuesta `/models` (OpenAI `{ data: [{ id }] }`; tolera `models/` de Gemini). */
+export function parseModelIds(body: unknown): string[] {
+  const list = (body as { data?: unknown; models?: unknown } | null) ?? {};
+  const items = Array.isArray(list.data) ? list.data : Array.isArray(list.models) ? list.models : [];
+  const ids = items
+    .map((m) =>
+      typeof m === 'string' ? m : ((m as { id?: unknown; name?: unknown })?.id ?? (m as { name?: unknown })?.name),
+    )
+    .filter((id): id is string => typeof id === 'string' && id.length > 0 && id.length <= 200)
+    .map((id) => id.replace(/^models\//, ''));
+  return [...new Set(ids)].sort();
+}
 
 /**
  * Cliente para APIs compatibles con Chat Completions (OpenAI, Azure OpenAI, Ollama, vLLM, Gemini compatible,
@@ -39,19 +73,55 @@ class OpenAiCompatibleClient implements LlmClient {
   }
 
   private headers(): Record<string, string> {
-    const h: Record<string, string> = { 'content-type': 'application/json', accept: 'application/json' };
-    if (this.credentials.apiKey) {
-      h.authorization = `Bearer ${this.credentials.apiKey}`;
-      h['api-key'] = this.credentials.apiKey; // Azure OpenAI
-    }
+    const h: Record<string, string> = {
+      ...(this.credentials.headers ?? {}),
+      'content-type': 'application/json',
+      accept: 'application/json',
+    };
+    const key = this.credentials.apiKey;
+    const style = this.credentials.authHeader ?? 'both';
+    if (key && (style === 'bearer' || style === 'both')) h.authorization = `Bearer ${key}`;
+    if (key && (style === 'api-key' || style === 'both')) h['api-key'] = key; // Azure OpenAI
     return h;
   }
 
+  private async get(path: string) {
+    const res = await this.http.request({
+      url: `${this.baseUrl}${path}`,
+      headers: this.headers(),
+      timeoutMs: PROBE_TIMEOUT_MS,
+    });
+    if (!res.ok) throw new LlmHttpError(res.status, providerErrorMessage(res.body, res.rawBody));
+    return res;
+  }
+
+  async verify(): Promise<void> {
+    await this.get(this.credentials.verifyPath ?? '/models');
+  }
+
+  async listModels(): Promise<string[]> {
+    return parseModelIds((await this.get('/models')).body);
+  }
+
   async test() {
-    const res = await this.http.request({ url: `${this.baseUrl}/models`, headers: this.headers() });
-    if (!res.ok) return { ok: false, message: `HTTP ${res.status}: ${res.rawBody.slice(0, 200)}` };
-    const ids = ((res.body as { data?: { id: string }[] }).data ?? []).slice(0, 5).map((m) => m.id);
-    return { ok: true, message: `Conexión correcta${ids.length ? `: ${ids.join(', ')}` : ''}` };
+    try {
+      await this.verify();
+    } catch (err) {
+      const status = err instanceof LlmHttpError ? `HTTP ${err.status}: ` : '';
+      return { ok: false, message: `${status}${(err as Error).message}` };
+    }
+    const ids = await this.listModels().catch(() => [] as string[]);
+    return { ok: true, message: `Conexión correcta${ids.length ? `: ${ids.slice(0, 5).join(', ')}` : ''}` };
+  }
+
+  /** Proyección enviada al proveedor: sin campos de respuesta (refusal, annotations...) salvo el razonamiento opcional. */
+  private outbound(m: ChatMessage): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const k of REPLAY_KEYS) if (m[k] !== undefined) out[k] = m[k];
+    if (this.credentials.replayReasoning && m.role === 'assistant' && m.reasoning_content !== undefined) {
+      out.reasoning_content = m.reasoning_content;
+    }
+    return out;
   }
 
   async run(req: LlmRunRequest): Promise<LlmRunResult> {
@@ -68,7 +138,8 @@ class OpenAiCompatibleClient implements LlmClient {
     while (turns < req.maxTurns) {
       await req.beforeTurn?.();
       turns++;
-      const messages = req.system ? [{ role: 'system', content: req.system }, ...history] : history;
+      const replay = history.map((m) => this.outbound(m));
+      const messages = req.system ? [{ role: 'system', content: req.system }, ...replay] : replay;
       const res = await this.http.request({
         url: `${this.baseUrl}/chat/completions`,
         method: 'POST',
@@ -78,9 +149,7 @@ class OpenAiCompatibleClient implements LlmClient {
       });
       const body = res.body as ChatResponse;
       if (!res.ok || !body.choices?.length) {
-        throw new Error(
-          `Proveedor LLM respondió HTTP ${res.status}: ${body?.error?.message ?? res.rawBody.slice(0, 300)}`,
-        );
+        throw new Error(`Proveedor LLM respondió HTTP ${res.status}: ${providerErrorMessage(res.body, res.rawBody)}`);
       }
 
       const cached = body.usage?.prompt_tokens_details?.cached_tokens ?? 0;
@@ -95,7 +164,8 @@ class OpenAiCompatibleClient implements LlmClient {
       await req.onUsage?.(turnUsage);
 
       const { message, finish_reason } = body.choices[0];
-      history.push({ role: 'assistant', content: message.content ?? null, tool_calls: message.tool_calls });
+      // Historial nativo append-only: se guarda el mensaje completo del proveedor (incluido el razonamiento).
+      history.push({ ...message, role: 'assistant', content: message.content ?? null });
       text = message.content ?? '';
       if (text) req.onEvent?.({ type: 'text', text });
       stopReason = finish_reason === 'tool_calls' ? 'tool_use' : finish_reason === 'length' ? 'max_tokens' : 'end_turn';

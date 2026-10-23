@@ -8,7 +8,17 @@ export interface AppConfig {
   jwt: { secret: string; expiresIn: string };
   encryptionKey: string;
   redis: { host: string; port: number; password?: string };
-  llm: { anthropicApiKey?: string; defaultModel: string };
+  llm: {
+    anthropicApiKey?: string;
+    defaultModel: string;
+    /**
+     * URL base por proveedor del catálogo (`LLM_PROVIDER_URL_OVERRIDES`, JSON `{ "openai": "https://..." }`): gateways
+     * corporativos de salida y pruebas. Sustituye la URL renderizada de la plantilla.
+     */
+    providerUrlOverrides: Record<string, string>;
+    /** Pantalla de consentimiento OAuth de OpenRouter (`OPENROUTER_AUTH_URL`). */
+    openrouterAuthUrl: string;
+  };
   http: { timeoutMs: number; allowPrivateNetworks: boolean };
   executions: { retentionDays: number };
   /** Nexo Copilot (ADR 0006 D2): modelo de plataforma y cupo mensual por workspace pagado por Nexo. */
@@ -30,6 +40,22 @@ export function copilotModelFrom(env: NodeJS.ProcessEnv): { provider: string; mo
     return { provider: 'mock', model: requested === 'mock' && env.COPILOT_MODEL ? env.COPILOT_MODEL : 'mock-echo' };
   }
   return { provider: requested, model: env.COPILOT_MODEL || 'claude-opus-5-5' };
+}
+
+/** `{ "<providerId>": "<url>" }`; un JSON inválido o valores no http(s) se ignoran. */
+export function parseUrlOverrides(raw: string | undefined): Record<string, string> {
+  if (!raw?.trim()) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed as Record<string, unknown>).filter(
+        (e): e is [string, string] => typeof e[1] === 'string' && /^https?:\/\//.test(e[1]),
+      ),
+    );
+  } catch {
+    return {};
+  }
 }
 
 const nonNegative = (raw: string | undefined, fallback: number) => {
@@ -55,6 +81,8 @@ export default (): AppConfig => ({
   llm: {
     anthropicApiKey: process.env.ANTHROPIC_API_KEY || undefined,
     defaultModel: process.env.DEFAULT_MODEL ?? 'claude-opus-5-5',
+    providerUrlOverrides: parseUrlOverrides(process.env.LLM_PROVIDER_URL_OVERRIDES),
+    openrouterAuthUrl: process.env.OPENROUTER_AUTH_URL || 'https://openrouter.ai/auth',
   },
   http: {
     timeoutMs: parseInt(process.env.CONNECTOR_TIMEOUT_MS ?? '30000', 10),

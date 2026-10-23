@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import type { LlmConnection, LlmKind, LlmModel } from '@prisma/client';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { LLM_DRIVERS, type LlmClient, type LlmDriver } from './llm-provider';
+import { LLM_DRIVERS, type AuthHeaderStyle, type LlmClient, type LlmCredentials, type LlmDriver } from './llm-provider';
 import { SYSTEM_ANTHROPIC_MODELS, SYSTEM_MOCK_MODELS, type CatalogModel, type ModelPricing } from './pricing';
 
 export interface CatalogEntry {
@@ -28,6 +28,26 @@ export interface ResolvedModel {
 export const SYSTEM_PROVIDERS = { anthropic: 'anthropic', mock: 'mock' } as const;
 
 const num = (d: { toString(): string } | null | undefined) => (d === null || d === undefined ? null : Number(d));
+
+const AUTH_STYLES: AuthHeaderStyle[] = ['bearer', 'api-key', 'none', 'both'];
+
+/** Cabeceras y opciones de driver guardadas en la conexión (JSON validado al leer). */
+export function connectionDriverOptions(
+  c: Pick<LlmConnection, 'headers' | 'driverOptions'>,
+): Omit<LlmCredentials, 'apiKey' | 'baseUrl'> {
+  const headers: Record<string, string> = {};
+  if (c.headers && typeof c.headers === 'object' && !Array.isArray(c.headers)) {
+    for (const [k, v] of Object.entries(c.headers as Record<string, unknown>))
+      if (typeof v === 'string') headers[k] = v;
+  }
+  const o = (c.driverOptions && typeof c.driverOptions === 'object' ? c.driverOptions : {}) as Record<string, unknown>;
+  return {
+    ...(Object.keys(headers).length ? { headers } : {}),
+    ...(AUTH_STYLES.includes(o.authHeader as AuthHeaderStyle) ? { authHeader: o.authHeader as AuthHeaderStyle } : {}),
+    ...(typeof o.verifyPath === 'string' && o.verifyPath.startsWith('/') ? { verifyPath: o.verifyPath } : {}),
+    ...(o.replayReasoning === true ? { replayReasoning: true } : {}),
+  };
+}
 
 export function toCatalogModel(m: LlmModel): CatalogModel {
   return {
@@ -59,6 +79,11 @@ export class LlmGatewayService {
   ) {
     this.drivers = new Map(drivers.map((d) => [d.kind, d]));
     this.anthropicKey = config.get<string>('llm.anthropicApiKey');
+  }
+
+  /** La plataforma tiene `ANTHROPIC_API_KEY` (conexión de sistema «Incluido por Nexo»). */
+  get platformAnthropicConfigured(): boolean {
+    return !!this.anthropicKey;
   }
 
   async catalog(workspaceId: string, includeDisabled = false): Promise<CatalogEntry[]> {
@@ -146,19 +171,26 @@ export class LlmGatewayService {
     }
   }
 
-  private clientFor(c: LlmConnection): LlmClient {
+  /** Cliente (cacheado por versión) de una conexión del workspace. */
+  clientFor(c: LlmConnection): LlmClient {
     return this.client(`${c.id}:${c.updatedAt.getTime()}`, c.kind, {
       apiKey: c.apiKeyCipher ? this.crypto.decrypt(c.apiKeyCipher) : undefined,
       baseUrl: c.baseUrl ?? undefined,
+      ...connectionDriverOptions(c),
     });
   }
 
-  private client(cacheKey: string, kind: LlmKind, credentials: { apiKey?: string; baseUrl?: string }): LlmClient {
+  /** Cliente sin caché para probar credenciales antes de guardar una conexión. */
+  createClient(kind: LlmKind, credentials: LlmCredentials): LlmClient {
+    const driver = this.drivers.get(kind);
+    if (!driver) throw new BadRequestException(`Tipo de proveedor no soportado: ${kind}`);
+    return driver.create(credentials);
+  }
+
+  private client(cacheKey: string, kind: LlmKind, credentials: LlmCredentials): LlmClient {
     let client = this.clients.get(cacheKey);
     if (!client) {
-      const driver = this.drivers.get(kind);
-      if (!driver) throw new BadRequestException(`Tipo de proveedor no soportado: ${kind}`);
-      client = driver.create(credentials);
+      client = this.createClient(kind, credentials);
       this.clients.set(cacheKey, client);
     }
     return client;

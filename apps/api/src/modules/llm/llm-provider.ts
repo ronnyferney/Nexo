@@ -66,11 +66,39 @@ export interface LlmRunResult {
 export interface LlmClient {
   run(request: LlmRunRequest): Promise<LlmRunResult>;
   test(): Promise<{ ok: boolean; message: string }>;
+  /**
+   * Verifica credenciales y alcance del endpoint con una llamada barata (sin tokens). Lanza `LlmHttpError` si el
+   * proveedor responde con error HTTP, o `Error` si no es alcanzable o la política de red lo bloquea.
+   */
+  verify?(): Promise<void>;
+  /** Ids de modelos que expone el proveedor (`/models`). */
+  listModels?(): Promise<string[]>;
 }
+
+/** Cómo viaja la clave en el driver compatible con OpenAI: `both` es el comportamiento heredado (sin catálogo). */
+export type AuthHeaderStyle = 'bearer' | 'api-key' | 'none' | 'both';
 
 export interface LlmCredentials {
   apiKey?: string;
   baseUrl?: string;
+  /** Cabeceras adicionales no secretas (p. ej. `X-OpenRouter-Title`). */
+  headers?: Record<string, string>;
+  authHeader?: AuthHeaderStyle;
+  /** Ruta usada por `verify()` (por defecto `/models`). */
+  verifyPath?: string;
+  /** Reenvía `reasoning_content` del asistente en turnos siguientes (p. ej. Kimi K3 lo exige). */
+  replayReasoning?: boolean;
+}
+
+/** Error HTTP de un proveedor LLM (estado y mensaje del proveedor, nunca la clave). */
+export class LlmHttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'LlmHttpError';
+  }
 }
 
 export interface LlmDriver {

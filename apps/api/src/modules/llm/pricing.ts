@@ -48,7 +48,8 @@ export const SYSTEM_ANTHROPIC_MODELS: CatalogModel[] = [
     tier: 'STANDARD',
     inputUsdPerMTok: 2,
     outputUsdPerMTok: 10,
-    cacheReadUsdPerMTok: 0.2,
+    // Lectura de caché de Sonnet 5.5: 0,05x de la entrada (platform.claude.com/docs/en/about-claude/pricing).
+    cacheReadUsdPerMTok: 0.1,
   },
   {
     id: 'claude-haiku-5-5',

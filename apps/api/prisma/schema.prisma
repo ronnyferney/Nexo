@@ -391,20 +391,29 @@ model Execution {
 
 /// Conexión a un proveedor LLM configurada por el administrador.
 model LlmConnection {
-  id           String     @id @default(cuid())
-  name         String
-  kind         LlmKind
-  baseUrl      String?
+  id             String     @id @default(cuid())
+  name           String
+  kind           LlmKind
+  baseUrl        String?
   /// API key cifrada con AES-256-GCM.
-  apiKeyCipher String?
-  enabled      Boolean    @default(true)
-  workspaceId  String
-  workspace    Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  models       LlmModel[]
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  apiKeyCipher   String?
+  enabled        Boolean    @default(true)
+  /// Id de la entrada del catálogo de proveedores (ADR 0002, D8). Null = conexión manual anterior al catálogo.
+  providerId     String?
+  /// Valores no secretos del formulario del catálogo (p. ej. recurso de Azure, región de Bedrock).
+  providerFields Json?
+  /// Cabeceras HTTP adicionales no secretas que el driver envía en cada llamada.
+  headers        Json?
+  /// Opciones del driver: { authHeader: 'bearer' | 'api-key' | 'none', verifyPath, replayReasoning }.
+  driverOptions  Json?
+  workspaceId    String
+  workspace      Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  models         LlmModel[]
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
 
   @@index([workspaceId])
+  @@index([workspaceId, providerId])
 }
 
 /// Modelo habilitado en una conexión, con su tarifa (USD por millón de tokens).
@@ -417,6 +426,8 @@ model LlmModel {
   outputUsdPerMTok    Decimal       @db.Decimal(12, 6)
   cacheReadUsdPerMTok Decimal?      @db.Decimal(12, 6)
   enabled             Boolean       @default(true)
+  /// Importado sin tarifa verificada (precio 0): la consola pide completarla.
+  needsPricing        Boolean       @default(false)
   connectionId        String
   connection          LlmConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
   createdAt           DateTime      @default(now())

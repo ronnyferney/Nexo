@@ -10,6 +10,6 @@ import { OAuthStateService } from './oauth-state.service';
 @Module({
   controllers: [OAuthController],
   providers: [OAuthService, OAuthStateService],
-  exports: [OAuthService],
+  exports: [OAuthService, OAuthStateService],
 })
 export class OAuthModule {}
