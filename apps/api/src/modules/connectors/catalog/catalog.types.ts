@@ -83,4 +83,16 @@ export const PATTERNS = {
   numericId: String.raw`^[0-9]{1,30}$`,
   /** Texto para literales SOQL: sin comillas, barras invertidas ni saltos de línea. */
   soqlText: String.raw`^[^'"\\\r\n]{0,100}$`,
+  /**
+   * Id de Microsoft Graph para un segmento de ruta: admite `=`, `-`, `_` (ids de Outlook/To Do en base64 URL-safe)
+   * y `:`/`@` (canales y chats de Teams, `19:...@thread.tacv2`). Sin `/`, `?`, `#`, `%`, espacios ni `..`, y nunca
+   * compuesto solo de puntos (`.`/`..` alterarían la ruta al normalizar la URL).
+   */
+  graphId: String.raw`^(?!\.+$)(?!.*\.\.)[A-Za-z0-9_.:=@-]{1,512}$`,
+  /** ETag de Microsoft Graph para `If-Match` (Planner): `W/"..."`, sin saltos de línea. */
+  graphEtag: String.raw`^(W/)?"[A-Za-z0-9+/=_-]{1,500}"$`,
+  /** Zona horaria (IANA o Windows) para `Prefer: outlook.timezone="..."`: sin comillas ni saltos de línea. */
+  timeZone: String.raw`^[A-Za-z0-9_+/ ().,:-]{1,100}$`,
+  /** GUID (id de objeto de usuario de Entra ID). */
+  guid: String.raw`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`,
 } as const;

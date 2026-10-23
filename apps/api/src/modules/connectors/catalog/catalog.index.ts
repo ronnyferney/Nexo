@@ -7,7 +7,11 @@ import { hubspot } from './integrations/hubspot';
 import { linkedin } from './integrations/linkedin';
 import { lushaRest } from './integrations/lusha';
 import { lushaMcp } from './integrations/lusha-mcp';
+import { microsoftCalendar } from './integrations/microsoft-calendar';
 import { microsoftOutlook } from './integrations/microsoft-outlook';
+import { microsoftPlanner } from './integrations/microsoft-planner';
+import { microsoftTeams } from './integrations/microsoft-teams';
+import { microsoftTodo } from './integrations/microsoft-todo';
 import { pipedrive } from './integrations/pipedrive';
 import { salesforce } from './integrations/salesforce';
 import { slack } from './integrations/slack';
@@ -30,6 +34,10 @@ export const CATALOG: readonly CatalogEntry[] = [
   googleCalendar,
   googleMeet,
   microsoftOutlook,
+  microsoftCalendar,
+  microsoftTodo,
+  microsoftPlanner,
+  microsoftTeams,
   whatsapp,
   slack,
 ];
