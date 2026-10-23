@@ -1,5 +1,7 @@
 import type { CatalogEntry } from './catalog.types';
-import { gmail } from './integrations/gmail';
+import { gmail, gmailInbox } from './integrations/gmail';
+import { googleCalendar } from './integrations/google-calendar';
+import { googleMeet } from './integrations/google-meet';
 import { googleSheets } from './integrations/google-sheets';
 import { hubspot } from './integrations/hubspot';
 import { linkedin } from './integrations/linkedin';
@@ -24,6 +26,9 @@ export const CATALOG: readonly CatalogEntry[] = [
   pipedrive,
   googleSheets,
   gmail,
+  gmailInbox,
+  googleCalendar,
+  googleMeet,
   microsoftOutlook,
   whatsapp,
   slack,
