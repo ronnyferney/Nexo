@@ -16,6 +16,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { ConnectorsModule } from './modules/connectors/connectors.module';
 import { EdgeModule } from './modules/edge/edge.module';
 import { GovernanceModule } from './modules/governance/governance.module';
+import { GroupsModule } from './modules/groups/groups.module';
 import { HealthModule } from './modules/health/health.module';
 import { LlmModule } from './modules/llm/llm.module';
 import { KnowledgeModule } from './modules/knowledge/knowledge.module';
@@ -57,6 +58,7 @@ import { WorkspacesModule } from './modules/workspaces/workspaces.module';
     WorkspacesModule,
     LlmModule,
     GovernanceModule,
+    GroupsModule,
     ConnectorsModule,
     OAuthModule,
     EdgeModule,

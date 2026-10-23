@@ -13,7 +13,7 @@ export interface AccessFacts {
   /** Las API keys no tienen identidad de usuario: nunca son dueñas, administradoras ni destinatarias de shares. */
   via: AuthContext['via'];
   visibility: AgentVisibility;
-  /** Mejor permiso entre los shares que aplican al usuario (USER directo o UNIT de su cadena de unidades). */
+  /** Mejor permiso entre los shares que aplican al usuario (USER directo, UNIT de su cadena de unidades o GROUP del que es miembro). */
   share: 'USE' | 'EDIT' | null;
 }
 

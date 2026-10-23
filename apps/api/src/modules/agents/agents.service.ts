@@ -3,6 +3,7 @@ import { Prisma, type Agent, type AgentVisibility } from '@prisma/client';
 import type { AuthContext } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AgentAccessService } from '../agent-access/agent-access.service';
+import { SharePrincipalsService } from '../agent-access/share-principals.service';
 import type { AgentPermission, AgentScope } from '../agent-access/agent-access.types';
 import { canShare, isWorkspaceAdmin } from '../agent-access/agent-permissions';
 import type { AgentEvent } from '../llm/llm-provider';
@@ -54,6 +55,7 @@ export class AgentsService {
     private readonly runtime: AgentRuntimeService,
     private readonly org: OrgService,
     private readonly access: AgentAccessService,
+    private readonly principals: SharePrincipalsService,
   ) {}
 
   /**
@@ -148,28 +150,15 @@ export class AgentsService {
     };
   }
 
-  /** Shares con el nombre del principal (usuario o unidad). */
+  /** Shares con el nombre del principal (usuario, unidad o grupo). */
   async shares(workspaceId: string, agentId: string) {
     const rows = await this.prisma.agentShare.findMany({ where: { agentId }, orderBy: { createdAt: 'asc' } });
-    const userIds = rows.filter((r) => r.principalType === 'USER').map((r) => r.principalId);
-    const unitIds = rows.filter((r) => r.principalType === 'UNIT').map((r) => r.principalId);
-    const [users, units] = await Promise.all([
-      userIds.length
-        ? this.prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } })
-        : [],
-      unitIds.length
-        ? this.prisma.orgUnit.findMany({
-            where: { id: { in: unitIds }, workspaceId },
-            select: { id: true, name: true },
-          })
-        : [],
-    ]);
-    const names = new Map([...users, ...units].map((x) => [x.id, x.name]));
+    const names = await this.principals.names(workspaceId, rows);
     return rows.map((r) => ({
       id: r.id,
       principalType: r.principalType,
       principalId: r.principalId,
-      principalName: names.get(r.principalId) ?? '',
+      principalName: this.principals.nameOf(names, r),
       permission: r.permission,
     }));
   }

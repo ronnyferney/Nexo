@@ -7,6 +7,7 @@ import type { AgentAccess, AgentHealth, HealthLevel } from '../agent-access/agen
 import { LAUNCH_MIN_SCORE } from '../agent-access/agent-health.rules';
 import { AgentHealthService } from '../agent-access/agent-health.service';
 import { canShare, isWorkspaceAdmin } from '../agent-access/agent-permissions';
+import { SharePrincipalsService } from '../agent-access/share-principals.service';
 import { AgentsService, MAX_EXAMPLES, targetScoreOf } from './agents.service';
 import type { DuplicateAgentDto, LaunchAgentDto, SetSharesDto } from './dto/agent.dto';
 
@@ -26,6 +27,7 @@ export class AgentLifecycleService {
     private readonly agents: AgentsService,
     private readonly access: AgentAccessService,
     private readonly health: AgentHealthService,
+    private readonly principals: SharePrincipalsService,
   ) {}
 
   /**
@@ -56,7 +58,10 @@ export class AgentLifecycleService {
     return this.agents.describe(auth.workspaceId, agent.id, await this.viewerOf(auth, agent.id));
   }
 
-  /** Reemplaza los shares. Requiere EDIT y rol EDITOR+; los principales deben ser del workspace. */
+  /**
+   * Reemplaza los shares. Requiere EDIT y rol EDITOR+; los principales (usuarios, unidades o grupos) deben ser del
+   * workspace (400 si no).
+   */
   async setShares(auth: AuthContext, { agent }: AgentAccess, dto: SetSharesDto) {
     if (!canShare(auth)) throw new ForbiddenException('Compartir agentes requiere rol EDITOR o superior');
     const key = (s: { principalType: string; principalId: string }) => `${s.principalType}:${s.principalId}`;
@@ -66,14 +71,7 @@ export class AgentLifecycleService {
       if (!prev || s.permission === 'EDIT') unique.set(key(s), s);
     }
     const shares = [...unique.values()].filter((s) => !(s.principalType === 'USER' && s.principalId === agent.ownerId));
-    const userIds = shares.filter((s) => s.principalType === 'USER').map((s) => s.principalId);
-    const unitIds = shares.filter((s) => s.principalType === 'UNIT').map((s) => s.principalId);
-    const [members, units] = await Promise.all([
-      this.prisma.membership.count({ where: { workspaceId: auth.workspaceId, userId: { in: userIds } } }),
-      this.prisma.orgUnit.count({ where: { workspaceId: auth.workspaceId, id: { in: unitIds } } }),
-    ]);
-    if (members !== userIds.length) throw new BadRequestException('Algún usuario no es miembro del workspace');
-    if (units !== unitIds.length) throw new BadRequestException('Alguna unidad no existe en el workspace');
+    await this.principals.assertExist(auth.workspaceId, shares);
     await this.prisma.$transaction([
       this.prisma.agentShare.deleteMany({ where: { agentId: agent.id } }),
       this.prisma.agentShare.createMany({

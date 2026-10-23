@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional, OmitType, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
+import { SHARE_PRINCIPAL_TYPES, type SharePrincipalType } from '../../agent-access/share-principals.service';
 import {
   ArrayMaxSize,
   IsArray,
@@ -110,7 +111,9 @@ export class SetVisibilityDto {
 }
 
 export class AgentShareDto {
-  @ApiProperty({ enum: ['USER', 'UNIT'] }) @IsIn(['USER', 'UNIT']) principalType!: 'USER' | 'UNIT';
+  @ApiProperty({ enum: SHARE_PRINCIPAL_TYPES, description: 'Usuario, unidad (y subunidades) o grupo de usuarios' })
+  @IsIn(SHARE_PRINCIPAL_TYPES)
+  principalType!: SharePrincipalType;
   @ApiProperty() @IsString() @MinLength(1) @MaxLength(64) principalId!: string;
   @ApiProperty({ enum: ['USE', 'EDIT'] }) @IsIn(['USE', 'EDIT']) permission!: 'USE' | 'EDIT';
 }

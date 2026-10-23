@@ -156,8 +156,8 @@ export class OrgService {
 
   /**
    * Retira a un miembro. Sus agentes pasan al administrador que lo retira (`actorUserId`), sin cambiar su visibilidad,
-   * y sus shares directos se eliminan (ADR 0007 D3). Si no hay actor (tareas internas) o el miembro se retira a sí
-   * mismo, pasan al OWNER más antiguo. La respuesta informa qué agentes se transfirieron y a quién.
+   * y sus shares directos se eliminan (ADR 0007 D3); también sale de los grupos de usuarios del workspace (D6). Si no
+   * hay actor (tareas internas) o el miembro se retira a sí mismo, pasan al OWNER más antiguo. La respuesta informa qué agentes se transfirieron y a quién.
    */
   async removeMember(workspaceId: string, membershipId: string, actorUserId?: string) {
     const m = await this.membership(workspaceId, membershipId);
@@ -175,6 +175,8 @@ export class OrgService {
       this.prisma.agentShare.deleteMany({
         where: { principalType: 'USER', principalId: m.userId, agent: { workspaceId } },
       }),
+      // Sale de los grupos de este workspace (sus grupos en otros workspaces no cambian).
+      this.prisma.userGroupMember.deleteMany({ where: { userId: m.userId, group: { workspaceId } } }),
       // El nuevo dueño no necesita un share directo sobre los agentes que recibe.
       this.prisma.agentShare.deleteMany({
         where: { principalType: 'USER', principalId: newOwnerId ?? '', agentId: { in: agents.map((a) => a.id) } },

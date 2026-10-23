@@ -182,7 +182,7 @@ export async function publishAgent(admin: Session, agentId: string): Promise<voi
 }
 
 export interface ShareBody {
-  principalType: 'USER' | 'UNIT';
+  principalType: 'USER' | 'UNIT' | 'GROUP';
   principalId: string;
   permission: 'USE' | 'EDIT';
 }
@@ -191,4 +191,21 @@ export interface ShareBody {
 export async function shareAgent(s: Session, agentId: string, shares: ShareBody[]): Promise<void> {
   await s.api.patch(`/agents/${agentId}/visibility`, { visibility: 'TEAM' }).expect(200);
   await s.api.put(`/agents/${agentId}/shares`, { shares }).expect(200);
+}
+
+export interface GroupView {
+  id: string;
+  name: string;
+  description: string | null;
+  memberCount: number;
+  members: { userId: string; name: string; email: string }[];
+  createdAt: string;
+}
+
+/** Crea un grupo de usuarios (ADR 0007 D6) como ADMIN/OWNER. */
+export async function createGroup(
+  admin: Session,
+  body: { name: string; description?: string; userIds?: string[] },
+): Promise<GroupView> {
+  return (await admin.api.post('/admin/groups', body).expect(201)).body as GroupView;
 }

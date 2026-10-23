@@ -12,15 +12,20 @@ import {
   isWorkspaceAdmin,
   type AccessFacts,
 } from './agent-permissions';
+import { principalFilter } from './share-principals.service';
 
 export const AGENT_NOT_FOUND = 'Agente no encontrado';
 export const AGENT_FORBIDDEN = 'No tiene permiso sobre este agente';
 
-/** Identidad del usuario para resolver shares: su id y la cadena de unidades (su unidad y ancestros). */
+/**
+ * Identidad del usuario para resolver shares: su id, la cadena de unidades (su unidad y ancestros) y los grupos del
+ * workspace a los que pertenece (ADR 0007 D6).
+ */
 interface Subject {
   auth: AuthContext;
   userId: string | null;
   unitIds: string[];
+  groupIds: string[];
 }
 
 /**
@@ -29,6 +34,9 @@ interface Subject {
  *
  * Unidades (TEAM): un share a la unidad X alcanza a los miembros de X y de todas sus subunidades. Se resuelve
  * comparando los shares UNIT con la cadena de ancestros de la unidad del usuario (`OrgService.chain`).
+ *
+ * Grupos (D6): un share al grupo G alcanza a todos sus miembros actuales (incluidos VIEWER, solo para usar). La
+ * membresía se consulta en cada decisión, así que agregar o quitar a alguien del grupo aplica de inmediato.
  */
 @Injectable()
 export class AgentAccessService {
@@ -52,7 +60,7 @@ export class AgentAccessService {
   /**
    * Ids de los agentes que el usuario puede USAR en el ámbito indicado (mismos ámbitos que `GET /agents?scope=`):
    * - `mine`: los suyos (dueño).
-   * - `shared`: ajenos compartidos con él (share USER o UNIT de su cadena; solo TEAM/WORKSPACE).
+   * - `shared`: ajenos compartidos con él (share USER, UNIT de su cadena o GROUP suyo; solo TEAM/WORKSPACE).
    * - `workspace`: visibilidad WORKSPACE (Empresa).
    * - `all`: todos los del workspace (solo ADMIN/OWNER; 403 para el resto).
    * Para "todos los que puede usar" (unión de mine + shared + workspace) use `usableAgentIds`.
@@ -154,10 +162,23 @@ export class AgentAccessService {
     }
   }
 
+  /** Grupos del workspace a los que pertenece el usuario (ADR 0007 D6). */
+  async groupIdsOf(workspaceId: string, userId: string): Promise<string[]> {
+    const rows = await this.prisma.userGroupMember.findMany({
+      where: { userId, group: { workspaceId } },
+      select: { groupId: true },
+    });
+    return rows.map((r) => r.groupId);
+  }
+
   private async subject(auth: AuthContext): Promise<Subject> {
     const userId = auth.via === 'jwt' && auth.userId ? auth.userId : null;
-    const unitIds = userId ? await this.unitChainOf(auth.workspaceId, userId) : [];
-    return { auth, userId, unitIds };
+    if (!userId) return { auth, userId, unitIds: [], groupIds: [] };
+    const [unitIds, groupIds] = await Promise.all([
+      this.unitChainOf(auth.workspaceId, userId),
+      this.groupIdsOf(auth.workspaceId, userId),
+    ]);
+    return { auth, userId, unitIds, groupIds };
   }
 
   private async facts(subject: Subject, agent: Agent): Promise<AccessFacts> {
@@ -186,10 +207,13 @@ export class AgentAccessService {
     return map;
   }
 
+  /** Shares que alcanzan al sujeto: USER directo, UNIT de su cadena o GROUP del que es miembro. */
   private principalMatch(subject: Subject): Prisma.AgentShareWhereInput[] {
-    const or: Prisma.AgentShareWhereInput[] = [{ principalType: 'USER', principalId: subject.userId ?? '' }];
-    if (subject.unitIds.length) or.push({ principalType: 'UNIT', principalId: { in: subject.unitIds } });
-    return or;
+    return principalFilter({
+      USER: subject.userId ? [subject.userId] : [],
+      UNIT: subject.unitIds,
+      GROUP: subject.groupIds,
+    });
   }
 
   private sharedWith(subject: Subject): Prisma.AgentWhereInput {
