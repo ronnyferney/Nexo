@@ -9,7 +9,9 @@ import { HttpClientModule } from './common/http/http-client.module';
 import configuration from './config/configuration';
 import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './infrastructure/prisma/prisma.module';
+import { AgentAccessModule } from './modules/agent-access/agent-access.module';
 import { AgentsModule } from './modules/agents/agents.module';
+import { CopilotModule } from './modules/copilot/copilot.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ConnectorsModule } from './modules/connectors/connectors.module';
 import { EdgeModule } from './modules/edge/edge.module';
@@ -58,7 +60,9 @@ import { WorkspacesModule } from './modules/workspaces/workspaces.module';
     ConnectorsModule,
     OAuthModule,
     EdgeModule,
+    AgentAccessModule,
     AgentsModule,
+    CopilotModule,
     SkillsModule,
     KnowledgeModule,
     TrainingModule,

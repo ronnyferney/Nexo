@@ -63,6 +63,39 @@ enum UsageSource {
   MCP
   ROUTINE
   EVAL
+  COPILOT
+}
+
+enum AgentVisibility {
+  PRIVATE
+  TEAM
+  WORKSPACE
+}
+
+enum SharePrincipal {
+  USER
+  UNIT
+}
+
+enum SharePermission {
+  USE
+  EDIT
+}
+
+enum LaunchStatus {
+  DRAFT
+  LAUNCHED
+}
+
+enum CopilotMode {
+  CREATE
+  IMPROVE
+  DIAGNOSE
+}
+
+enum CopilotProposalKind {
+  CREATE_AGENT
+  UPDATE_AGENT
 }
 
 enum FeedbackRating {
@@ -125,25 +158,27 @@ model User {
 }
 
 model Workspace {
-  id             String          @id @default(cuid())
-  name           String
-  slug           String          @unique
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  memberships    Membership[]
-  connectors     Connector[]
-  agents         Agent[]
-  workflows      Workflow[]
-  executions     Execution[]
-  apiKeys        ApiKey[]
-  secrets        Secret[]
-  llmConnections LlmConnection[]
-  orgUnits       OrgUnit[]
-  usage          UsageRecord[]
-  skills         Skill[]
-  knowledgeBases KnowledgeBase[]
-  agentRoutines  AgentRoutine[]
-  edgeAgents     EdgeAgent[]
+  id                  String          @id @default(cuid())
+  name                String
+  slug                String          @unique
+  /// Permite que cualquier miembro cree agentes personales (ADR 0007).
+  allowPersonalAgents Boolean         @default(true)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  memberships         Membership[]
+  connectors          Connector[]
+  agents              Agent[]
+  workflows           Workflow[]
+  executions          Execution[]
+  apiKeys             ApiKey[]
+  secrets             Secret[]
+  llmConnections      LlmConnection[]
+  orgUnits            OrgUnit[]
+  usage               UsageRecord[]
+  skills              Skill[]
+  knowledgeBases      KnowledgeBase[]
+  agentRoutines       AgentRoutine[]
+  edgeAgents          EdgeAgent[]
 }
 
 model Membership {
@@ -228,39 +263,47 @@ model ConnectorOperation {
 }
 
 model Agent {
-  id             String             @id @default(cuid())
-  name           String
-  description    String?
-  provider       String             @default("anthropic")
-  model          String             @default("claude-opus-5-5")
-  systemPrompt   String             @default("")
+  id                   String             @id @default(cuid())
+  name                 String
+  description          String?
+  provider             String             @default("anthropic")
+  model                String             @default("claude-opus-5-5")
+  systemPrompt         String             @default("")
   /// low | medium | high | xhigh | max
-  effort         String             @default("medium")
-  maxTurns       Int                @default(12)
+  effort               String             @default("medium")
+  maxTurns             Int                @default(12)
   /// Perfil estructurado: { role, goals[], responsibilities[], boundaries[], tone, outputFormat, language } (ADR 0003).
-  profile        Json               @default("{}")
+  profile              Json               @default("{}")
   /// Cadena de respaldo "<providerId>:<modelId>" (máx. 3).
-  fallbackModels String[]           @default([])
+  fallbackModels       String[]           @default([])
   /// Meta de calidad del bucle de mejora (0..1, ADR 0004).
-  targetScore    Float              @default(0.85)
+  targetScore          Float              @default(0.85)
+  /// Ciclo de vida de producción (ADR 0006): solo los agentes LAUNCHED se publican por MCP y ejecutan rutinas.
+  launchStatus         LaunchStatus       @default(DRAFT)
+  launchedAt           DateTime?
+  launchOverrideReason String?
+  /// Visibilidad y propiedad (ADR 0007).
+  visibility           AgentVisibility    @default(PRIVATE)
+  ownerId              String?
+  shares               AgentShare[]
   /// Centro de costo cuando el agente corre sin usuario (flujos, webhooks, MCP).
-  costCenterId   String?
-  costCenter     OrgUnit?           @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
-  workspaceId    String
-  workspace      Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  tools          AgentTool[]
-  conversations  Conversation[]
-  skills         AgentSkill[]
-  knowledge      AgentKnowledge[]
-  examples       AgentExample[]
-  routines       AgentRoutine[]
-  feedback       MessageFeedback[]
-  evalCases      EvalCase[]
-  evalRuns       EvalRun[]
-  versions       AgentVersion[]
-  suggestions    PromptSuggestion[]
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
+  costCenterId         String?
+  costCenter           OrgUnit?           @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+  workspaceId          String
+  workspace            Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tools                AgentTool[]
+  conversations        Conversation[]
+  skills               AgentSkill[]
+  knowledge            AgentKnowledge[]
+  examples             AgentExample[]
+  routines             AgentRoutine[]
+  feedback             MessageFeedback[]
+  evalCases            EvalCase[]
+  evalRuns             EvalRun[]
+  versions             AgentVersion[]
+  suggestions          PromptSuggestion[]
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
 
   @@index([workspaceId])
 }
@@ -280,6 +323,8 @@ model AgentTool {
 model Conversation {
   id        String   @id @default(cuid())
   title     String   @default("Nueva conversación")
+  /// Usuario dueño de la conversación (ADR 0007: las conversaciones son privadas).
+  userId    String?
   /// Proveedor que produjo el historial (los formatos no son intercambiables).
   provider  String   @default("anthropic")
   agentId   String
@@ -753,4 +798,86 @@ model EdgeAgent {
   updatedAt   DateTime  @updatedAt
 
   @@index([workspaceId])
+}
+
+// ===================== Nexo Copilot (ADR 0006) =====================
+
+/// Conversación con el Copilot (agente propiedad de Nexo). El historial nativo del proveedor vive en `history`.
+model CopilotSession {
+  id          String            @id @default(cuid())
+  workspaceId String
+  userId      String
+  agentId     String?
+  mode        CopilotMode
+  context     String?
+  providerId  String
+  model       String
+  history     Json              @default("[]")
+  messages    CopilotMessage[]
+  proposals   CopilotProposal[]
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([workspaceId, createdAt])
+}
+
+/// Mensaje visible de la conversación (texto plano), calificable por el usuario.
+model CopilotMessage {
+  id        String           @id @default(cuid())
+  sessionId String
+  session   CopilotSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role      String
+  text      String
+  feedback  CopilotFeedback?
+  createdAt DateTime         @default(now())
+
+  @@index([sessionId, createdAt])
+}
+
+model CopilotProposal {
+  id          String              @id @default(cuid())
+  sessionId   String
+  session     CopilotSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  workspaceId String
+  agentId     String?
+  kind        CopilotProposalKind
+  status      SuggestionStatus    @default(PENDING)
+  summary     String
+  payload     Json
+  appliedById String?
+  appliedAt   DateTime?
+  createdAt   DateTime            @default(now())
+
+  @@index([workspaceId, createdAt])
+}
+
+/// Calificación del usuario a una respuesta del Copilot (calidad gestionada por Nexo).
+model CopilotFeedback {
+  id                 String         @id @default(cuid())
+  messageId          String         @unique
+  message            CopilotMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  workspaceId        String
+  userId             String
+  rating             FeedbackRating
+  comment            String?
+  /// Solo si el usuario decidió compartir la conversación con Nexo.
+  sharedConversation Json?
+  createdAt          DateTime       @default(now())
+
+  @@index([createdAt])
+}
+
+// ===================== Visibilidad y permisos de agentes (ADR 0007) =====================
+
+model AgentShare {
+  id            String          @id @default(cuid())
+  agentId       String
+  agent         Agent           @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  principalType SharePrincipal
+  principalId   String
+  permission    SharePermission @default(USE)
+  createdAt     DateTime        @default(now())
+
+  @@unique([agentId, principalType, principalId])
+  @@index([principalType, principalId])
 }
