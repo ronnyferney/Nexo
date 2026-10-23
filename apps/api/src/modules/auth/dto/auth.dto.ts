@@ -16,3 +16,8 @@ export class LoginDto {
 export class SwitchWorkspaceDto {
   @ApiProperty() @IsString() workspaceId!: string;
 }
+
+export class ChangePasswordDto {
+  @ApiProperty() @IsString() currentPassword!: string;
+  @ApiProperty() @IsString() @MinLength(8) @MaxLength(128) newPassword!: string;
+}

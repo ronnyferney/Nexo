@@ -62,6 +62,8 @@ export class ApiService {
   upsertSecret = (name: string, value: string) => this.put('/workspace/secrets', { name, value });
   deleteSecret = (id: string) => this.delete(`/workspace/secrets/${id}`);
   apiKeys = () => this.get<{ id: string; name: string; prefix: string; lastUsedAt?: string; createdAt: string }[]>('/workspace/api-keys');
+  changePassword = (body: { currentPassword: string; newPassword: string }) =>
+    this.post<{ changed: true }>('/auth/change-password', body);
   createApiKey = (name: string) => this.post<{ id: string; name: string; key: string }>('/workspace/api-keys', { name });
   deleteApiKey = (id: string) => this.delete(`/workspace/api-keys/${id}`);
 

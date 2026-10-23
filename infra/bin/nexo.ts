@@ -10,6 +10,7 @@ import { RegistryStack } from '../lib/registry-stack';
  *   hostedZoneId    Zona de Route 53 del dominio (obligatoria si hay dominio y se quiere certificado automático).
  *   hostedZoneName  Nombre de la zona (p. ej. phari.co).
  *   githubRepo      Repositorio autorizado a desplegar por OIDC (por defecto ronnyferney/Nexo).
+ *   adminEmail      Correo del usuario maestro (OWNER inicial y administrador de la plataforma).
  *   platformAdminEmails  Correos de administradores de la plataforma Nexo, separados por coma.
  *   imageTag        Versión publicada a desplegar (p. ej. 1.4.0, imágenes de ECR). Sin ella se construye desde el código.
  */
@@ -27,6 +28,7 @@ new NexoPilotStack(app, 'NexoPilot', {
   hostedZoneName: ctx('hostedZoneName'),
   imageTag: ctx('imageTag'),
   platformAdminEmails: ctx('platformAdminEmails'),
+  adminEmail: ctx('adminEmail'),
   description: 'Nexo — piloto: API, workers y web en ECS Fargate, PostgreSQL (RDS) y Redis (ElastiCache)',
 });
 

@@ -31,7 +31,8 @@ npx cdk deploy NexoRegistry          # repositorios ECR nexo/api y nexo/web (el 
 
 En GitHub (repositorio → Settings):
 - **Secrets → Actions:** `AWS_DEPLOY_ROLE_ARN` = salida `DeployRoleArn` del paso anterior.
-- **Variables:** `AWS_REGION` (p. ej. `us-east-1`). Para HTTPS con dominio propio: `DOMAIN_NAME` (p. ej. `nexo.phari.co`),
+- **Variables:** `AWS_REGION` (p. ej. `us-east-1`), `ADMIN_EMAIL` (usuario maestro) y opcionalmente
+  `PLATFORM_ADMIN_EMAILS` (por defecto, el usuario maestro). Para HTTPS con dominio propio: `DOMAIN_NAME` (p. ej. `nexo.phari.co`),
   `HOSTED_ZONE_ID` y `HOSTED_ZONE_NAME` de Route 53.
 - **Environments:** cree el entorno `piloto` (puede exigir aprobación de un revisor antes de desplegar).
 - Si actualiza desde una versión anterior de esta guía, vuelva a desplegar `NexoGithubOidc` (agrega permisos de ECR).
@@ -56,7 +57,12 @@ El primer despliegue tarda ~20–30 min (sobre todo RDS).
 
 1. **Clave de Claude:** en Secrets Manager abra el secreto de la salida `AppSecretArn` y complete `ANTHROPIC_API_KEY`.
    Reinicie: `aws ecs update-service --cluster <ClusterName> --service <api> --force-new-deployment` (y el worker).
-2. **Primera cuenta:** abra la URL de salida `Url` y registre el workspace del piloto (el primer usuario es OWNER).
+2. **Usuario maestro:** si definió la variable `ADMIN_EMAIL` (GitHub → Variables) o `-c adminEmail=...`, la API crea en
+   el primer arranque ese usuario como OWNER del workspace "Nexo" y administrador de la plataforma. Su contraseña
+   inicial la genera AWS: Secrets Manager → secreto de la salida `MasterUserSecretArn` → *Recuperar valor del secreto*.
+   Entre por la URL de salida `Url` y cámbiela de inmediato en **Mi cuenta** (ícono de engranaje junto a su nombre).
+   La contraseña nunca pasa por GitHub, el código ni el chat; volver a desplegar no la cambia.
+   Sin `ADMIN_EMAIL`, el primer usuario que se registre en la URL es OWNER de su workspace.
 3. **OAuth (opcional):** registre en cada proveedor la URL de redirección `https://<dominio>/api/oauth/callback` y cargue
    `OAUTH_<PROVEEDOR>_CLIENT_ID/SECRET` como secretos de la tarea (o use apps OAuth propias de cada cliente desde la bóveda).
 4. **Nexo Edge:** los clientes instalan el Edge en su red apuntando a `NEXO_URL=https://<dominio>`.

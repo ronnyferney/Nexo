@@ -27,6 +27,11 @@ export interface NexoPilotStackProps extends cdk.StackProps {
   imageTag?: string;
   /** Correos de los administradores de la plataforma Nexo (consola de plataforma, ADR 0006 D6), separados por coma. */
   platformAdminEmails?: string;
+  /**
+   * Correo del usuario maestro: se crea en el primer arranque como OWNER del workspace "Nexo" y como administrador
+   * de la plataforma. Su contraseña inicial se genera en Secrets Manager (salida MasterUserSecretArn).
+   */
+  adminEmail?: string;
 }
 
 const ROOT = path.join(__dirname, '..', '..');
@@ -126,6 +131,16 @@ export class NexoPilotStack extends cdk.Stack {
         excludePunctuation: true,
       },
     });
+    // Contraseña inicial del usuario maestro: generada aquí, nunca en el código ni en GitHub. Debe cambiarse al entrar.
+    const masterUserSecret = new secretsmanager.Secret(this, 'MasterUser', {
+      description: 'Nexo: contraseña inicial del usuario maestro (cámbiela al primer ingreso)',
+      generateSecretString: {
+        secretStringTemplate: JSON.stringify({ email: props.adminEmail ?? '' }),
+        generateStringKey: 'password',
+        passwordLength: 24,
+        excludeCharacters: '"\\\'`',
+      },
+    });
     const encryptionSecret = new secretsmanager.Secret(this, 'EncryptionKey', {
       description: 'Nexo: ENCRYPTION_KEY (32 bytes en hex). NO ROTAR: cifra los secretos de los clientes.',
       generateSecretString: {
@@ -180,7 +195,7 @@ export class NexoPilotStack extends cdk.Stack {
       COPILOT_PROVIDER: 'anthropic',
       COPILOT_MODEL: 'claude-opus-5-5',
       COPILOT_MONTHLY_QUOTA_USD: '2',
-      PLATFORM_ADMIN_EMAILS: props.platformAdminEmails ?? '',
+      PLATFORM_ADMIN_EMAILS: props.platformAdminEmails ?? props.adminEmail ?? '',
     };
     const apiSecrets: Record<string, ecs.Secret> = {
       DB_USER: ecs.Secret.fromSecretsManager(db.secret!, 'username'),
@@ -189,6 +204,13 @@ export class NexoPilotStack extends cdk.Stack {
       ANTHROPIC_API_KEY: ecs.Secret.fromSecretsManager(appSecret, 'ANTHROPIC_API_KEY'),
       ENCRYPTION_KEY: ecs.Secret.fromSecretsManager(encryptionSecret),
     };
+    // Solo la API crea el usuario maestro (el worker no recibe la contraseña).
+    const bootstrapEnv: Record<string, string> = props.adminEmail
+      ? { BOOTSTRAP_ADMIN_EMAIL: props.adminEmail, BOOTSTRAP_WORKSPACE_NAME: 'Nexo' }
+      : {};
+    const bootstrapSecrets: Record<string, ecs.Secret> = props.adminEmail
+      ? { BOOTSTRAP_ADMIN_PASSWORD: ecs.Secret.fromSecretsManager(masterUserSecret, 'password') }
+      : {};
     const logDriver = (prefix: string) =>
       ecs.LogDrivers.awsLogs({ streamPrefix: prefix, logRetention: logs.RetentionDays.ONE_MONTH });
 
@@ -196,8 +218,8 @@ export class NexoPilotStack extends cdk.Stack {
     const apiTask = new ecs.FargateTaskDefinition(this, 'ApiTask', { cpu: 512, memoryLimitMiB: 1024 });
     apiTask.addContainer('api', {
       image: apiImage,
-      environment: { ...apiEnv, WORKER_ENABLED: 'false', RUN_MIGRATIONS: 'true' },
-      secrets: apiSecrets,
+      environment: { ...apiEnv, ...bootstrapEnv, WORKER_ENABLED: 'false', RUN_MIGRATIONS: 'true' },
+      secrets: { ...apiSecrets, ...bootstrapSecrets },
       portMappings: [{ name: 'api', containerPort: 3000, appProtocol: ecs.AppProtocol.http }],
       logging: logDriver('api'),
       healthCheck: {
@@ -303,6 +325,10 @@ export class NexoPilotStack extends cdk.Stack {
     // ---------- Salidas ----------
     new cdk.CfnOutput(this, 'Url', { value: publicUrl, description: 'URL del piloto de Nexo' });
     new cdk.CfnOutput(this, 'Version', { value: props.imageTag ?? 'local', description: 'Versión desplegada' });
+    new cdk.CfnOutput(this, 'MasterUserSecretArn', {
+      value: masterUserSecret.secretArn,
+      description: 'Usuario maestro: correo y contraseña inicial (Secrets Manager → Recuperar valor del secreto)',
+    });
     new cdk.CfnOutput(this, 'AppSecretArn', {
       value: appSecret.secretArn,
       description: 'Complete ANTHROPIC_API_KEY en este secreto y reinicie los servicios api y worker',

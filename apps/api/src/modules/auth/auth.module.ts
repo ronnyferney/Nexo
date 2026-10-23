@@ -5,6 +5,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { BootstrapAdminService } from './bootstrap-admin.service';
 
 @Module({
   imports: [
@@ -18,7 +19,7 @@ import { AuthService } from './auth.service';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, { provide: APP_GUARD, useClass: AuthGuard }],
+  providers: [AuthService, BootstrapAdminService, { provide: APP_GUARD, useClass: AuthGuard }],
   exports: [AuthService],
 })
 export class AuthModule {}

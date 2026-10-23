@@ -1,10 +1,10 @@
-import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, HttpCode, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { CurrentAuth, type AuthContext } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { AuthService } from './auth.service';
-import { LoginDto, RegisterDto, SwitchWorkspaceDto } from './dto/auth.dto';
+import { ChangePasswordDto, LoginDto, RegisterDto, SwitchWorkspaceDto } from './dto/auth.dto';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -30,6 +30,15 @@ export class AuthController {
   @Get('me')
   me(@CurrentAuth() auth: AuthContext) {
     return this.auth.me(auth.userId!, auth.workspaceId);
+  }
+
+  @ApiBearerAuth()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post('change-password')
+  changePassword(@CurrentAuth() auth: AuthContext, @Body() dto: ChangePasswordDto) {
+    if (!auth.userId) throw new ForbiddenException('Las API keys no tienen contraseña');
+    return this.auth.changePassword(auth.userId, dto);
   }
 
   @ApiBearerAuth()

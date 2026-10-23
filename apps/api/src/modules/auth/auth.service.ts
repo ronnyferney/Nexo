@@ -1,9 +1,15 @@
-import { ConflictException, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import type { JwtPayload } from '../../common/guards/auth.guard';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { LoginDto, RegisterDto } from './dto/auth.dto';
+import type { ChangePasswordDto, LoginDto, RegisterDto } from './dto/auth.dto';
 
 function slugify(value: string): string {
   return value
@@ -61,6 +67,22 @@ export class AuthService {
       throw new UnauthorizedException('Credenciales inválidas');
     }
     return this.issue(user.id, user.memberships[0]?.workspaceId);
+  }
+
+  /** Cambia la contraseña del usuario autenticado (exige la actual; el usuario maestro debe usarlo al primer ingreso). */
+  async changePassword(userId: string, dto: ChangePasswordDto): Promise<{ changed: true }> {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    if (!(await bcrypt.compare(dto.currentPassword, user.passwordHash))) {
+      throw new UnauthorizedException('La contraseña actual no es correcta');
+    }
+    if (dto.currentPassword === dto.newPassword) {
+      throw new BadRequestException('La nueva contraseña debe ser distinta de la actual');
+    }
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash: await bcrypt.hash(dto.newPassword, 12) },
+    });
+    return { changed: true };
   }
 
   async me(userId: string, workspaceId: string) {

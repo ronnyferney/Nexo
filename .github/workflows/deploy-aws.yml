@@ -89,6 +89,7 @@ jobs:
           HOSTED_ZONE_ID: ${{ vars.HOSTED_ZONE_ID }}
           HOSTED_ZONE_NAME: ${{ vars.HOSTED_ZONE_NAME }}
           PLATFORM_ADMIN_EMAILS: ${{ vars.PLATFORM_ADMIN_EMAILS }}
+          ADMIN_EMAIL: ${{ vars.ADMIN_EMAIL }}
         run: npx cdk deploy NexoPilot -c imageTag="$VERSION" --require-approval never --outputs-file outputs.json
       - id: outputs
         working-directory: infra
@@ -108,4 +109,4 @@ jobs:
         working-directory: infra
         run: |
           echo "### Nexo $VERSION desplegado en el piloto" >> "$GITHUB_STEP_SUMMARY"
-          node -e "const o=require('./outputs.json').NexoPilot; console.log('- URL: '+o.Url+'\n- Secreto de la app: '+o.AppSecretArn)" >> "$GITHUB_STEP_SUMMARY"
+          node -e "const o=require('./outputs.json').NexoPilot; console.log('- URL: '+o.Url+'\n- Secreto de la app: '+o.AppSecretArn+'\n- Usuario maestro: '+o.MasterUserSecretArn)" >> "$GITHUB_STEP_SUMMARY"

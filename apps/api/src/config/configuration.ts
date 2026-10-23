@@ -13,6 +13,8 @@ export interface AppConfig {
   executions: { retentionDays: number };
   /** Nexo Copilot (ADR 0006 D2): modelo de plataforma y cupo mensual por workspace pagado por Nexo. */
   copilot: { provider: string; model: string; monthlyQuotaUsd: number };
+  /** Usuario maestro del primer arranque (BOOTSTRAP_ADMIN_*). */
+  bootstrapAdmin: { email: string | null; password: string | null; name: string; workspaceName: string };
   /** Administradores de la plataforma Nexo (no son roles de workspace, ADR 0006 D6). */
   platform: { adminEmails: string[] };
 }
@@ -65,6 +67,13 @@ export default (): AppConfig => ({
   copilot: {
     ...copilotModelFrom(process.env),
     monthlyQuotaUsd: nonNegative(process.env.COPILOT_MONTHLY_QUOTA_USD, 2),
+  },
+  bootstrapAdmin: {
+    /** Usuario maestro del primer arranque (OWNER del workspace inicial). Sin ambos valores no se crea nada. */
+    email: process.env.BOOTSTRAP_ADMIN_EMAIL?.trim().toLowerCase() || null,
+    password: process.env.BOOTSTRAP_ADMIN_PASSWORD || null,
+    name: process.env.BOOTSTRAP_ADMIN_NAME?.trim() || 'Administrador de Nexo',
+    workspaceName: process.env.BOOTSTRAP_WORKSPACE_NAME?.trim() || 'Nexo',
   },
   platform: {
     adminEmails: (process.env.PLATFORM_ADMIN_EMAILS ?? '')

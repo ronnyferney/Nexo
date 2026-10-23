@@ -28,6 +28,7 @@ export const routes: Routes = [
       { path: 'knowledge/:id', loadComponent: () => import('./features/knowledge/knowledge-detail.page').then((m) => m.KnowledgeDetailPage) },
       { path: 'routines', loadComponent: () => import('./features/routines/routines.page').then((m) => m.RoutinesPage) },
       { path: 'supervision', loadComponent: () => import('./features/supervision/supervision.page').then((m) => m.SupervisionPage) },
+      { path: 'account', loadComponent: () => import('./features/account/account.page').then((m) => m.AccountPage) },
       { path: 'my-usage', loadComponent: () => import('./features/usage/my-usage.page').then((m) => m.MyUsagePage) },
       { path: 'settings', redirectTo: 'admin/security', pathMatch: 'full' },
 

@@ -58,6 +58,7 @@ import { IconComponent } from '../shared/icon.component';
         <div class="user">
           <div class="avatar">{{ me.name.charAt(0) }}</div>
           <div class="who"><strong>{{ me.name }}</strong><small>{{ workspaceName() }}</small></div>
+          <a class="btn ghost icon" routerLink="/account" title="Mi cuenta" aria-label="Mi cuenta"><nx-icon name="settings" /></a>
           <button class="btn ghost icon" title="Cerrar sesión" (click)="auth.logout()"><nx-icon name="logout" /></button>
         </div>
       }
