@@ -15,7 +15,10 @@ import { ConnectorsModule } from './modules/connectors/connectors.module';
 import { GovernanceModule } from './modules/governance/governance.module';
 import { HealthModule } from './modules/health/health.module';
 import { LlmModule } from './modules/llm/llm.module';
+import { KnowledgeModule } from './modules/knowledge/knowledge.module';
 import { McpServerModule } from './modules/mcp-server/mcp-server.module';
+import { RoutinesModule } from './modules/routines/routines.module';
+import { SkillsModule } from './modules/skills/skills.module';
 import { WorkflowsModule } from './modules/workflows/workflows.module';
 import { WorkspacesModule } from './modules/workspaces/workspaces.module';
 
@@ -51,7 +54,10 @@ import { WorkspacesModule } from './modules/workspaces/workspaces.module';
     GovernanceModule,
     ConnectorsModule,
     AgentsModule,
+    SkillsModule,
+    KnowledgeModule,
     WorkflowsModule,
+    RoutinesModule,
     McpServerModule,
     HealthModule,
   ],
