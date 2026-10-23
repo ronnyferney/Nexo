@@ -19,6 +19,7 @@ import { KnowledgeModule } from './modules/knowledge/knowledge.module';
 import { McpServerModule } from './modules/mcp-server/mcp-server.module';
 import { RoutinesModule } from './modules/routines/routines.module';
 import { SkillsModule } from './modules/skills/skills.module';
+import { TrainingModule } from './modules/training/training.module';
 import { WorkflowsModule } from './modules/workflows/workflows.module';
 import { WorkspacesModule } from './modules/workspaces/workspaces.module';
 
@@ -56,6 +57,7 @@ import { WorkspacesModule } from './modules/workspaces/workspaces.module';
     AgentsModule,
     SkillsModule,
     KnowledgeModule,
+    TrainingModule,
     WorkflowsModule,
     RoutinesModule,
     McpServerModule,

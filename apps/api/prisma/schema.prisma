@@ -61,6 +61,31 @@ enum UsageSource {
   WORKFLOW
   MCP
   ROUTINE
+  EVAL
+}
+
+enum FeedbackRating {
+  UP
+  DOWN
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  DISCARDED
+}
+
+enum EvalRunStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+enum SuggestionStatus {
+  PENDING
+  APPLIED
+  REJECTED
 }
 
 enum KnowledgeSourceType {
@@ -198,32 +223,37 @@ model ConnectorOperation {
 }
 
 model Agent {
-  id             String           @id @default(cuid())
+  id             String             @id @default(cuid())
   name           String
   description    String?
-  provider       String           @default("anthropic")
-  model          String           @default("claude-opus-5-5")
-  systemPrompt   String           @default("")
+  provider       String             @default("anthropic")
+  model          String             @default("claude-opus-5-5")
+  systemPrompt   String             @default("")
   /// low | medium | high | xhigh | max
-  effort         String           @default("medium")
-  maxTurns       Int              @default(12)
+  effort         String             @default("medium")
+  maxTurns       Int                @default(12)
   /// Perfil estructurado: { role, goals[], responsibilities[], boundaries[], tone, outputFormat, language } (ADR 0003).
-  profile        Json             @default("{}")
+  profile        Json               @default("{}")
   /// Cadena de respaldo "<providerId>:<modelId>" (máx. 3).
-  fallbackModels String[]         @default([])
+  fallbackModels String[]           @default([])
   /// Centro de costo cuando el agente corre sin usuario (flujos, webhooks, MCP).
   costCenterId   String?
-  costCenter     OrgUnit?         @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+  costCenter     OrgUnit?           @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
   workspaceId    String
-  workspace      Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace      Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   tools          AgentTool[]
   conversations  Conversation[]
   skills         AgentSkill[]
   knowledge      AgentKnowledge[]
   examples       AgentExample[]
   routines       AgentRoutine[]
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  feedback       MessageFeedback[]
+  evalCases      EvalCase[]
+  evalRuns       EvalRun[]
+  versions       AgentVersion[]
+  suggestions    PromptSuggestion[]
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
 
   @@index([workspaceId])
 }
@@ -565,4 +595,120 @@ model WorkflowVersion {
   createdAt  DateTime @default(now())
 
   @@unique([workflowId, version])
+}
+
+// ===================== Bucle de mejora supervisada (ADR 0004) =====================
+
+/// Calificación y corrección humana de una respuesta del agente.
+model MessageFeedback {
+  id             String         @id @default(cuid())
+  agentId        String
+  agent          Agent          @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  workspaceId    String
+  conversationId String?
+  userId         String?
+  userMessage    String
+  agentResponse  String
+  rating         FeedbackRating
+  comment        String?
+  correction     String?
+  status         ReviewStatus   @default(PENDING)
+  reviewedById   String?
+  reviewedAt     DateTime?
+  createdAt      DateTime       @default(now())
+
+  @@index([workspaceId, status, createdAt])
+  @@index([agentId, createdAt])
+}
+
+/// Caso de prueba del agente (entrada, respuesta de referencia y rúbrica).
+model EvalCase {
+  id        String       @id @default(cuid())
+  agentId   String
+  agent     Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  input     String
+  expected  String?
+  criteria  String?
+  tags      String[]     @default([])
+  results   EvalResult[]
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@index([agentId])
+}
+
+model EvalRun {
+  id              String             @id @default(cuid())
+  agentId         String
+  agent           Agent              @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  workspaceId     String
+  versionId       String?
+  version         AgentVersion?      @relation(fields: [versionId], references: [id], onDelete: SetNull)
+  status          EvalRunStatus      @default(QUEUED)
+  judgeProviderId String
+  judgeModel      String
+  passThreshold   Float              @default(0.7)
+  score           Float?
+  passed          Int                @default(0)
+  total           Int                @default(0)
+  costUsd         Decimal            @default(0) @db.Decimal(18, 8)
+  error           String?
+  results         EvalResult[]
+  suggestions     PromptSuggestion[]
+  createdAt       DateTime           @default(now())
+  finishedAt      DateTime?
+
+  @@index([agentId, createdAt])
+}
+
+model EvalResult {
+  id          String    @id @default(cuid())
+  runId       String
+  run         EvalRun   @relation(fields: [runId], references: [id], onDelete: Cascade)
+  caseId      String?
+  case        EvalCase? @relation(fields: [caseId], references: [id], onDelete: SetNull)
+  input       String
+  expected    String?
+  output      String?
+  score       Float?
+  passed      Boolean   @default(false)
+  reasoning   String?
+  needsReview Boolean   @default(false)
+  humanScore  Float?
+  humanNote   String?
+  createdAt   DateTime  @default(now())
+
+  @@index([runId])
+}
+
+/// Instantánea inmutable de la configuración de un agente.
+model AgentVersion {
+  id          String    @id @default(cuid())
+  agentId     String
+  agent       Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  version     Int
+  snapshot    Json
+  note        String?
+  createdById String?
+  evalRuns    EvalRun[]
+  createdAt   DateTime  @default(now())
+
+  @@unique([agentId, version])
+}
+
+/// Propuesta de mejora del prompt generada por IA; requiere aprobación humana.
+model PromptSuggestion {
+  id          String           @id @default(cuid())
+  agentId     String
+  agent       Agent            @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  runId       String?
+  run         EvalRun?         @relation(fields: [runId], references: [id], onDelete: SetNull)
+  status      SuggestionStatus @default(PENDING)
+  rationale   String
+  proposal    Json
+  decidedById String?
+  decidedAt   DateTime?
+  createdAt   DateTime         @default(now())
+
+  @@index([agentId, createdAt])
 }
