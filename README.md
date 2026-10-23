@@ -86,6 +86,19 @@ Nexo permite **crear agentes de IA conectados a cualquier sistema** de la empres
 
 Requisitos: Node 22+, PostgreSQL 16, Redis 7 (o Docker).
 
+**Un solo comando (macOS o Linux):**
+
+```bash
+npm run local            # levanta PostgreSQL/Redis (Docker), crea apps/api/.env con secretos, instala,
+                         # migra y arranca API (:3000) y web (:4200); abre el navegador en macOS
+npm run local:status     # estado · npm run local:logs (logs) · npm run local:stop (detener)
+```
+
+El primer arranque crea el usuario maestro con `ADMIN_EMAIL` (o su `git config user.email`) y deja la contraseña
+inicial en `.dev/credenciales.txt`. Para IA real agregue `ANTHROPIC_API_KEY` en `apps/api/.env`.
+
+**Paso a paso:**
+
 ```bash
 # 1. Infraestructura
 docker compose up -d postgres redis

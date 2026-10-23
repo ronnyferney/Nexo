@@ -12,3 +12,6 @@ coverage/
 !.vscode/extensions.json
 *.tsbuildinfo
 dump.rdb
+
+# Nexo local (scripts/dev-local.sh): logs, PIDs y credenciales
+.dev/
