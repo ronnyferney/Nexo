@@ -135,7 +135,7 @@ install_deps() {
   for app in api web; do
     local dir="$ROOT/apps/$app"
     if [[ ! -d "$dir/node_modules" || "$dir/package-lock.json" -nt "$dir/node_modules/.package-lock.json" ]]; then
-      info "Instalando dependencias de $app…"
+      info "Instalando dependencias de ${app}…"
       (cd "$dir" && npm ci --no-audit --no-fund)
     fi
   done
