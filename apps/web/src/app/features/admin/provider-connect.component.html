@@ -1,0 +1,132 @@
+<dialog #dlg class="modal connect" aria-labelledby="pc-title" aria-describedby="pc-sub" (close)="closed.emit()">
+  @let p = provider();
+  @if (result(); as r) {
+    <div class="modal-body done" role="status">
+      <div class="done-logo"><nx-brand-logo [entry]="p" [logo]="logo()" [size]="56" />
+        <span class="done-check"><nx-icon name="check" [size]="14" /></span></div>
+      <h2 id="pc-title">{{ p.name }} conectado</h2>
+      <p id="pc-sub" class="muted">
+        La conexión «{{ r.connection.name }}» quedó lista con {{ r.models.length }} {{ r.models.length === 1 ? 'modelo habilitado' : 'modelos habilitados' }}.
+        @if (r.discoveredModels.length) { Detectamos {{ r.discoveredModels.length }} modelos disponibles en su cuenta. }
+      </p>
+      <p class="small muted">Revise las tarifas en «Modelos de IA» para que el consumo cuente en los presupuestos.</p>
+      <div class="foot">
+        <button type="button" class="btn pill" (click)="close()">Listo</button>
+        <button type="button" class="btn primary pill done-primary" (click)="goModels.emit()"><nx-icon name="cpu" [size]="16" />Ir a Modelos de IA</button>
+      </div>
+    </div>
+  } @else {
+    <form class="modal-body" (ngSubmit)="submit()" novalidate>
+      <div class="head">
+        <nx-brand-logo [entry]="p" [logo]="logo()" [size]="44" />
+        <div class="grow">
+          <h2 id="pc-title">Conectar {{ p.name }}</h2>
+          <span class="badge">{{ billingLabels[p.billing] }}</span>
+        </div>
+        <button type="button" class="btn ghost icon" aria-label="Cerrar" title="Cerrar" (click)="close()"><nx-icon name="x" /></button>
+      </div>
+
+      <p id="pc-sub" class="sub">
+        @if (p.auth === 'NONE') {
+          Indique la dirección de su servidor {{ p.name }}. Nexo se conecta directamente y no necesita clave.
+        } @else if (p.category === 'ENTERPRISE_CLOUD') {
+          Complete los datos de su recurso de {{ p.name }}. Guardamos las credenciales cifradas en la bóveda y las usamos para sus agentes.
+        } @else {
+          Pegue su clave de API de {{ p.name }}. La guardamos cifrada en la bóveda y la usamos para sus agentes.
+        }
+      </p>
+
+      @if (personalPlan(); as plan) {
+        <div class="callout info"><nx-icon name="info" [size]="16" />
+          <span>Nexo se conecta con la <strong>clave de API de la cuenta empresarial</strong>, no con suscripciones personales como {{ plan }}.
+            Los términos de {{ p.name }} reservan esos planes para uso individual, y la clave de API permite asignar y controlar el gasto por unidad.</span></div>
+      }
+
+      @if (p.auth === 'OAUTH') {
+        <button type="button" class="btn primary pill wide" [disabled]="!!busy()" (click)="startOAuth()">
+          <nx-icon name="user" [size]="16" />{{ busy() === 'oauth' ? 'Redirigiendo…' : 'Iniciar sesión con ' + p.name }}</button>
+        @if (fields().length) { <div class="or" role="separator"><span>o usa una clave de API</span></div> }
+      }
+
+      @if (keyUrl() || docsUrl()) {
+        <div class="links">
+          @if (keyUrl(); as k) {
+            <a class="btn pill" [href]="k" target="_blank" rel="noopener noreferrer"><nx-icon name="externalLink" [size]="15" />Obtenga su clave de API<span class="sr-only"> (abre en otra pestaña)</span></a>
+          }
+          @if (docsUrl(); as d) {
+            <a class="btn ghost pill" [href]="d" target="_blank" rel="noopener noreferrer"><nx-icon name="book" [size]="15" />Documentación<span class="sr-only"> (abre en otra pestaña)</span></a>
+          }
+        </div>
+      }
+
+      @if (steps().length) {
+        <div class="steps">
+          <strong id="pc-steps">Cómo obtener su clave</strong>
+          <ol aria-labelledby="pc-steps">@for (s of steps(); track $index) { <li>{{ s }}</li> }</ol>
+        </div>
+      }
+
+      @if (error(); as err) {
+        <div class="callout danger conn-error" role="alert" tabindex="-1"><nx-icon name="alert" [size]="16" /><span>{{ err }}</span></div>
+      }
+
+      @for (f of fields(); track f.key) {
+        @let ferr = fieldError(f);
+        @let warn = prefixWarning(f);
+        <div class="field">
+          <label [for]="'pc-' + f.key">{{ f.label }}@if (!f.required) { <span class="opt"> (opcional)</span> }</label>
+          <div class="input-wrap" [class.secret]="f.secret">
+            <input class="input" [class.mono]="f.secret || f.key.toLowerCase().includes('url')" [class.big]="f.secret" [class.invalid]="!!ferr || (f.secret && !!error())"
+              [id]="'pc-' + f.key" [name]="f.key" [type]="f.secret && !revealed().has(f.key) ? 'password' : 'text'"
+              [attr.autocomplete]="f.secret ? 'off' : null" spellcheck="false" [placeholder]="f.placeholder ?? ''" [required]="f.required"
+              [attr.aria-invalid]="!!ferr" [attr.aria-describedby]="'pc-' + f.key + '-help'"
+              [ngModel]="values()[f.key] ?? ''" (ngModelChange)="setValue(f.key, $event)" (blur)="touch(f.key)" />
+            @if (f.secret) {
+              <button type="button" class="btn ghost icon eye" [attr.aria-label]="revealed().has(f.key) ? 'Ocultar ' + f.label : 'Mostrar ' + f.label"
+                [title]="revealed().has(f.key) ? 'Ocultar' : 'Mostrar'" [attr.aria-pressed]="revealed().has(f.key)" (click)="toggleReveal(f.key)">
+                <nx-icon [name]="revealed().has(f.key) ? 'eyeOff' : 'eye'" [size]="17" /></button>
+            }
+          </div>
+          <span [id]="'pc-' + f.key + '-help'">
+            @if (ferr) { <span class="error-text block">{{ ferr }}</span> }
+            @else if (warn) { <span class="warn block"><nx-icon name="alert" [size]="13" />{{ warn }}</span> }
+            @if (f.help) { <span class="hint block">{{ f.help }}</span> }
+          </span>
+        </div>
+      }
+
+      @if (p.suggestedModels.length) {
+        <details class="models">
+          <summary>Modelos a habilitar ({{ selected().size }})<nx-icon name="chevronDown" [size]="16" /></summary>
+          <ul class="model-list">
+            @for (m of p.suggestedModels; track m.id) {
+              @let pr = price(m);
+              <li><label class="choice">
+                <input type="checkbox" [checked]="selected().has(m.id)" (change)="toggleModel(m.id)" />
+                <span class="grow"><strong>{{ m.label }}</strong> <span class="badge tier">{{ tierLabels[m.tier] }}</span>
+                  <span class="muted small block"><code>{{ m.id }}</code>@if (context(m.contextTokens); as c) { · {{ c }} }</span>
+                  <span class="small block" [class.muted]="pr" [class.warn]="!pr">{{ pr ?? 'Precio por configurar' }}</span></span>
+              </label></li>
+            }
+          </ul>
+          @if (!selected().size) { <p class="error-text">Elija al menos un modelo.</p> }
+        </details>
+      }
+
+      <div class="field">
+        <label for="pc-name">Nombre de la conexión <span class="opt">(opcional)</span></label>
+        <input id="pc-name" name="connName" class="input" [placeholder]="p.name" [ngModel]="name()" (ngModelChange)="name.set($event)" />
+      </div>
+
+      @if (p.notes) { <p class="small muted">{{ p.notes }}</p> }
+
+      <div class="foot">
+        <span class="sr-only" role="status">{{ busy() === 'connect' ? 'Probando conexión' : '' }}</span>
+        <button type="button" class="btn pill" (click)="close()">Cancelar</button>
+        <button type="submit" class="btn primary pill" [disabled]="!canSubmit()">
+          @if (busy() === 'connect') { <span class="spin" aria-hidden="true"></span>Probando conexión… } @else { Conectar }
+        </button>
+      </div>
+    </form>
+  }
+</dialog>

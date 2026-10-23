@@ -1,175 +1,148 @@
 <div class="page">
-  <div class="page-header">
-    <div><h1>Proveedores IA</h1><p>Conexiones a modelos de lenguaje del workspace y su catálogo de precios</p></div>
-    <button class="btn primary" (click)="newConnection()"><nx-icon name="plus" />Nueva conexión</button>
-  </div>
+  <div class="gallery">
+    <header class="top">
+      <h1>Proveedores IA</h1>
+      <p class="muted">Conecte los modelos que usarán sus agentes. Las claves se guardan cifradas en la bóveda y el consumo se controla con presupuestos.</p>
+    </header>
 
-  @if (conn(); as d) {
-    <div class="card stack editor" style="margin-bottom:16px">
-      <div class="card-title"><div class="icon-tile"><nx-icon name="cpu" /></div>
-        <h2>{{ d.id ? 'Editar conexión' : 'Nueva conexión' }}</h2><span class="spacer"></span>
-        <button class="btn ghost icon" title="Cerrar" aria-label="Cerrar" (click)="conn.set(null)"><nx-icon name="x" /></button></div>
-      <div class="grid grid-2">
-        <div class="field"><label for="conn-name">Nombre</label>
-          <input id="conn-name" class="input" [(ngModel)]="d.name" placeholder="Ej. OpenAI corporativo" /></div>
-        <div class="field"><label for="conn-kind">Tipo</label>
-          <select id="conn-kind" class="input" [(ngModel)]="d.kind">
-            @for (k of kinds; track k) { <option [value]="k">{{ kindLabels[k] }}</option> }
-          </select></div>
-      </div>
-      @if (d.kind !== 'MOCK') {
-        <div class="grid grid-2">
-          <div class="field"><label for="conn-url">URL base {{ d.kind === 'OPENAI_COMPATIBLE' ? '' : '(opcional)' }}</label>
-            <input id="conn-url" class="input mono" [(ngModel)]="d.baseUrl"
-              [placeholder]="d.kind === 'ANTHROPIC' ? 'https://api.anthropic.com (por defecto)' : 'https://api.openai.com/v1'" />
-            @if (d.kind === 'OPENAI_COMPATIBLE') {
-              <span class="hint">Ejemplos:
-                @for (ex of baseUrlExamples; track ex.url; let last = $last) {
-                  <button type="button" class="btn ghost sm" style="height:22px; padding:0 4px" [title]="ex.url" (click)="d.baseUrl = ex.url">{{ ex.label }}</button>{{ last ? '' : ' ·' }}
-                }
-              </span>
+    <div class="tabs" role="tablist" aria-label="Proveedores y modelos">
+      <button type="button" class="tab" role="tab" id="tab-providers" aria-controls="panel-providers" [class.active]="tab() === 'providers'"
+        [attr.aria-selected]="tab() === 'providers'" [attr.tabindex]="tab() === 'providers' ? 0 : -1" (click)="selectTab('providers')" (keydown)="onTabKey($event)">
+        Proveedores de IA</button>
+      <button type="button" class="tab" role="tab" id="tab-models" aria-controls="panel-models" [class.active]="tab() === 'models'"
+        [attr.aria-selected]="tab() === 'models'" [attr.tabindex]="tab() === 'models' ? 0 : -1" (click)="selectTab('models')" (keydown)="onTabKey($event)">
+        Modelos de IA</button>
+    </div>
+
+    @if (tab() === 'providers') {
+      <div id="panel-providers" role="tabpanel" aria-labelledby="tab-providers">
+        <div class="tools" role="search">
+          <div class="search">
+            <nx-icon name="search" [size]="16" />
+            <label class="sr-only" for="prov-search">Buscar modelos y proveedores</label>
+            <input id="prov-search" class="input" type="search" placeholder="Busca modelos y proveedores" autocomplete="off"
+              [ngModel]="query()" (ngModelChange)="query.set($event)" />
+          </div>
+          <div class="chips" role="group" aria-label="Filtrar por forma de conexión">
+            @for (f of filters; track f.id) {
+              <button type="button" class="chip" [class.on]="filter() === f.id" [attr.aria-pressed]="filter() === f.id" [title]="f.hint" (click)="setFilter(f.id)">
+                {{ f.label }}<span class="n">{{ filterCounts()[f.id] }}</span></button>
             }
           </div>
-          <div class="field"><label for="conn-key">API key</label>
-            <input id="conn-key" class="input mono" type="password" autocomplete="new-password" [(ngModel)]="d.apiKey"
-              [placeholder]="d.original?.hasApiKey ? '•••••••• (dejar vacío para conservar)' : 'sk-…'" />
-            <span class="hint">Se guarda cifrada (AES-256-GCM) y nunca se vuelve a mostrar. Solo se envía si escribe una nueva.
-              @if (d.kind === 'OPENAI_COMPATIBLE') { Ollama/vLLM locales normalmente no la requieren. }</span>
-          </div>
         </div>
-      } @else {
-        <div class="callout info"><nx-icon name="info" [size]="16" /><span>El tipo simulado responde sin llamar a ningún proveedor; útil para pruebas y demostraciones sin costo.</span></div>
-      }
-      <label class="checkbox"><input type="checkbox" [(ngModel)]="d.enabled" />Habilitada (visible en el catálogo de agentes)</label>
-      <div class="row">
-        <span class="spacer"></span>
-        <button class="btn" (click)="conn.set(null)">Cancelar</button>
-        <button class="btn primary" [disabled]="savingConn() || connInvalid(d)" (click)="saveConnection()">
-          <nx-icon name="save" />{{ savingConn() ? 'Guardando…' : 'Guardar' }}</button>
-      </div>
-    </div>
-  }
 
-  @if (loading()) {
-    <div class="card empty"><p>Cargando conexiones…</p></div>
-  } @else if (error()) {
-    <div class="card empty"><nx-icon name="alert" [size]="28" /><h3>No se pudieron cargar las conexiones</h3><p>{{ error() }}</p>
-      <button class="btn" (click)="load()">Reintentar</button></div>
-  } @else {
-    <div class="stack">
-      @for (c of connections(); track c.id) {
-        <div class="card stack">
-          <div class="row wrap">
-            <div class="icon-tile"><nx-icon name="cpu" /></div>
-            <div style="min-width:0">
-              <h3>{{ c.name }}</h3>
-              <div class="muted small mono" style="word-break:break-all">{{ c.baseUrl || (c.kind === 'ANTHROPIC' ? 'URL por defecto de Anthropic' : '—') }}</div>
+        @if (loading()) {
+          <div aria-busy="true"><span class="sr-only" role="status">Cargando proveedores…</span>
+            <div class="skel-title"></div>
+            <div class="grid-rows">@for (i of [1, 2, 3, 4, 5, 6]; track i) { <div class="skel-row"><span></span><span></span></div> }</div>
+          </div>
+        } @else if (error()) {
+          <div class="empty" role="alert"><nx-icon name="alert" [size]="32" /><h3>No se pudieron cargar los proveedores</h3><p>{{ error() }}</p>
+            <button type="button" class="btn" (click)="load()"><nx-icon name="refresh" />Reintentar</button></div>
+        } @else if (!providers().length) {
+          <div class="empty"><nx-icon name="cpu" [size]="36" /><h3>Catálogo de proveedores vacío</h3>
+            <p>La plataforma aún no publica proveedores de IA. Contacta al administrador de Nexo.</p></div>
+        } @else {
+          @if (connected().length) {
+            <section class="sec" aria-labelledby="sec-connected">
+              <div class="sec-head"><h2 id="sec-connected">Conectados</h2><span class="count">{{ connected().length }}</span></div>
+              <ul class="cards-grid">
+                @for (c of connected(); track c.key) {
+                  <li class="conn-card">
+                    <nx-brand-logo [entry]="c.entry" [logo]="c.logo" [size]="40" />
+                    <div class="cc-body">
+                      <strong class="cc-title"><span class="st {{ c.status }}" [title]="c.statusLabel"></span>{{ c.title }}</strong>
+                      <span class="cc-sub">{{ c.subtitle }}<span class="sr-only"> · {{ c.statusLabel }}</span></span>
+                      @if (c.connectionName) { <span class="cc-name">{{ c.connectionName }}</span> }
+                    </div>
+                    @if (testing() === c.key) { <span class="small muted" role="status">Probando…</span> }
+                    <div class="menu-wrap">
+                      <button type="button" class="btn ghost icon" [id]="'menu-btn-' + c.key" aria-haspopup="menu" [attr.aria-expanded]="menu() === c.key"
+                        [attr.aria-controls]="'menu-' + c.key" [attr.aria-label]="'Gestionar ' + c.title" title="Gestionar" (click)="toggleMenu(c.key, $event)">
+                        <nx-icon name="more" /></button>
+                      @if (menu() === c.key) {
+                        <div class="menu" role="menu" [id]="'menu-' + c.key" [attr.aria-label]="'Acciones de ' + c.title" (keydown)="onMenuKey(c.key, $event)">
+                          @if (c.connectionId) {
+                            <button type="button" role="menuitem" (click)="test(c)"><nx-icon name="zap" [size]="16" />Probar conexión</button>
+                          }
+                          <button type="button" role="menuitem" (click)="goModels(c.modelsKey)"><nx-icon name="cpu" [size]="16" />Ver modelos</button>
+                          @if (c.provider && !c.platform) {
+                            <button type="button" role="menuitem" (click)="openConnect(c.provider, $event)"><nx-icon name="plus" [size]="16" />Conectar otra cuenta</button>
+                          }
+                          @if (c.connectionId) {
+                            <button type="button" role="menuitem" (click)="toggleEnabled(c)"><nx-icon [name]="c.enabled ? 'stop' : 'play'" [size]="16" />{{ c.enabled ? 'Deshabilitar' : 'Habilitar' }}</button>
+                            <button type="button" role="menuitem" class="danger" (click)="disconnect(c)"><nx-icon name="unlink" [size]="16" />Desconectar</button>
+                          }
+                          @if (c.platform && c.provider) {
+                            <button type="button" role="menuitem" (click)="openConnect(c.provider, $event)"><nx-icon name="key" [size]="16" />Usar clave propia</button>
+                          }
+                        </div>
+                      }
+                    </div>
+                  </li>
+                }
+              </ul>
+            </section>
+          }
+
+          <section class="sec" aria-labelledby="sec-available">
+            <div class="sec-head">
+              <h2 id="sec-available">Disponibles</h2><span class="count">{{ available().length }}</span>
+              @if (filtering() && available().length !== totalAvailable()) { <span class="small muted">de {{ totalAvailable() }}</span> }
+              <label class="group-toggle small"><span class="switch"><input type="checkbox" [checked]="grouped()" (change)="grouped.set(!grouped())" /><span></span></span>Agrupar por categoría</label>
             </div>
-            <span class="badge info">{{ kindLabels[c.kind] }}</span>
-            @if (c.kind !== 'MOCK') {
-              <span class="badge" [class.success]="c.hasApiKey"><nx-icon name="key" [size]="12" />{{ c.hasApiKey ? 'Con API key' : 'Sin API key' }}</span>
-            }
-            <span class="badge" [class.success]="c.enabled"><span class="dot"></span>{{ c.enabled ? 'Habilitada' : 'Deshabilitada' }}</span>
-            <span class="spacer"></span>
-            <button class="btn sm" [disabled]="testing() === c.id" (click)="testConnection(c)"><nx-icon name="zap" [size]="14" />{{ testing() === c.id ? 'Probando…' : 'Probar' }}</button>
-            <button class="btn sm" (click)="toggleConnection(c)">{{ c.enabled ? 'Deshabilitar' : 'Habilitar' }}</button>
-            <button class="btn sm icon" title="Editar conexión" aria-label="Editar conexión" (click)="editConnection(c)"><nx-icon name="pencil" [size]="14" /></button>
-            <button class="btn sm icon danger" title="Eliminar conexión" aria-label="Eliminar conexión" (click)="deleteConnection(c)"><nx-icon name="trash" [size]="14" /></button>
-          </div>
-          @if (testResults()[c.id]; as r) {
-            <div class="callout" [class.info]="r.ok" [class.danger]="!r.ok"><nx-icon [name]="r.ok ? 'check' : 'alert'" [size]="16" /><span>{{ r.message }}</span></div>
-          }
+            <p class="sr-only" role="status">{{ available().length }} proveedores disponibles</p>
 
-          <div class="table-wrap">
-            <table class="table">
-              <thead><tr><th>ID del modelo</th><th>Etiqueta</th><th>Nivel</th><th class="num">Entrada / MTok</th><th class="num">Salida / MTok</th>
-                <th class="num">Caché lectura / MTok</th><th>Estado</th><th></th></tr></thead>
-              <tbody>
-                @for (m of c.models; track m.id) {
-                  @if (isEditingModel(c.id, m.id)) {
-                    <ng-container *ngTemplateOutlet="modelEditor" />
-                  } @else {
-                    <tr>
-                      <td><code>{{ m.modelId }}</code></td>
-                      <td>{{ m.label }}</td>
-                      <td><span class="badge {{ tierClass(m.tier) }}">{{ tierLabels[m.tier] }}</span></td>
-                      <td class="num">{{ m.inputUsdPerMTok | usd }}</td>
-                      <td class="num">{{ m.outputUsdPerMTok | usd }}</td>
-                      <td class="num">{{ m.cacheReadUsdPerMTok === null ? '—' : (m.cacheReadUsdPerMTok | usd) }}</td>
-                      <td><span class="badge" [class.success]="m.enabled">{{ m.enabled ? 'Habilitado' : 'Deshabilitado' }}</span></td>
-                      <td class="num">
-                        <button class="btn ghost icon sm" title="Editar modelo" aria-label="Editar modelo" (click)="editModel(m)"><nx-icon name="pencil" [size]="14" /></button>
-                        <button class="btn ghost icon sm danger" title="Eliminar modelo" aria-label="Eliminar modelo" (click)="deleteModel(m)"><nx-icon name="trash" [size]="14" /></button>
-                      </td>
-                    </tr>
-                  }
-                } @empty {
-                  @if (!isEditingModel(c.id, null)) {
-                    <tr><td colspan="8" class="muted small">Sin modelos. Agregue al menos uno con su precio para poder usar esta conexión.</td></tr>
-                  }
+            @if (!available().length) {
+              <div class="empty small-empty">
+                @if (filtering()) {
+                  <nx-icon name="search" [size]="28" /><h3>Sin resultados</h3><p>Ningún proveedor ni modelo coincide con el filtro.</p>
+                  <button type="button" class="btn" (click)="clearFilters()">Limpiar filtros</button>
+                } @else {
+                  <nx-icon name="checkCircle" [size]="28" /><h3>Todo conectado</h3><p>Ya conectaste todos los proveedores del catálogo.</p>
                 }
-                @if (isEditingModel(c.id, null)) { <ng-container *ngTemplateOutlet="modelEditor" /> }
-              </tbody>
-            </table>
-          </div>
-          @if (!isEditingModel(c.id, null)) {
-            <div><button class="btn sm" (click)="newModel(c.id)"><nx-icon name="plus" [size]="14" />Agregar modelo</button></div>
-          }
-          <span class="muted small">Actualizada {{ c.updatedAt | ago }}</span>
-        </div>
-      } @empty {
-        <div class="card empty"><nx-icon name="cpu" [size]="28" /><h3>Sin conexiones propias</h3>
-          <p>Conecte OpenAI, Azure OpenAI, Gemini, Ollama u otro gateway compatible para ofrecer más modelos a sus agentes.</p>
-          <button class="btn primary" (click)="newConnection()"><nx-icon name="plus" />Nueva conexión</button></div>
-      }
-    </div>
+              </div>
+            }
 
-    <div class="section-title"><h2>Conexiones de sistema</h2><span class="badge">solo lectura</span></div>
-    <p class="muted small" style="margin-top:-6px">Provistas por la plataforma (configuración del servidor). No se pueden editar desde aquí.</p>
-    <div class="stack">
-      @for (p of systemConnections(); track p.id) {
-        <div class="card stack">
-          <div class="row wrap">
-            <div class="icon-tile MCP"><nx-icon name="shield" /></div>
-            <h3>{{ p.label }}</h3><code class="muted small">{{ p.id }}</code>
-            <span class="badge info">{{ kindLabels[p.kind] }}</span>
-            <span class="badge" [class.success]="p.configured" [class.warning]="!p.configured">{{ p.configured ? 'Configurada' : 'No configurada' }}</span>
-          </div>
-          <div class="table-wrap">
-            <table class="table">
-              <thead><tr><th>Modelo</th><th>Nivel</th><th class="num">Entrada / MTok</th><th class="num">Salida / MTok</th></tr></thead>
-              <tbody>
-                @for (m of p.models; track m.id) {
-                  <tr><td><strong>{{ m.label }}</strong>&nbsp;<code class="muted small">{{ m.id }}</code><div class="muted small">{{ m.description }}</div></td>
-                    <td><span class="badge {{ tierClass(m.tier) }}">{{ tierLabels[m.tier] }}</span></td>
-                    <td class="num">{{ m.inputUsdPerMTok | usd }}</td><td class="num">{{ m.outputUsdPerMTok | usd }}</td></tr>
-                } @empty { <tr><td colspan="4" class="muted small">Sin modelos habilitados.</td></tr> }
-              </tbody>
-            </table>
-          </div>
-        </div>
-      } @empty {
-        <div class="card empty"><p>No hay conexiones de sistema disponibles.</p></div>
-      }
-    </div>
-  }
+            @for (s of sections(); track s.id) {
+              @if (s.title) { <h3 class="cat" [id]="'cat-' + s.id">{{ s.title }} <span class="muted">{{ s.rows.length }}</span></h3> }
+              <ul class="grid-rows" [attr.aria-labelledby]="s.title ? 'cat-' + s.id : 'sec-available'">
+                @for (r of s.rows; track r.p.id) {
+                  <li>
+                    <button type="button" class="prov-row" (click)="openConnect(r.p, $event)" [attr.aria-label]="'Conectar ' + r.p.name"
+                      [attr.aria-describedby]="'pd-' + r.p.id">
+                      <nx-brand-logo [entry]="r.p" [logo]="r.logo" [size]="44" />
+                      <span class="pr-body">
+                        <span class="pr-name"><strong>{{ r.p.name }}</strong>
+                          @if (r.p.auth === 'OAUTH') { <span class="badge tag">Inicio de sesión</span> }</span>
+                        <span class="pr-desc" [id]="'pd-' + r.p.id">
+                          @if (r.matchedModel) { Incluye {{ r.matchedModel }} · } {{ modelCount(r.p) }} · {{ billingLabels[r.p.billing] }}</span>
+                      </span>
+                      <span class="act" aria-hidden="true"><nx-icon name="plus" [size]="16" /></span>
+                    </button>
+                  </li>
+                }
+              </ul>
+            }
+          </section>
+        }
+      </div>
+    } @else {
+      <div id="panel-models" role="tabpanel" aria-labelledby="tab-models">
+        @if (loading()) {
+          <div class="empty" aria-busy="true"><p role="status">Cargando modelos…</p></div>
+        } @else if (modelsError()) {
+          <div class="empty" role="alert"><nx-icon name="alert" [size]="32" /><h3>No se pudieron cargar los modelos</h3><p>{{ modelsError() }}</p>
+            <button type="button" class="btn" (click)="load()"><nx-icon name="refresh" />Reintentar</button></div>
+        } @else {
+          <nx-llm-models [connections]="connections()" [providers]="providers()" [catalog]="catalog()" [(providerFilter)]="modelsProvider"
+            (modelUpdated)="onModelUpdated($event)" (goProviders)="selectTab('providers', true)" />
+        }
+      </div>
+    }
+  </div>
 </div>
 
-<ng-template #modelEditor>
-  @if (model(); as d) {
-    <tr class="editing">
-      <td><input class="input mono" aria-label="ID del modelo" [(ngModel)]="d.modelId" placeholder="gpt-4o-mini" /></td>
-      <td><input class="input" aria-label="Etiqueta" [(ngModel)]="d.label" placeholder="GPT-4o mini" /></td>
-      <td><select class="input" aria-label="Nivel" [(ngModel)]="d.tier">
-        @for (t of tiers; track t) { <option [value]="t">{{ tierLabels[t] }}</option> }</select></td>
-      <td><input class="input num" type="number" min="0" step="0.01" aria-label="Precio de entrada USD por millón de tokens" [(ngModel)]="d.inputUsdPerMTok" /></td>
-      <td><input class="input num" type="number" min="0" step="0.01" aria-label="Precio de salida USD por millón de tokens" [(ngModel)]="d.outputUsdPerMTok" /></td>
-      <td><input class="input num" type="number" min="0" step="0.01" aria-label="Precio de lectura de caché USD por millón de tokens" placeholder="opcional" [(ngModel)]="d.cacheReadUsdPerMTok" /></td>
-      <td><label class="checkbox small"><input type="checkbox" [(ngModel)]="d.enabled" />Habilitado</label></td>
-      <td class="num nowrap">
-        <button class="btn primary icon sm" title="Guardar modelo" aria-label="Guardar modelo" [disabled]="savingModel() || modelInvalid(d)" (click)="saveModel()"><nx-icon name="check" [size]="14" /></button>
-        <button class="btn ghost icon sm" title="Cancelar" aria-label="Cancelar" (click)="model.set(null)"><nx-icon name="x" [size]="14" /></button>
-      </td>
-    </tr>
-  }
-</ng-template>
+@if (connecting(); as p) {
+  <nx-provider-connect [provider]="p" (closed)="connectClosed()" (connected)="onConnected(p)" (goModels)="goModels(p.id)" />
+}

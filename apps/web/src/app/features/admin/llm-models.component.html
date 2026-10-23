@@ -1,0 +1,82 @@
+<div class="tools" role="search">
+  <div class="search">
+    <nx-icon name="search" [size]="16" />
+    <label class="sr-only" for="lm-search">Buscar modelos por nombre, id o proveedor</label>
+    <input id="lm-search" class="input" type="search" placeholder="Busca modelos" autocomplete="off" [ngModel]="query()" (ngModelChange)="query.set($event)" />
+  </div>
+  <label class="sr-only" for="lm-prov">Filtrar por proveedor</label>
+  <select id="lm-prov" class="input prov" [ngModel]="providerFilter()" (ngModelChange)="providerFilter.set($event)">
+    <option value="">Todos los proveedores</option>
+    @for (o of providerOptions(); track o.id) { <option [value]="o.id">{{ o.name }} ({{ o.count }})</option> }
+  </select>
+  @if (unpricedCount()) {
+    <button type="button" class="chip" [class.on]="onlyUnpriced()" [attr.aria-pressed]="onlyUnpriced()" (click)="onlyUnpriced.set(!onlyUnpriced())">
+      Sin tarifa <span class="n">{{ unpricedCount() }}</span></button>
+  }
+</div>
+
+@if (unpricedCount()) {
+  <div class="callout warning"><nx-icon name="alert" [size]="16" />
+    <span><strong>{{ unpricedCount() }} {{ unpricedCount() === 1 ? 'modelo sin tarifa' : 'modelos sin tarifa' }}.</strong>
+      Configure la tarifa para que cuenten en presupuestos: sin precio, su consumo no se refleja en costos ni bloquea al agotar el presupuesto.</span></div>
+}
+
+@if (!rows().length) {
+  <div class="empty"><nx-icon name="cpu" [size]="32" /><h3>Aún no hay modelos</h3>
+    <p>Conecte un proveedor para habilitar sus modelos y asignarlos a sus agentes.</p>
+    <button type="button" class="btn primary" (click)="goProviders.emit()"><nx-icon name="plus" />Conectar un proveedor</button></div>
+} @else if (!filtered().length) {
+  <div class="empty"><nx-icon name="search" [size]="28" /><h3>Sin resultados</h3><p>Ningún modelo coincide con el filtro.</p>
+    <button type="button" class="btn" (click)="clearFilters()">Limpiar filtros</button></div>
+} @else {
+  <p class="sr-only" role="status">{{ filtered().length }} modelos</p>
+  <div class="list" role="table" aria-label="Modelos de IA del workspace">
+    <div class="row head" role="row">
+      <span role="columnheader">Modelo</span><span role="columnheader">Conexión</span><span role="columnheader">Nivel</span>
+      <span role="columnheader" class="r">Entrada / MTok</span><span role="columnheader" class="r">Salida / MTok</span><span role="columnheader" class="r">Habilitado</span>
+    </div>
+    @for (r of filtered(); track r.key) {
+      @let busy = saving().has(r.key);
+      <div class="row" role="row" [class.warn-row]="r.unpriced" [attr.aria-busy]="busy">
+        <span class="m" role="cell">
+          <nx-brand-logo [entry]="{ id: r.providerId, name: r.providerName }" [logo]="r.logo" [size]="32" />
+          <span class="mt"><strong>{{ r.label }}</strong>
+            @if (r.tag === 'TEST') { <span class="badge warning tag">Pruebas</span> }
+            @if (r.unpriced) { <span class="badge warning tag" title="Configure la tarifa para que cuente en presupuestos">Sin tarifa</span> }
+            @if (saved() === r.key) { <span class="ok" role="status"><nx-icon name="check" [size]="13" />Guardado</span> }
+            <code class="block muted">{{ r.modelId }}</code></span>
+        </span>
+        <span class="src" role="cell"><span class="lbl">Conexión</span>{{ r.providerName }}@if (r.source !== r.providerName) { <span class="muted small block">{{ r.source }}</span> }</span>
+        <span role="cell"><span class="lbl">Nivel</span>
+          @if (r.model) {
+            <select class="input sm" [attr.aria-label]="'Nivel de ' + r.label" [value]="r.tier" [disabled]="busy" (change)="setTier(r, $any($event.target))">
+              @for (t of tiers; track t) { <option [value]="t" [selected]="t === r.tier">{{ tierLabels[t] }}</option> }
+            </select>
+          } @else { <span class="badge {{ tierClass(r.tier) }}">{{ tierLabels[r.tier] }}</span> }
+        </span>
+        <span class="r" role="cell"><span class="lbl">Entrada / MTok</span>
+          @if (r.model) {
+            <span class="usd"><span aria-hidden="true">$</span><input class="input sm num" type="number" min="0" step="0.01" inputmode="decimal"
+              [attr.aria-label]="'Tarifa de entrada de ' + r.label + ' en USD por millón de tokens'" [placeholder]="r.input === null ? 'Sin tarifa' : ''"
+              [value]="r.input ?? ''" [disabled]="busy" (change)="setPrice(r, 'inputUsdPerMTok', $any($event.target))" /></span>
+          } @else { {{ r.input | usd }} }
+        </span>
+        <span class="r" role="cell"><span class="lbl">Salida / MTok</span>
+          @if (r.model) {
+            <span class="usd"><span aria-hidden="true">$</span><input class="input sm num" type="number" min="0" step="0.01" inputmode="decimal"
+              [attr.aria-label]="'Tarifa de salida de ' + r.label + ' en USD por millón de tokens'" [placeholder]="r.output === null ? 'Sin tarifa' : ''"
+              [value]="r.output ?? ''" [disabled]="busy" (change)="setPrice(r, 'outputUsdPerMTok', $any($event.target))" /></span>
+          } @else { {{ r.output | usd }} }
+        </span>
+        <span class="r" role="cell"><span class="lbl">Habilitado</span>
+          @if (r.model) {
+            <label class="switch" [title]="r.enabled ? 'Deshabilitar' : 'Habilitar'">
+              <input type="checkbox" [checked]="r.enabled" [disabled]="busy" [attr.aria-label]="'Habilitar ' + r.label" (change)="setEnabled(r, $any($event.target))" /><span></span></label>
+          } @else {
+            <span class="badge" [class.primary]="r.tag === 'PLATFORM'">{{ r.tag === 'PLATFORM' ? 'Incluido' : 'Solo lectura' }}</span>
+          }
+        </span>
+      </div>
+    }
+  </div>
+}

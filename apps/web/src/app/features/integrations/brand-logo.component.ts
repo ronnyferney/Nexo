@@ -1,7 +1,10 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
-import { brandLogo } from './integration-logos';
+import { type BrandLogo, brandLogo } from './integration-logos';
 
-/** Logo de marca de una integración del catálogo (SVG en línea, sin `innerHTML`); decorativo por defecto. */
+/**
+ * Logo de marca de una integración del catálogo (SVG en línea, sin `innerHTML`); decorativo por defecto.
+ * `[logo]` permite pasar un logo ya resuelto desde otro mapa (p. ej. proveedores de IA) sin cargarlo aquí.
+ */
 @Component({
   selector: 'nx-brand-logo',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -21,7 +24,7 @@ import { brandLogo } from './integration-logos';
     }
   `,
   styles: `
-    :host { display: inline-grid; place-items: center; width: var(--logo-size); height: var(--logo-size); flex-shrink: 0; }
+    :host { color: var(--text); display: inline-grid; place-items: center; width: var(--logo-size); height: var(--logo-size); flex-shrink: 0; }
     svg { width: 82%; height: 82%; display: block; }
     .mono { width: 100%; height: 100%; display: grid; place-items: center; border-radius: 22%; color: #fff;
       font-weight: 700; font-size: calc(var(--logo-size) * 0.5); line-height: 1; letter-spacing: -0.02em; }
@@ -30,5 +33,6 @@ import { brandLogo } from './integration-logos';
 export class BrandLogoComponent {
   readonly entry = input.required<{ id: string; name: string }>();
   readonly size = input(44);
-  readonly logo = computed(() => brandLogo(this.entry()));
+  readonly custom = input<BrandLogo | null>(null, { alias: 'logo' });
+  readonly logo = computed(() => this.custom() ?? brandLogo(this.entry()));
 }
