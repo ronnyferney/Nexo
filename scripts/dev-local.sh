@@ -54,6 +54,13 @@ check_prereqs() {
   ok "Node $(node -v)"
 }
 
+# docker compose valida todo docker-compose.yml aunque solo se levanten postgres y redis: la API y el worker exigen
+# JWT_SECRET y ENCRYPTION_KEY, que aquí no se usan (la API corre fuera de Docker con apps/api/.env).
+compose() {
+  (cd "$ROOT" && JWT_SECRET="${JWT_SECRET:-no-se-usa-en-local}" ENCRYPTION_KEY="${ENCRYPTION_KEY:-no-se-usa-en-local}" \
+    NEXO_PG_PORT="$PG_PORT" NEXO_REDIS_PORT="$REDIS_PORT" docker compose "$@")
+}
+
 start_infra() {
   if ! command -v docker >/dev/null; then
     # Sin Docker: PostgreSQL y Redis locales en sus puertos estándar.
@@ -71,8 +78,8 @@ start_infra() {
     wait_for "Docker" 300 docker info
   fi
   info "Levantando PostgreSQL ($PG_PORT) y Redis ($REDIS_PORT) de Nexo con Docker…"
-  (cd "$ROOT" && NEXO_PG_PORT="$PG_PORT" NEXO_REDIS_PORT="$REDIS_PORT" docker compose up -d postgres redis)
-  wait_for "PostgreSQL" 90 docker compose -f "$ROOT/docker-compose.yml" exec -T postgres pg_isready -U nexo
+  compose up -d postgres redis || fail "Docker no pudo levantar PostgreSQL y Redis (vea el mensaje anterior)"
+  wait_for "PostgreSQL" 90 compose exec -T postgres pg_isready -U nexo
   wait_for "Redis" 30 port_open "$REDIS_PORT"
   ok "PostgreSQL y Redis listos"
 }
@@ -194,7 +201,7 @@ stop() {
   stop_pid web
   stop_pid api
   if command -v docker >/dev/null && docker info >/dev/null 2>&1; then
-    (cd "$ROOT" && docker compose stop postgres redis >/dev/null 2>&1) || true
+    compose stop postgres redis >/dev/null 2>&1 || true
   fi
   ok "Nexo local detenido (los datos se conservan)"
 }
