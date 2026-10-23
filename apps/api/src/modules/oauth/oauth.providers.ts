@@ -30,6 +30,11 @@ export const OAUTH_PROVIDERS: Record<string, PlatformOAuthProvider> = {
     tokenUrl: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
     docsUrl: 'https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow',
   },
+  linkedin: {
+    authorizeUrl: 'https://www.linkedin.com/oauth/v2/authorization',
+    tokenUrl: 'https://www.linkedin.com/oauth/v2/accessToken',
+    docsUrl: 'https://learn.microsoft.com/en-us/linkedin/shared/authentication/authorization-code-flow',
+  },
   salesforce: {
     authorizeUrl: 'https://login.salesforce.com/services/oauth2/authorize',
     tokenUrl: 'https://login.salesforce.com/services/oauth2/token',

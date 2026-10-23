@@ -2,6 +2,7 @@ import type { CatalogEntry } from './catalog.types';
 import { gmail } from './integrations/gmail';
 import { googleSheets } from './integrations/google-sheets';
 import { hubspot } from './integrations/hubspot';
+import { linkedin } from './integrations/linkedin';
 import { lushaRest } from './integrations/lusha';
 import { lushaMcp } from './integrations/lusha-mcp';
 import { microsoftOutlook } from './integrations/microsoft-outlook';
@@ -18,6 +19,7 @@ export const CATALOG: readonly CatalogEntry[] = [
   lushaMcp,
   lushaRest,
   hubspot,
+  linkedin,
   salesforce,
   pipedrive,
   googleSheets,

@@ -33,6 +33,8 @@ export interface OAuth2CodeAuth {
   defaultExpiresIn?: number;
   /** Endpoint de revocación (RFC 7009, POST form `token=`), opcional. */
   revokeUrl?: string;
+  /** PKCE S256 (por defecto true). Solo se desactiva para proveedores que no lo admiten en su flujo web (LinkedIn). */
+  pkce?: boolean;
 }
 
 export interface RestConfig {

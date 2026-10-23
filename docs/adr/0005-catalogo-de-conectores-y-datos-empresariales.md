@@ -28,6 +28,9 @@ de datos **en redes privadas**, que la nube de Nexo no debe alcanzar directament
 - Primera tanda (comercial y productividad): **Lusha** (MCP y REST), **HubSpot** (token de app privada u OAuth2),
   **Salesforce** (OAuth2), **Pipedrive** (token), **Google Sheets** y **Gmail** (OAuth2), **Microsoft 365 Outlook**
   (OAuth2), **WhatsApp Business Cloud API** (token), **Slack** (token de bot).
+- Segunda tanda: **LinkedIn** (OAuth2 de usuario sin PKCE, que LinkedIn no admite en el flujo web): perfil del
+  miembro y publicaciones como miembro (verificadas); publicaciones como página de empresa (requieren el producto
+  Community Management API aprobado por LinkedIn).
 - Instalar crea: secretos (`<SLUG>_<CAMPO>`), el conector (`catalogId`), sus operaciones y queda listo para agentes y flujos.
 - Se acompaña de **skills comerciales** (prospección, calificación BANT, seguimiento de oportunidades, preparación de
   reunión) y una **plantilla de flujo** "Lead entrante → enriquecer → calificar con IA → crear en CRM → notificar".

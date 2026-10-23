@@ -83,8 +83,10 @@ export class OAuthService {
     url.searchParams.set('redirect_uri', this.redirectUri);
     if (auth.scopes?.length) url.searchParams.set('scope', auth.scopes.join(' '));
     url.searchParams.set('state', state);
-    url.searchParams.set('code_challenge', codeChallenge);
-    url.searchParams.set('code_challenge_method', 'S256');
+    if (auth.pkce !== false) {
+      url.searchParams.set('code_challenge', codeChallenge);
+      url.searchParams.set('code_challenge_method', 'S256');
+    }
     return { authorizeUrl: url.toString() };
   }
 
@@ -115,7 +117,7 @@ export class OAuthService {
         grant_type: 'authorization_code',
         code: query.code,
         redirect_uri: this.redirectUri,
-        code_verifier: codeVerifier,
+        ...(loaded.auth.pkce !== false ? { code_verifier: codeVerifier } : {}),
       });
       await this.store(loaded.connector, loaded.auth, token, null);
     } catch (err) {
