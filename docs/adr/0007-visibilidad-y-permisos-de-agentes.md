@@ -51,6 +51,18 @@ visibilidad y permisos que proteja la privacidad y mantenga el gobierno de la em
 - **Rutinas:** las ejecuta el agente con el centro de costo del dueño cuando el agente es `PRIVATE`; requieren EDIT para gestionarlas.
 - **Costos:** el chat se imputa a la unidad de quien conversa (sin cambios, ADR 0002).
 
+### D6. Grupos de usuarios (publicar a una audiencia)
+- Necesidad: publicar un agente a una audiencia transversal a las unidades (p. ej. un agente de **resultados
+  financieros** para los **gerentes de línea**, que están repartidos en varias unidades).
+- `UserGroup { workspaceId, name, description }` + `UserGroupMember { groupId, userId }`, administrados por ADMIN/OWNER.
+- Nuevo destino de share `principalType: GROUP`: un agente `TEAM` compartido con un grupo (USE o EDIT) lo pueden usar
+  todos los miembros del grupo, incluidos los de rol VIEWER (solo uso). Se combinan con shares USER y UNIT.
+- Cambios de membresía aplican de inmediato (no se copian shares por usuario). Eliminar un grupo elimina sus shares;
+  retirar a un miembro del workspace lo saca de sus grupos.
+- Contrato: `GET /groups` (EDITOR+: id, nombre, descripción, miembros) para compartir; administración (ADMIN+):
+  `GET/POST /admin/groups`, `PATCH/DELETE /admin/groups/:id`, `PUT /admin/groups/:id/members { userIds }`.
+  `PUT /agents/:id/shares` acepta `principalType: 'GROUP'`.
+
 ## Contrato de API
 - `Agent` agrega: `visibility`, `ownerId`, `owner: { id; name }`, `myPermission: 'OWNER'|'EDIT'|'USE'|'ADMIN_VIEW'`,
   `shares: { id; principalType; principalId; principalName; permission }[]` (solo para quien tiene EDIT).
@@ -64,7 +76,7 @@ visibilidad y permisos que proteja la privacidad y mantenga el gobierno de la em
 - Errores: 403 "No tiene permiso sobre este agente"; 404 si el agente no es visible (no se revela su existencia).
 
 ## Consecuencias
-- Migración: `AgentVisibility`, `SharePrincipal`, `SharePermission`, `Agent.visibility/ownerId`, `AgentShare`,
+- Migración: `AgentVisibility`, `SharePrincipal` (USER, UNIT y GROUP), `SharePermission`, `UserGroup`, `UserGroupMember`, `Agent.visibility/ownerId`, `AgentShare`,
   `Conversation.userId`, `Workspace.allowPersonalAgents`, más datos (existentes → WORKSPACE con dueño).
 - Cambio de comportamiento: un EDITOR ya no edita agentes ajenos sin share EDIT. Se documenta en las notas de versión.
 - Todas las rutas de agentes, entrenamiento, rutinas y conversaciones pasan por un único `AgentAccessService`.

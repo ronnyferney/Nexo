@@ -75,6 +75,8 @@ enum AgentVisibility {
 enum SharePrincipal {
   USER
   UNIT
+  /// Grupo de usuarios del workspace (p. ej. "Gerentes de línea"), ADR 0007 D6.
+  GROUP
 }
 
 enum SharePermission {
@@ -148,13 +150,14 @@ enum TriggerType {
 }
 
 model User {
-  id           String       @id @default(cuid())
-  email        String       @unique
-  name         String
-  passwordHash String
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-  memberships  Membership[]
+  id               String            @id @default(cuid())
+  email            String            @unique
+  name             String
+  passwordHash     String
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  memberships      Membership[]
+  groupMemberships UserGroupMember[]
 }
 
 model Workspace {
@@ -168,6 +171,7 @@ model Workspace {
   memberships         Membership[]
   connectors          Connector[]
   agents              Agent[]
+  userGroups          UserGroup[]
   workflows           Workflow[]
   executions          Execution[]
   apiKeys             ApiKey[]
@@ -333,6 +337,8 @@ model Conversation {
   messages  Json     @default("[]")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([agentId, userId])
 }
 
 /// Flujo de automatización como grafo dirigido (nodos + aristas).
@@ -880,4 +886,29 @@ model AgentShare {
 
   @@unique([agentId, principalType, principalId])
   @@index([principalType, principalId])
+}
+
+/// Grupo de usuarios transversal a las unidades (p. ej. "Gerentes de línea") al que se publican agentes (ADR 0007 D6).
+model UserGroup {
+  id          String            @id @default(cuid())
+  workspaceId String
+  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  members     UserGroupMember[]
+
+  @@unique([workspaceId, name])
+}
+
+model UserGroupMember {
+  groupId   String
+  group     UserGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+
+  @@id([groupId, userId])
+  @@index([userId])
 }
