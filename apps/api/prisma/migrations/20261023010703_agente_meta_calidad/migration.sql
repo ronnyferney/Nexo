@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "Agent" ADD COLUMN     "targetScore" DOUBLE PRECISION NOT NULL DEFAULT 0.85;

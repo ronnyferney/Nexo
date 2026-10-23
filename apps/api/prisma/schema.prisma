@@ -236,6 +236,8 @@ model Agent {
   profile        Json               @default("{}")
   /// Cadena de respaldo "<providerId>:<modelId>" (máx. 3).
   fallbackModels String[]           @default([])
+  /// Meta de calidad del bucle de mejora (0..1, ADR 0004).
+  targetScore    Float              @default(0.85)
   /// Centro de costo cuando el agente corre sin usuario (flujos, webhooks, MCP).
   costCenterId   String?
   costCenter     OrgUnit?           @relation(fields: [costCenterId], references: [id], onDelete: SetNull)

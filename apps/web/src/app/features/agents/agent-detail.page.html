@@ -203,6 +203,10 @@
               <nx-agent-routines [agentId]="a.id" [canEdit]="auth.canEdit()" />
             }
 
+            @case ('training') {
+              <nx-agent-training [agent]="a" [canEdit]="auth.canEdit()" [dirty]="dirty()" [(targetScore)]="targetScore" (agentChanged)="reloadAgent()" />
+            }
+
             @case ('preview') {
               <nx-agent-prompt-preview [agentId]="a.id" [dirty]="dirty()" />
             }
@@ -220,7 +224,12 @@
           @for (item of chat(); track $index) {
             @switch (item.kind) {
               @case ('user') { <div class="msg user">{{ item.text }}</div> }
-              @case ('assistant') { <div class="msg assistant">{{ item.text }}</div> }
+              @case ('assistant') {
+                <div class="msg assistant">{{ item.text }}</div>
+                @if (item.final && item.response) {
+                  <nx-agent-chat-feedback [agentId]="a.id" [conversationId]="conversationId" [userMessage]="item.userMessage!" [agentResponse]="item.response" />
+                }
+              }
               @case ('notice') { <div class="callout warning notice" role="status"><nx-icon name="shuffle" [size]="15" /><span>{{ item.text }}</span></div> }
               @case ('usage') { <div class="msg usage" title="Costo estimado según precios configurados">{{ item.text }}</div> }
               @case ('error') { <div class="msg error" role="alert"><nx-icon name="alert" [size]="16" /><span>{{ item.text }}</span></div> }

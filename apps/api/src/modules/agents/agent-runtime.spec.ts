@@ -90,6 +90,7 @@ function agent(fallbackModels: string[]): AgentWithTools {
     maxTurns: 3,
     profile: {},
     fallbackModels,
+    targetScore: 0.85,
     costCenterId: null,
     workspaceId: 'ws',
     createdAt: new Date(),

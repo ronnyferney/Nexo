@@ -84,6 +84,7 @@ export class ShellComponent implements OnInit {
     { path: '/skills', label: 'Skills', icon: 'sparkles', exact: false },
     { path: '/knowledge', label: 'Conocimiento', icon: 'book', exact: false },
     { path: '/routines', label: 'Rutinas', icon: 'calendar', exact: false },
+    { path: '/supervision', label: 'Supervisión', icon: 'inbox', exact: false },
     { path: '/workflows', label: 'Flujos', icon: 'flow', exact: false },
     { path: '/executions', label: 'Ejecuciones', icon: 'history', exact: false },
     { path: '/connectors', label: 'Conectores', icon: 'plug', exact: false },

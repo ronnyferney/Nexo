@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import type { AgentEvent } from '../llm/llm-provider';
 import { OrgService } from '../governance/org.service';
@@ -15,6 +15,12 @@ import {
 import { normalizeProfile } from './prompt-composer';
 
 export const MAX_EXAMPLES = 20;
+/** Meta de puntaje por defecto (ADR 0004, D4). */
+export const DEFAULT_TARGET_SCORE = 0.85;
+/** Meta de puntaje del agente (bucle de mejora, ADR 0004). */
+export function targetScoreOf(agent: { targetScore?: number | null }): number {
+  return agent.targetScore ?? DEFAULT_TARGET_SCORE;
+}
 
 const WITH_TOOLS = {
   tools: { include: { operation: { include: { connector: true } } } },
@@ -25,9 +31,10 @@ const WITH_TOOLS = {
 
 /** Perfil y cadena de respaldo normalizados para persistir (el perfil se reemplaza completo). */
 function agentData<T extends CreateAgentDto | UpdateAgentDto>(dto: T) {
-  const { profile, fallbackModels, ...rest } = dto;
+  const { profile, fallbackModels, targetScore, ...rest } = dto;
   return {
     ...rest,
+    ...(targetScore !== undefined ? { targetScore } : {}),
     ...(profile !== undefined ? { profile: normalizeProfile(profile) as Prisma.InputJsonValue } : {}),
     ...(fallbackModels !== undefined ? { fallbackModels: [...new Set(fallbackModels.map((f) => f.trim()))] } : {}),
   };
@@ -62,6 +69,7 @@ export class AgentsService {
     void examples;
     return {
       ...rest,
+      targetScore: targetScoreOf(agent),
       profile: normalizeProfile(agent.profile),
       skills: (agent.skills ?? [])
         .map((s) => ({ id: s.skill.id, name: s.skill.name, slug: s.skill.slug }))

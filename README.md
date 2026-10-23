@@ -33,6 +33,16 @@ Nexo permite **crear agentes de IA conectados a cualquier sistema** de la empres
 - Plantillas seguras (sin `eval`): `{{ nodes.crm.output.data.name | upper }}`.
 - Disparadores: **manual, webhook** (con respuesta síncrona `?wait=true`), **cron** y **MCP**.
 - Historial de ejecuciones con bitácora por nodo (entrada, salida, error, intentos), cancelación y re-ejecución.
+- Prácticas de n8n: **flujo de error**, **sub-flujos**, **bucles** sobre listas, **historial de versiones**, **probar un nodo** con datos fijados, plantillas y retención de ejecuciones.
+
+**Estudio de agentes y entrenamiento supervisado**
+- Agentes **agnósticos al modelo** con cadena de **modelos de respaldo**.
+- **Perfil estructurado**: rol, objetivos, responsabilidades, límites, tono, formato e idioma; vista previa del prompt exacto.
+- **Skills** reutilizables cargadas bajo demanda y **bases de conocimiento** (texto, URL, archivos) con búsqueda full-text.
+- **Rutinas** programadas por agente (cron, zona horaria, historial con costo, aviso por webhook).
+- **Bucle de mejora supervisada**: 👍/👎 y correcciones en el chat → bandeja de supervisión → ejemplos y casos de prueba →
+  evaluaciones con **juez IA + revisión humana** → sugerencias de mejora aprobadas por humanos → **versiones** comparadas
+  por puntaje y publicación de la mejor, hasta alcanzar la meta de calidad.
 
 **Gobierno de IA y costos** (consola de administración)
 - **Múltiples LLM**: conexiones Anthropic, OpenAI-compatibles (OpenAI, Azure, Ollama, vLLM, Gemini compatible, gateways) y simuladas, con catálogo de modelos y tarifas configurables.

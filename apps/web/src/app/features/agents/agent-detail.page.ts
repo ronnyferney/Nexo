@@ -10,19 +10,29 @@ import { ToastService } from '../../core/toast.service';
 import { TIER_LABELS, treeOrder } from '../../shared/budget';
 import { IconComponent } from '../../shared/icon.component';
 import { formatUsd, NumberPipe } from '../../shared/usd.pipe';
+import { DEFAULT_TARGET_SCORE } from '../../core/training.models';
+import { AgentChatFeedbackComponent } from './agent-chat-feedback.component';
 import { AgentExamplesComponent } from './agent-examples.component';
 import { AgentProfileComponent } from './agent-profile.component';
 import { AgentPromptPreviewComponent } from './agent-prompt-preview.component';
 import { AgentRoutinesComponent } from './agent-routines.component';
+import { AgentTrainingComponent } from './training/agent-training.component';
 
 interface ChatItem {
   kind: 'user' | 'assistant' | 'tool' | 'notice' | 'usage' | 'error';
   text?: string;
   tool?: { id: string; name: string; input: unknown; output?: string; isError?: boolean };
   needsApproval?: boolean;
+  /** Turno del chat al que pertenece (respuestas del asistente). */
+  turn?: number;
+  /** Última respuesta del asistente en su turno: lleva la calificación (ADR 0004 D1). */
+  final?: boolean;
+  /** Mensaje del usuario que originó la respuesta y texto completo del turno, para la calificación. */
+  userMessage?: string;
+  response?: string;
 }
 
-export type AgentTab = 'profile' | 'model' | 'tools' | 'knowledge' | 'routines' | 'preview';
+export type AgentTab = 'profile' | 'model' | 'tools' | 'knowledge' | 'routines' | 'training' | 'preview';
 
 /** Opción de modelo del catálogo con clave `"<providerId>:<modelId>"` (modelos de respaldo). */
 interface ModelOption {
@@ -44,6 +54,8 @@ const MAX_FALLBACKS = 3;
     AgentExamplesComponent,
     AgentRoutinesComponent,
     AgentPromptPreviewComponent,
+    AgentTrainingComponent,
+    AgentChatFeedbackComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './agent-detail.page.html',
@@ -77,6 +89,7 @@ export class AgentDetailPage implements OnInit {
     { id: 'tools', label: 'Herramientas' },
     { id: 'knowledge', label: 'Conocimiento' },
     { id: 'routines', label: 'Rutinas' },
+    { id: 'training', label: 'Entrenamiento' },
     { id: 'preview', label: 'Vista previa' },
   ];
   readonly tab = signal<AgentTab>('profile');
@@ -104,6 +117,8 @@ export class AgentDetailPage implements OnInit {
   readonly profile = signal<AgentProfile>(normalizeProfile(EMPTY_PROFILE));
   readonly systemPrompt = signal('');
   readonly fallbacks = signal<string[]>([]);
+  /** Meta de calidad del bucle de mejora (0.5–1); se guarda con el `PATCH /agents/:id` de «Guardar». */
+  readonly targetScore = signal(DEFAULT_TARGET_SCORE);
   readonly toolSelection = signal(new Map<string, boolean>()); // operationId -> requiresApproval
   readonly skillSelection = signal(new Set<string>());
   readonly kbSelection = signal(new Set<string>());
@@ -138,6 +153,7 @@ export class AgentDetailPage implements OnInit {
   conversationId?: string;
   message = '';
   private lastMessage = '';
+  private turnSeq = 0;
   private abort?: AbortController;
 
   async ngOnInit() {
@@ -204,6 +220,7 @@ export class AgentDetailPage implements OnInit {
     this.profile.set(normalizeProfile(agent.profile));
     this.systemPrompt.set(agent.systemPrompt ?? '');
     this.fallbacks.set([...(agent.fallbackModels ?? [])]);
+    this.targetScore.set(agent.targetScore ?? DEFAULT_TARGET_SCORE);
     this.toolSelection.set(new Map((agent.tools ?? []).map((t) => [t.operationId, t.requiresApproval])));
     this.skillSelection.set(new Set((agent.skills ?? []).map((s) => s.id)));
     this.kbSelection.set(new Set((agent.knowledgeBases ?? []).map((k) => k.id)));
@@ -227,6 +244,7 @@ export class AgentDetailPage implements OnInit {
         language: p.language.trim(),
       },
       fallbackModels: this.fallbacks(),
+      targetScore: this.targetScore(),
     };
   }
 
@@ -342,6 +360,15 @@ export class AgentDetailPage implements OnInit {
     }
   }
 
+  /** Recarga el agente tras publicar una versión o aplicar una sugerencia (descarta cambios locales sin guardar). */
+  async reloadAgent() {
+    try {
+      this.apply(await this.api.agent(this.id()));
+    } catch (e) {
+      this.toast.error(errorMessage(e));
+    }
+  }
+
   async remove() {
     if (!confirm('¿Eliminar este agente y sus conversaciones?')) return;
     try {
@@ -371,6 +398,7 @@ export class AgentDetailPage implements OnInit {
     this.push({ kind: 'user', text: approvedTools ? `✅ Aprobado: ${approvedTools.join(', ')} — ${text}` : text });
     this.streaming.set(true);
     this.abort = new AbortController();
+    const turn = ++this.turnSeq;
     let current: ChatItem | null = null;
 
     try {
@@ -381,7 +409,7 @@ export class AgentDetailPage implements OnInit {
           switch (e.type) {
             case 'text':
               if (!current) {
-                current = { kind: 'assistant', text: '' };
+                current = { kind: 'assistant', text: '', turn };
                 this.push(current);
               }
               current.text += e.text;
@@ -422,8 +450,20 @@ export class AgentDetailPage implements OnInit {
     } catch (e) {
       if ((e as Error).name !== 'AbortError') this.push({ kind: 'error', text: errorMessage(e) });
     } finally {
+      this.markFinal(turn, text);
       this.streaming.set(false);
     }
+  }
+
+  /** Marca la última respuesta del turno para calificarla con el texto completo del asistente en ese turno. */
+  private markFinal(turn: number, userMessage: string) {
+    const answers = this.chat().filter((i) => i.kind === 'assistant' && i.turn === turn && i.text?.trim());
+    const last = answers.at(-1);
+    if (!last) return;
+    last.final = true;
+    last.userMessage = userMessage;
+    last.response = answers.map((i) => i.text!.trim()).join('\n\n');
+    this.chat.update((c) => [...c]);
   }
 
   onEnter(e: KeyboardEvent) {

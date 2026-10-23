@@ -6,6 +6,7 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   Matches,
@@ -74,6 +75,12 @@ export class CreateAgentDto {
   @IsString({ each: true })
   @Matches(MODEL_REF, { each: true, message: 'Cada respaldo debe tener el formato "<providerId>:<modelId>"' })
   fallbackModels?: string[];
+  @ApiPropertyOptional({ default: 0.85, description: 'Meta de puntaje de evaluación 0..1 (ADR 0004)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  targetScore?: number;
 }
 
 export class UpdateAgentDto extends PartialType(CreateAgentDto) {}

@@ -66,6 +66,8 @@ export interface Agent {
   skills?: import('./studio.models').AgentSkillRef[];
   knowledgeBases?: import('./studio.models').AgentKnowledgeRef[];
   examplesCount?: number;
+  /** Meta de calidad del bucle de mejora (0–1, por defecto 0.85; ADR 0004). */
+  targetScore?: number;
   _count?: { tools: number; conversations: number };
   updatedAt: string;
 }
