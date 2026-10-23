@@ -2,7 +2,10 @@ import { ChangeDetectionStrategy, Component, inject, OnInit, signal } from '@ang
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
+import { AccessApi } from '../../core/access.api';
+import type { AgentHealthSummary } from '../../core/access.models';
 import type { Execution, MyUsage, Stats } from '../../core/models';
+import { INDUSTRY_TEMPLATES } from '../agents/industry-templates';
 import { budgetLevel, periodLabel, POLICY_LABELS } from '../../shared/budget';
 import { IconComponent } from '../../shared/icon.component';
 import { RelativeTimePipe } from '../../shared/relative-time.pipe';
@@ -19,6 +22,22 @@ import { NumberPipe, UsdPipe } from '../../shared/usd.pipe';
       <div class="page-header">
         <div><h1>Hola{{ auth.me() ? ', ' + auth.me()!.name : '' }} 👋</h1><p>Resumen de su plataforma de agentes y automatización</p></div>
       </div>
+
+      @if (critical().length) {
+        <div class="callout danger crit" role="alert">
+          <nx-icon name="heartPulse" [size]="18" />
+          <div class="grow">
+            <strong>{{ critical().length === 1 ? 'Un agente necesita atención urgente' : critical().length + ' agentes necesitan atención urgente' }}</strong>
+            <p>Su puntaje de salud es crítico: revise las recomendaciones o pida ayuda a Nexo Copilot.</p>
+            <ul class="crit-list">
+              @for (h of critical().slice(0, 5); track h.agentId) {
+                <li><a [routerLink]="['/agents', h.agentId]">{{ h.name }}</a><span class="score">{{ h.score }} / 100</span></li>
+              }
+            </ul>
+            @if (critical().length > 5) { <a routerLink="/agents" class="small">Ver los {{ critical().length }} agentes</a> }
+          </div>
+        </div>
+      }
 
       <div class="grid grid-4">
         @for (k of kpis(); track k.label) {
@@ -58,7 +77,12 @@ import { NumberPipe, UsdPipe } from '../../shared/usd.pipe';
           <div class="card-title"><h2>Primeros pasos</h2></div>
           <ol class="steps">
             <li><a routerLink="/connectors">Cree un conector</a> REST, SOAP, GraphQL o MCP e importe sus operaciones.</li>
-            <li><a routerLink="/agents">Cree un agente</a>, asígnele herramientas y pruébelo en el chat.</li>
+            <li><a routerLink="/agents/new">Cree un agente con Nexo Copilot</a> partiendo de una plantilla:
+              <span class="tpls">
+                @for (t of templates; track t.id) {
+                  <a class="badge primary" routerLink="/agents/new" [queryParams]="{ plantilla: t.id }"><nx-icon [name]="t.icon" [size]="12" />{{ t.label }}</a>
+                }
+              </span></li>
             <li><a routerLink="/workflows">Diseñe un flujo</a> que combine conectores, condiciones y agentes.</li>
             <li>Actívelo por <strong>webhook</strong>, <strong>cron</strong> o expóngalo vía <a routerLink="/admin/security">servidor MCP</a>.</li>
           </ol>
@@ -92,11 +116,23 @@ import { NumberPipe, UsdPipe } from '../../shared/usd.pipe';
     .budget-body { flex: 1; min-width: 0; display: grid; gap: 6px; }
     .budget-card .title, .budget-card .me { color: var(--text); }
     .go { transform: rotate(180deg); color: var(--muted); }
+    .crit { margin-bottom: 16px; }
+    .crit p { margin: 2px 0 6px; font-weight: 450; }
+    .crit .grow { flex: 1; min-width: 0; }
+    .crit-list { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px 16px; }
+    .crit-list li { display: inline-flex; gap: 6px; align-items: baseline; }
+    .crit-list a { font-weight: 650; color: var(--danger); text-decoration: underline; }
+    .crit .score { font-size: 12px; font-variant-numeric: tabular-nums; }
+    .tpls { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+    .tpls .badge { gap: 4px; }
   `,
 })
 export class DashboardPage implements OnInit {
   private readonly api = inject(ApiService);
+  private readonly access = inject(AccessApi);
   protected readonly auth = inject(AuthService);
+  readonly critical = signal<AgentHealthSummary[]>([]);
+  readonly templates = INDUSTRY_TEMPLATES;
   readonly stats = signal<Stats | null>(null);
   readonly executions = signal<Execution[]>([]);
   readonly usage = signal<MyUsage | null>(null);
@@ -117,6 +153,11 @@ export class DashboardPage implements OnInit {
   async ngOnInit() {
     // El consumo es complementario: si falla no debe impedir mostrar el resto del inicio.
     this.api.myUsage().then((u) => this.usage.set(u), () => this.usage.set(null));
+    // Alertas de salud (ADR 0006 D5): complementarias, sin bloquear el inicio.
+    this.access.healthSummary().then(
+      (list) => this.critical.set(list.filter((h) => h.level === 'CRITICAL').sort((a, b) => a.score - b.score)),
+      () => this.critical.set([]),
+    );
     const [stats, ex] = await Promise.all([this.api.stats(), this.api.executions({ take: '6' })]);
     this.stats.set(stats);
     this.executions.set(ex.items);

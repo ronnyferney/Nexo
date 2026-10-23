@@ -1,0 +1,106 @@
+<aside class="cp" role="complementary" aria-label="Nexo Copilot"
+  [attr.inert]="variant() === 'panel' && !open() ? '' : null">
+  <header class="cp-head">
+    <span class="mark" aria-hidden="true">N<nx-icon name="sparkles" [size]="11" /></span>
+    <div class="who">
+      <h2 [id]="uid + '-title'">Nexo Copilot</h2>
+      <span class="small muted">Arquitecto de agentes de Nexo · nunca cambia nada sin su aprobación</span>
+    </div>
+    @if (items().length && !streaming()) {
+      <button type="button" class="btn ghost icon sm" title="Nueva conversación" aria-label="Nueva conversación con el Copilot" (click)="reset()"><nx-icon name="refresh" [size]="15" /></button>
+    }
+    @if (variant() === 'panel') {
+      <button type="button" class="btn ghost icon sm" title="Cerrar (Esc)" aria-label="Cerrar Nexo Copilot" (click)="close()"><nx-icon name="x" [size]="16" /></button>
+    }
+  </header>
+
+  @if (modes().length > 1) {
+    <div class="cp-modes">
+      <div class="segmented" role="radiogroup" aria-label="Modo del Copilot">
+        @for (m of modes(); track m) {
+          <button type="button" role="radio" [attr.aria-checked]="mode() === m" [class.active]="mode() === m" [disabled]="streaming()" (click)="setMode(m)">
+            <nx-icon [name]="m === 'DIAGNOSE' ? 'search' : m === 'IMPROVE' ? 'sparkles' : 'plus'" [size]="14" />{{ modeLabels[m] }}</button>
+        }
+      </div>
+    </div>
+  }
+
+  @if (quota(); as q) {
+    <div class="cp-quota small" [title]="(q.usedUsd | usd) + ' de ' + (q.limitUsd | usd) + ' · ' + q.period">
+      <span class="muted">Cupo mensual incluido por Nexo</span><span class="spacer"></span>
+      <span class="pct" [class.warn]="quotaPct() >= 80">{{ quotaPct() }} % usado</span>
+      <div class="bar" role="progressbar" aria-label="Cupo del Copilot usado" aria-valuemin="0" aria-valuemax="100" [attr.aria-valuenow]="quotaPct()">
+        <span [style.width.%]="quotaPct()"></span></div>
+    </div>
+  }
+
+  <div class="cp-msgs" #scroller aria-live="polite" [attr.aria-busy]="streaming()">
+    @if (exhausted()) {
+      <div class="callout warning exhausted" role="status">
+        <nx-icon name="info" [size]="18" />
+        <div>
+          <strong>El cupo del Copilot de este mes se agotó</strong>
+          <p>Se renueva el próximo periodo. Mientras tanto puede seguir mejorando su agente con herramientas que no consumen IA:</p>
+          <ul>
+            @if (agent()) { <li><button type="button" class="linkish" (click)="showHealth.emit()">Revisar el puntaje de salud y sus recomendaciones</button></li> }
+            <li><a routerLink="/agents/new" [queryParams]="{ modo: 'experto' }">Partir de una plantilla de rol</a></li>
+          </ul>
+        </div>
+      </div>
+    }
+
+    @for (item of items(); track $index) {
+      @switch (item.kind) {
+        @case ('user') { <div class="msg user">{{ item.text }}</div> }
+        @case ('assistant') {
+          <div class="msg assistant">{{ item.text }}</div>
+          @if (item.messageId && !streaming()) { <nx-copilot-feedback [messageId]="item.messageId" /> }
+        }
+        @case ('tools') {
+          <ul class="tools small" aria-label="Herramientas usadas por el Copilot">
+            @for (s of item.steps; track s.id) {
+              <li [class.err]="s.isError">
+                @if (!s.done) { <span class="spin" aria-hidden="true"></span> }
+                @else { <nx-icon [name]="s.isError ? 'alert' : 'check'" [size]="13" /> }
+                <span>{{ toolLabel(s.name) }}</span>@if (!s.done) { <span class="sr-only">(en curso)</span> }
+              </li>
+            }
+          </ul>
+        }
+        @case ('proposal') {
+          <nx-copilot-proposal [ref]="item.proposal" [agent]="agent()" [canApply]="canApply()" (applied)="onApplied($event)" />
+        }
+        @case ('notice') { <div class="note small" role="status">{{ item.text }}</div> }
+        @case ('error') { <div class="callout danger small" role="alert"><nx-icon name="alert" [size]="15" /><span>{{ item.text }}</span></div> }
+      }
+    } @empty {
+      @if (restoring()) {
+        <p class="muted small center">Recuperando la conversación…</p>
+      } @else if (!exhausted()) {
+        <div class="intro">
+          <span class="mark lg" aria-hidden="true">N<nx-icon name="sparkles" [size]="14" /></span>
+          <p>{{ hint() }}</p>
+          @if (suggestions().length) {
+            <div class="starters">
+              @for (s of suggestions(); track s) {
+                <button type="button" class="starter" (click)="send(s)">{{ s }}</button>
+              }
+            </div>
+          }
+        </div>
+      }
+    }
+    @if (streaming()) { <div class="typing" aria-label="Nexo Copilot está escribiendo"><span></span><span></span><span></span></div> }
+  </div>
+
+  <div class="cp-composer">
+    <label class="sr-only" [for]="uid + '-input'">Mensaje para Nexo Copilot</label>
+    <textarea #composer [id]="uid + '-input'" class="input" rows="2" [(ngModel)]="message" [disabled]="exhausted()"
+      [placeholder]="exhausted() ? 'Cupo agotado este mes' : 'Escriba a Nexo Copilot… (Enter para enviar)'" (keydown.enter)="onEnter($any($event))"></textarea>
+    @if (streaming()) {
+      <button type="button" class="btn icon" title="Detener" aria-label="Detener respuesta" (click)="stop()"><nx-icon name="stop" /></button>
+    } @else {
+      <button type="button" class="btn primary icon" title="Enviar" aria-label="Enviar mensaje al Copilot" [disabled]="!message.trim() || exhausted()" (click)="send()"><nx-icon name="send" /></button>
+    }
+  </div>
+</aside>

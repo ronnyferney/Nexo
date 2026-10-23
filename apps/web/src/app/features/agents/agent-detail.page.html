@@ -16,20 +16,55 @@
         <div class="icon-tile"><nx-icon name="bot" /></div>
         <div class="who">
           <h1>{{ a.name }}</h1>
+          <div class="meta-badges">
+            @if (a.visibility; as v) {
+              <span class="badge" [title]="visibilityMeta[v].description"><nx-icon [name]="visibilityMeta[v].icon" [size]="12" />{{ visibilityMeta[v].label }}</span>
+            }
+            @if (a.launchStatus === 'LAUNCHED') {
+              <span class="badge success" [title]="a.launchOverrideReason ? 'Lanzado por un administrador: ' + a.launchOverrideReason : 'Cumple los requisitos de calidad'"><nx-icon name="rocket" [size]="12" />Lanzado</span>
+            } @else if (a.launchStatus === 'DRAFT') {
+              <span class="badge warning"><nx-icon name="pencil" [size]="12" />Borrador</span>
+            }
+            @if (a.owner) { <span class="small muted">Dueño: {{ isOwner() ? 'usted' : a.owner.name }}</span> }
+            @if (!canEditAgent()) { <span class="badge info">{{ permissionLabels[permission()] }}</span> }
+          </div>
           <p>{{ a.provider }} · {{ a.model }} · {{ toolSelection().size }} herramientas · {{ skillSelection().size }} skills · {{ kbSelection().size }} bases</p>
         </div>
       </div>
-      @if (auth.canEdit()) {
-        <div class="row">
+      <div class="row wrap head-actions">
+        @if (canEditAgent()) {
           @if (dirty()) { <span class="badge warning" role="status">Cambios sin guardar</span> }
+          <button id="copilot-trigger" class="btn copilot-btn" aria-keyshortcuts="Alt+Shift+A" title="Nexo Copilot (Alt+Mayús+A)" [attr.aria-expanded]="copilotOpen()" (click)="copilotOpen.set(!copilotOpen())">
+            <nx-icon name="sparkles" [size]="16" />Ayúdame</button>
+          <button class="btn" (click)="shareOpen.set(true)"><nx-icon name="users" [size]="16" />Compartir</button>
+          @if (a.launchStatus === 'LAUNCHED') {
+            <button class="btn" [disabled]="launchBusy()" (click)="unlaunch()"><nx-icon name="x" [size]="16" />Retirar lanzamiento</button>
+          } @else {
+            <button class="btn" [disabled]="launchBusy()" (click)="launchOpen.set(true)"><nx-icon name="rocket" [size]="16" />Lanzar</button>
+          }
           <button class="btn danger icon" title="Eliminar agente" aria-label="Eliminar agente" (click)="remove()"><nx-icon name="trash" /></button>
           <button class="btn primary" [disabled]="saving() || !dirty()" (click)="save()"><nx-icon name="save" />{{ saving() ? 'Guardando…' : 'Guardar' }}</button>
-        </div>
-      }
+        } @else {
+          <button class="btn" [disabled]="duplicating()" (click)="duplicate()"><nx-icon name="copy" [size]="16" />{{ duplicating() ? 'Duplicando…' : 'Duplicar en mis agentes' }}</button>
+        }
+      </div>
     </div>
+
+    @if (!seesConfig()) {
+      <div class="callout info ro-note" role="note"><nx-icon name="eye" [size]="16" />
+        <span>Tiene permiso para <strong>usar</strong> este agente: puede conversar con él y usarlo en flujos. La configuración es de solo lectura; duplíquelo si quiere adaptarlo.</span></div>
+    } @else if (!canEditAgent()) {
+      <div class="callout info ro-note" role="note"><nx-icon name="shield" [size]="16" />
+        <span>Vista de gobierno: puede revisar la configuración, el costo y la salud de este agente, pero no editarlo ni leer conversaciones ajenas.</span></div>
+    }
 
     <div class="layout">
       <div class="studio">
+        @if (seesConfig()) {
+          <nx-agent-health class="health-slot" [agentId]="a.id" [copilot]="canEditAgent()" (loaded)="health.set($event)"
+            (openTab)="openTabFromHealth($event)" (askCopilot)="askCopilot($event)" />
+        }
+        @if (seesConfig()) {
         <div class="tabs scroll" role="tablist" aria-label="Secciones del agente">
           @for (t of tabs; track t.id) {
             <button class="tab" role="tab" [id]="'tab-' + t.id" [attr.aria-selected]="tab() === t.id" [attr.aria-controls]="'panel-' + t.id"
@@ -42,16 +77,17 @@
             </button>
           }
         </div>
+        }
 
-        <div role="tabpanel" [id]="'panel-' + tab()" [attr.aria-labelledby]="'tab-' + tab()">
-          @switch (tab()) {
+        <div [attr.role]="seesConfig() ? 'tabpanel' : 'region'" [id]="'panel-' + tab()" [attr.aria-labelledby]="seesConfig() ? 'tab-' + tab() : null" [attr.aria-label]="seesConfig() ? null : 'Perfil del agente'">
+          @switch (seesConfig() ? tab() : 'profile') {
             @case ('profile') {
               <div class="stack">
                 <div class="card stack">
-                  <div class="field"><label for="agent-name">Nombre</label><input id="agent-name" class="input" [disabled]="!auth.canEdit()" [(ngModel)]="form.name" /></div>
-                  <div class="field"><label for="agent-desc">Descripción (visible para clientes MCP)</label><input id="agent-desc" class="input" [disabled]="!auth.canEdit()" [(ngModel)]="form.description" /></div>
+                  <div class="field"><label for="agent-name">Nombre</label><input id="agent-name" class="input" [disabled]="!canEditAgent()" [(ngModel)]="form.name" /></div>
+                  <div class="field"><label for="agent-desc">Descripción (visible para clientes MCP)</label><input id="agent-desc" class="input" [disabled]="!canEditAgent()" [(ngModel)]="form.description" /></div>
                 </div>
-                <nx-agent-profile [(profile)]="profile" [(systemPrompt)]="systemPrompt" [disabled]="!auth.canEdit()" />
+                <nx-agent-profile [(profile)]="profile" [(systemPrompt)]="systemPrompt" [disabled]="!canEditAgent()" />
               </div>
             }
 
@@ -60,11 +96,11 @@
                 <div class="card stack">
                   <div class="grid grid-2">
                     <div class="field"><label for="agent-provider">Proveedor</label>
-                      <select id="agent-provider" class="input" [disabled]="!auth.canEdit()" [ngModel]="form.provider" (ngModelChange)="onProviderChange($event)">
+                      <select id="agent-provider" class="input" [disabled]="!canEditAgent()" [ngModel]="form.provider" (ngModelChange)="onProviderChange($event)">
                         @for (p of providers(); track p.id) { <option [value]="p.id" [disabled]="!p.configured">{{ p.label }}{{ p.configured ? '' : ' (no configurado)' }}</option> }
                       </select></div>
                     <div class="field"><label for="agent-model">Modelo</label>
-                      <select id="agent-model" class="input" [disabled]="!auth.canEdit()" [(ngModel)]="form.model">
+                      <select id="agent-model" class="input" [disabled]="!canEditAgent()" [(ngModel)]="form.model">
                         @for (m of models(); track m.id) { <option [value]="m.id">{{ modelOption(m) }}</option> }
                       </select>
                       @if (selectedModel(); as m) {
@@ -73,13 +109,13 @@
                   </div>
                   <div class="grid grid-2">
                     <div class="field"><label for="agent-effort">Nivel de esfuerzo</label>
-                      <select id="agent-effort" class="input" [disabled]="!auth.canEdit()" [(ngModel)]="form.effort">
+                      <select id="agent-effort" class="input" [disabled]="!canEditAgent()" [(ngModel)]="form.effort">
                         @for (e of efforts; track e.id) { <option [value]="e.id">{{ e.label }}</option> }
                       </select></div>
-                    <div class="field"><label for="agent-turns">Máx. turnos de herramientas</label><input id="agent-turns" class="input" type="number" min="1" max="50" [disabled]="!auth.canEdit()" [(ngModel)]="form.maxTurns" /></div>
+                    <div class="field"><label for="agent-turns">Máx. turnos de herramientas</label><input id="agent-turns" class="input" type="number" min="1" max="50" [disabled]="!canEditAgent()" [(ngModel)]="form.maxTurns" /></div>
                   </div>
                   <div class="field"><label for="agent-cc">Centro de costo</label>
-                    <select id="agent-cc" class="input" [disabled]="!auth.canEdit()" [(ngModel)]="form.costCenterId">
+                    <select id="agent-cc" class="input" [disabled]="!canEditAgent()" [(ngModel)]="form.costCenterId">
                       <option [ngValue]="null">Unidad del usuario / raíz</option>
                       @for (u of units(); track u.item.id) { <option [ngValue]="u.item.id">{{ pad(u.depth) }}{{ u.item.name }}</option> }
                     </select>
@@ -99,7 +135,7 @@
                         } @else {
                           <div class="grow"><code>{{ key }}</code><span class="badge warning ml">No disponible en el catálogo</span></div>
                         }
-                        @if (auth.canEdit()) {
+                        @if (canEditAgent()) {
                           <button class="btn ghost icon sm" title="Subir" aria-label="Subir prioridad" [disabled]="first" (click)="moveFallback(i, -1)"><nx-icon name="chevronUp" [size]="15" /></button>
                           <button class="btn ghost icon sm" title="Bajar" aria-label="Bajar prioridad" [disabled]="last" (click)="moveFallback(i, 1)"><nx-icon name="chevronDown" [size]="15" /></button>
                           <button class="btn ghost icon sm danger" title="Quitar" aria-label="Quitar modelo de respaldo" (click)="removeFallback(i)"><nx-icon name="x" [size]="15" /></button>
@@ -109,7 +145,7 @@
                       <li class="muted small">Sin modelos de respaldo: si el principal falla, el turno termina con error.</li>
                     }
                   </ol>
-                  @if (auth.canEdit() && fallbacks().length < maxFallbacks) {
+                  @if (canEditAgent() && fallbacks().length < maxFallbacks) {
                     <div class="row add-fallback">
                       <label class="sr-only" for="fallback-add">Agregar modelo de respaldo</label>
                       <select id="fallback-add" class="input" [(ngModel)]="fallbackDraft">
@@ -141,7 +177,7 @@
                     <div class="checklist">
                       @for (s of skills(); track s.id) {
                         <label class="choice">
-                          <input type="checkbox" [disabled]="!auth.canEdit()" [checked]="skillSelection().has(s.id)" (change)="toggleSkill(s.id, $any($event.target).checked)" />
+                          <input type="checkbox" [disabled]="!canEditAgent()" [checked]="skillSelection().has(s.id)" (change)="toggleSkill(s.id, $any($event.target).checked)" />
                           <span><strong>{{ s.name }}</strong><span class="muted small block">{{ s.description }}</span>
                             @if (s.operationIds.length) { <span class="badge">{{ s.operationIds.length }} operaciones</span> }</span>
                         </label>
@@ -158,10 +194,10 @@
                     <div class="card-title"><div class="icon-tile {{ c.type }}"><nx-icon name="plug" [size]="16" /></div><h3>{{ c.name }}</h3><span class="badge">{{ c.type }}</span></div>
                     @for (op of c.operations; track op.id) {
                       <div class="op-row">
-                        <input type="checkbox" [id]="'op-' + op.id" [disabled]="!auth.canEdit()" [checked]="toolSelection().has(op.id)" (change)="toggleTool(op.id, $any($event.target).checked)" />
+                        <input type="checkbox" [id]="'op-' + op.id" [disabled]="!canEditAgent()" [checked]="toolSelection().has(op.id)" (change)="toggleTool(op.id, $any($event.target).checked)" />
                         <label class="name" [for]="'op-' + op.id"><strong>{{ op.name }}</strong><span class="muted small block">{{ op.description || op.key }}</span></label>
                         @if (toolSelection().has(op.id)) {
-                          <label class="checkbox small"><input type="checkbox" [disabled]="!auth.canEdit()" [checked]="toolSelection().get(op.id)" (change)="toggleApproval(op.id, $any($event.target).checked)" />Requiere aprobación</label>
+                          <label class="checkbox small"><input type="checkbox" [disabled]="!canEditAgent()" [checked]="toolSelection().get(op.id)" (change)="toggleApproval(op.id, $any($event.target).checked)" />Requiere aprobación</label>
                         }
                       </div>
                     } @empty { <p class="muted small">Este conector no tiene operaciones.</p> }
@@ -186,7 +222,7 @@
                     <div class="checklist">
                       @for (k of knowledgeBases(); track k.id) {
                         <label class="choice">
-                          <input type="checkbox" [disabled]="!auth.canEdit()" [checked]="kbSelection().has(k.id)" (change)="toggleKb(k.id, $any($event.target).checked)" />
+                          <input type="checkbox" [disabled]="!canEditAgent()" [checked]="kbSelection().has(k.id)" (change)="toggleKb(k.id, $any($event.target).checked)" />
                           <span><strong>{{ k.name }}</strong><span class="muted small block">{{ k.documentCount | num }} documentos · {{ k.chunkCount | num }} fragmentos</span></span>
                         </label>
                       } @empty {
@@ -195,16 +231,16 @@
                     </div>
                   }
                 </div>
-                <nx-agent-examples [agentId]="a.id" [canEdit]="auth.canEdit()" />
+                <nx-agent-examples [agentId]="a.id" [canEdit]="canEditAgent()" />
               </div>
             }
 
             @case ('routines') {
-              <nx-agent-routines [agentId]="a.id" [canEdit]="auth.canEdit()" />
+              <nx-agent-routines [agentId]="a.id" [canEdit]="canEditAgent()" />
             }
 
             @case ('training') {
-              <nx-agent-training [agent]="a" [canEdit]="auth.canEdit()" [dirty]="dirty()" [(targetScore)]="targetScore" (agentChanged)="reloadAgent()" />
+              <nx-agent-training [agent]="a" [canEdit]="canEditAgent()" [dirty]="dirty()" [(targetScore)]="targetScore" (agentChanged)="reloadAgent()" />
             }
 
             @case ('preview') {
@@ -216,8 +252,8 @@
 
       <div class="card chat">
         <div class="chat-head">
-          <nx-icon name="sparkles" /><strong>Probar agente</strong><span class="spacer"></span>
-          <span class="muted small hide-sm">Guarde los cambios antes de probar</span>
+          <nx-icon name="sparkles" /><strong>{{ canEditAgent() ? 'Probar agente' : 'Conversar' }}</strong><span class="spacer"></span>
+          <span class="muted small hide-sm">{{ canEditAgent() ? 'Guarde los cambios antes de probar · ' : '' }}Sus conversaciones son privadas</span>
           <button class="btn sm" (click)="newConversation()"><nx-icon name="refresh" [size]="14" />Nueva</button>
         </div>
         <div class="messages" #scroller aria-live="polite">
@@ -264,4 +300,10 @@
       </div>
     </div>
   </div>
+
+  @if (canEditAgent()) {
+    <nx-copilot-panel [(open)]="copilotOpen" triggerId="copilot-trigger" [agent]="a" [canApply]="canEditAgent()" (applied)="onCopilotApplied($event)" (showHealth)="showHealth()" />
+  }
+  @if (shareOpen()) { <nx-agent-share-dialog [agent]="a" (changed)="mergeAccess($event)" (closed)="shareOpen.set(false)" /> }
+  @if (launchOpen()) { <nx-agent-launch-dialog [agent]="a" [health]="health()" (launched)="onLaunched($event)" (closed)="launchOpen.set(false)" /> }
 }

@@ -1,7 +1,10 @@
-import { ChangeDetectionStrategy, Component, ElementRef, inject, input, OnInit, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, ElementRef, inject, input, OnInit, signal, untracked, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
+import { AccessApi } from '../../core/access.api';
+import { type AgentHealth, PERMISSION_LABELS, VISIBILITY_META } from '../../core/access.models';
 import { ApiService, errorMessage } from '../../core/api.service';
+import type { CopilotApplyResult, CopilotProposal } from '../../core/copilot.models';
 import { AuthService } from '../../core/auth.service';
 import type { Agent, CatalogModel, Connector, Effort, OrgUnitOption, ProviderInfo } from '../../core/models';
 import { StudioApi } from '../../core/studio.api';
@@ -17,6 +20,10 @@ import { AgentProfileComponent } from './agent-profile.component';
 import { AgentPromptPreviewComponent } from './agent-prompt-preview.component';
 import { AgentRoutinesComponent } from './agent-routines.component';
 import { AgentTrainingComponent } from './training/agent-training.component';
+import { CopilotPanelComponent } from '../copilot/copilot-panel.component';
+import { AgentHealthCardComponent } from './agent-health-card.component';
+import { AgentLaunchDialogComponent } from './agent-launch-dialog.component';
+import { AgentShareDialogComponent } from './agent-share-dialog.component';
 
 interface ChatItem {
   kind: 'user' | 'assistant' | 'tool' | 'notice' | 'usage' | 'error';
@@ -56,21 +63,29 @@ const MAX_FALLBACKS = 3;
     AgentPromptPreviewComponent,
     AgentTrainingComponent,
     AgentChatFeedbackComponent,
+    CopilotPanelComponent,
+    AgentHealthCardComponent,
+    AgentLaunchDialogComponent,
+    AgentShareDialogComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './agent-detail.page.html',
   styleUrl: './agent-detail.page.scss',
+  host: { '(document:keydown)': 'onShortcut($event)' },
 })
 export class AgentDetailPage implements OnInit {
   private readonly api = inject(ApiService);
   private readonly studio = inject(StudioApi);
   private readonly router = inject(Router);
   private readonly toast = inject(ToastService);
+  private readonly access = inject(AccessApi);
   protected readonly auth = inject(AuthService);
   readonly id = input.required<string>();
   /** Pestaña inicial por query param (`?tab=routines`). */
   readonly initialTab = input<string | undefined>(undefined, { alias: 'tab' });
   private readonly scroller = viewChild<ElementRef<HTMLDivElement>>('scroller');
+  private readonly copilot = viewChild(CopilotPanelComponent);
+  private readonly healthCard = viewChild(AgentHealthCardComponent);
 
   readonly agent = signal<Agent | null>(null);
   readonly loading = signal(true);
@@ -93,6 +108,25 @@ export class AgentDetailPage implements OnInit {
     { id: 'preview', label: 'Vista previa' },
   ];
   readonly tab = signal<AgentTab>('profile');
+
+  // ----- Permisos, visibilidad, salud y lanzamiento (ADR 0006 / 0007) -----
+  readonly visibilityMeta = VISIBILITY_META;
+  readonly permissionLabels = PERMISSION_LABELS;
+  /** Permiso efectivo; si la API aún no lo devuelve, se usa el rol del workspace. */
+  readonly permission = computed(() => this.agent()?.myPermission ?? (this.auth.canEdit() ? 'EDIT' : 'USE'));
+  readonly canEditAgent = computed(() => this.permission() === 'OWNER' || this.permission() === 'EDIT');
+  /** Ve la configuración completa (editores y gobierno de administración). */
+  readonly seesConfig = computed(() => this.canEditAgent() || this.permission() === 'ADMIN_VIEW');
+  readonly isOwner = computed(() => {
+    const a = this.agent();
+    return this.permission() === 'OWNER' || (!!a?.ownerId && a.ownerId === this.auth.me()?.id);
+  });
+  readonly copilotOpen = signal(false);
+  readonly shareOpen = signal(false);
+  readonly launchOpen = signal(false);
+  readonly health = signal<AgentHealth | null>(null);
+  readonly launchBusy = signal(false);
+  readonly duplicating = signal(false);
   readonly saving = signal(false);
   readonly maxFallbacks = MAX_FALLBACKS;
   readonly efforts: { id: Effort; label: string }[] = [
@@ -156,6 +190,23 @@ export class AgentDetailPage implements OnInit {
   private turnSeq = 0;
   private abort?: AbortController;
 
+  /** Agente cargado; el router reutiliza la página al navegar a otro agente (duplicar, propuestas). */
+  private loadedId: string | null = null;
+
+  constructor() {
+    effect(() => {
+      const id = this.id();
+      untracked(() => {
+        if (!this.loadedId || this.loadedId === id) return;
+        this.newConversation();
+        this.copilotOpen.set(false);
+        this.health.set(null);
+        this.agent.set(null);
+        void this.load();
+      });
+    });
+  }
+
   async ngOnInit() {
     const t = this.initialTab();
     if (t && this.tabs.some((x) => x.id === t)) this.tab.set(t as AgentTab);
@@ -163,6 +214,7 @@ export class AgentDetailPage implements OnInit {
   }
 
   async load() {
+    this.loadedId = this.id();
     this.loading.set(true);
     this.loadError.set(null);
     try {
@@ -376,6 +428,104 @@ export class AgentDetailPage implements OnInit {
       await this.router.navigate(['/agents']);
     } catch (e) {
       this.toast.error(errorMessage(e));
+    }
+  }
+
+  // ----- Copilot, salud, lanzamiento y compartir -----
+
+  /** Atajo Alt+Mayús+A para abrir o cerrar el Copilot. */
+  onShortcut(e: KeyboardEvent) {
+    if (e.altKey && e.shiftKey && e.code === 'KeyA' && this.canEditAgent()) {
+      e.preventDefault();
+      this.copilotOpen.update((v) => !v);
+    }
+  }
+
+  openTabFromHealth(tab: string) {
+    const t = this.tabs.find((x) => x.id === tab)?.id ?? 'profile';
+    this.tab.set(t);
+    setTimeout(() => {
+      const el = document.getElementById(`tab-${t}`);
+      el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      el?.focus();
+    });
+  }
+
+  askCopilot(prompt: string) {
+    this.copilot()?.prefill(prompt);
+  }
+
+  showHealth() {
+    this.copilotOpen.set(false);
+    setTimeout(() => this.healthCard()?.reveal());
+  }
+
+  async onCopilotApplied(ev: { proposal: CopilotProposal; result: CopilotApplyResult }) {
+    if (ev.result.agentId && ev.result.agentId !== this.id()) {
+      this.copilotOpen.set(false);
+      await this.router.navigate(['/agents', ev.result.agentId]);
+      return;
+    }
+    if (this.dirty()) this.toast.info('Se recargó el agente con los cambios aplicados; sus cambios sin guardar se descartaron.');
+    await this.reloadAgent();
+    void this.healthCard()?.load();
+  }
+
+  /** Actualiza solo los campos de acceso y lanzamiento, sin descartar cambios sin guardar. */
+  mergeAccess(a: Agent) {
+    this.agent.update((cur) =>
+      cur
+        ? {
+            ...cur,
+            visibility: a.visibility ?? cur.visibility,
+            ownerId: a.ownerId ?? cur.ownerId,
+            owner: a.owner ?? cur.owner,
+            myPermission: a.myPermission ?? cur.myPermission,
+            shares: a.shares ?? cur.shares,
+            launchStatus: a.launchStatus ?? cur.launchStatus,
+            launchedAt: a.launchedAt ?? cur.launchedAt,
+            launchOverrideReason: a.launchOverrideReason ?? cur.launchOverrideReason,
+          }
+        : cur,
+    );
+  }
+
+  onLaunched(a: Agent) {
+    this.mergeAccess(a);
+    if (!a.launchStatus) this.agent.update((cur) => (cur ? { ...cur, launchStatus: 'LAUNCHED', launchedAt: new Date().toISOString() } : cur));
+    this.toast.success('Agente lanzado');
+  }
+
+  async unlaunch() {
+    const a = this.agent();
+    if (!a || this.launchBusy()) return;
+    const extra = a.visibility === 'WORKSPACE' ? ' Dejará de estar disponible para toda la empresa.' : '';
+    if (!confirm(`¿Retirar el lanzamiento de «${a.name}»? El servidor MCP y las rutinas dejarán de usarlo; el chat de prueba sigue funcionando.${extra}`)) return;
+    this.launchBusy.set(true);
+    try {
+      const res = await this.access.unlaunch(a.id);
+      this.mergeAccess(res ?? a);
+      this.agent.update((cur) => (cur ? { ...cur, launchStatus: res?.launchStatus ?? 'DRAFT' } : cur));
+      this.toast.success('Lanzamiento retirado: el agente vuelve a borrador');
+    } catch (e) {
+      this.toast.error(errorMessage(e));
+    } finally {
+      this.launchBusy.set(false);
+    }
+  }
+
+  async duplicate() {
+    const a = this.agent();
+    if (!a || this.duplicating()) return;
+    this.duplicating.set(true);
+    try {
+      const copy = await this.access.duplicate(a.id, `Copia de ${a.name}`);
+      this.toast.success('Copia creada en sus agentes (Personal)');
+      await this.router.navigate(['/agents', copy.id]);
+    } catch (e) {
+      this.toast.error(errorMessage(e));
+    } finally {
+      this.duplicating.set(false);
     }
   }
 

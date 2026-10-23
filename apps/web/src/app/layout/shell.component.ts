@@ -1,6 +1,9 @@
-import { ChangeDetectionStrategy, Component, inject, OnInit } from '@angular/core';
-import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { ChangeDetectionStrategy, Component, computed, inject, OnInit } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { filter, map } from 'rxjs';
 import { AuthService } from '../core/auth.service';
+import { PlatformApi } from '../core/platform.api';
 import { IconComponent } from '../shared/icon.component';
 
 @Component({
@@ -17,7 +20,7 @@ import { IconComponent } from '../shared/icon.component';
         <div class="nav-section" id="nav-portal">Portal</div>
         <div class="nav-group" role="group" aria-labelledby="nav-portal">
           @for (item of portalNav; track item.path) {
-            <a [routerLink]="item.path" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: item.exact }">
+            <a [routerLink]="item.path" [class.active]="portalActive() === item.path" [attr.aria-current]="portalActive() === item.path ? 'page' : null">
               <nx-icon [name]="item.icon" />{{ item.label }}
             </a>
           }
@@ -26,6 +29,16 @@ import { IconComponent } from '../shared/icon.component';
           <div class="nav-section admin" id="nav-admin">Administración</div>
           <div class="nav-group" role="group" aria-labelledby="nav-admin">
             @for (item of adminNav; track item.path) {
+              <a [routerLink]="item.path" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: item.exact }">
+                <nx-icon [name]="item.icon" />{{ item.label }}
+              </a>
+            }
+          </div>
+        }
+        @if (platform.isPlatformAdmin()) {
+          <div class="nav-section platform" id="nav-platform">Plataforma Nexo</div>
+          <div class="nav-group" role="group" aria-labelledby="nav-platform">
+            @for (item of platformNav; track item.path) {
               <a [routerLink]="item.path" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: item.exact }">
                 <nx-icon [name]="item.icon" />{{ item.label }}
               </a>
@@ -60,7 +73,8 @@ import { IconComponent } from '../shared/icon.component';
     nav { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
     .nav-group { display: flex; flex-direction: column; gap: 2px; }
     .nav-section { font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #6f7499; padding: 4px 12px 6px; }
-    .nav-section.admin { margin-top: 18px; padding-top: 14px; border-top: 1px solid #23264a; }
+    .nav-section.admin, .nav-section.platform { margin-top: 18px; padding-top: 14px; border-top: 1px solid #23264a; }
+    .nav-section.platform { color: #b49cf7; }
     nav a { display: flex; gap: 11px; align-items: center; padding: 9px 12px; border-radius: 9px; color: #b4b8d4; font-weight: 500; }
     nav a:hover { background: rgba(255, 255, 255, 0.05); color: #fff; }
     nav a.active { background: rgba(109, 109, 250, 0.18); color: #fff; }
@@ -73,14 +87,30 @@ import { IconComponent } from '../shared/icon.component';
     .who strong { display: block; color: #fff; font-size: 13px; }
     .who small { display: block; color: #8a8fb0; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     main { flex: 1; min-width: 0; }
-    @media (max-width: 900px) { :host { flex-direction: column; } .sidebar { width: 100%; height: auto; position: static; } nav { flex-direction: row; overflow-x: auto; align-items: center; } .nav-group { flex-direction: row; } .nav-section { padding: 0 8px; white-space: nowrap; } .nav-section.admin { margin: 0 0 0 8px; padding: 0 8px; border-top: 0; border-left: 1px solid #23264a; } nav a { white-space: nowrap; } .spacer, .user, .ws { display: none; } }
+    @media (max-width: 900px) { :host { flex-direction: column; } .sidebar { width: 100%; height: auto; position: static; } nav { flex-direction: row; overflow-x: auto; align-items: center; } .nav-group { flex-direction: row; } .nav-section { padding: 0 8px; white-space: nowrap; } .nav-section.admin, .nav-section.platform { margin: 0 0 0 8px; padding: 0 8px; border-top: 0; border-left: 1px solid #23264a; } nav a { white-space: nowrap; } .spacer, .user, .ws { display: none; } }
   `,
 })
 export class ShellComponent implements OnInit {
   protected readonly auth = inject(AuthService);
+  protected readonly platform = inject(PlatformApi);
+  private readonly router = inject(Router);
+  private readonly url = toSignal(
+    this.router.events.pipe(
+      filter((e) => e instanceof NavigationEnd),
+      map(() => this.router.url),
+    ),
+    { initialValue: this.router.url },
+  );
+  /** Entrada activa del portal: la coincidencia más específica (así `/agents/explore` no activa también `/agents`). */
+  protected readonly portalActive = computed(() => {
+    const path = this.url().split(/[?#]/)[0];
+    const matches = this.portalNav.filter((i) => (i.exact ? path === i.path : path === i.path || path.startsWith(`${i.path}/`)));
+    return matches.sort((a, b) => b.path.length - a.path.length)[0]?.path ?? null;
+  });
   protected readonly portalNav = [
     { path: '/', label: 'Inicio', icon: 'dashboard', exact: true },
     { path: '/agents', label: 'Agentes', icon: 'bot', exact: false },
+    { path: '/agents/explore', label: 'Explorar agentes', icon: 'search', exact: false },
     { path: '/skills', label: 'Skills', icon: 'sparkles', exact: false },
     { path: '/knowledge', label: 'Conocimiento', icon: 'book', exact: false },
     { path: '/routines', label: 'Rutinas', icon: 'calendar', exact: false },
@@ -99,10 +129,16 @@ export class ShellComponent implements OnInit {
     { path: '/admin/alerts', label: 'Alertas', icon: 'bell', exact: false },
     { path: '/admin/edges', label: 'Nexo Edge', icon: 'server', exact: false },
     { path: '/admin/security', label: 'Seguridad', icon: 'shield', exact: false },
+    { path: '/admin/settings', label: 'Ajustes', icon: 'settings', exact: false },
+  ];
+  protected readonly platformNav = [
+    { path: '/platform', label: 'Éxito de clientes', icon: 'trophy', exact: true },
+    { path: '/platform/copilot-quality', label: 'Calidad del Copilot', icon: 'sparkles', exact: false },
   ];
 
   ngOnInit() {
     void this.auth.loadMe();
+    void this.platform.loadMe();
   }
 
   workspaceName() {

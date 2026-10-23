@@ -70,6 +70,17 @@ export interface Agent {
   examplesCount?: number;
   /** Meta de calidad del bucle de mejora (0–1, por defecto 0.85; ADR 0004). */
   targetScore?: number;
+  /** Visibilidad, dueño y permiso efectivo del usuario (ADR 0007); opcionales mientras la API no los devuelva. */
+  visibility?: import('./access.models').AgentVisibility;
+  ownerId?: string | null;
+  owner?: { id: string; name: string } | null;
+  myPermission?: import('./access.models').AgentPermission;
+  /** Solo para quien tiene EDIT. */
+  shares?: import('./access.models').AgentShare[];
+  /** Ciclo de lanzamiento (ADR 0006 D4). */
+  launchStatus?: import('./access.models').LaunchStatus;
+  launchedAt?: string | null;
+  launchOverrideReason?: string | null;
   _count?: { tools: number; conversations: number };
   updatedAt: string;
 }

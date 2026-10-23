@@ -1,0 +1,106 @@
+<dialog #dlg class="modal share" aria-labelledby="share-title" (cancel)="onCancel($event)" (close)="closed.emit()">
+  <div class="modal-head">
+    <div class="icon-tile"><nx-icon name="users" /></div>
+    <div class="grow"><h2 id="share-title">Compartir «{{ agent().name }}»</h2>
+      <span class="small muted">Dueño: {{ agent().owner?.name ?? 'sin asignar' }}</span></div>
+    <button type="button" class="btn ghost icon sm" title="Cerrar" aria-label="Cerrar" (click)="close()"><nx-icon name="x" [size]="16" /></button>
+  </div>
+
+  <div class="modal-body">
+    <fieldset class="vis">
+      <legend>Visibilidad</legend>
+      @for (v of visibilities; track v) {
+        @let why = visibilityDisabled(v);
+        <label class="choice" [class.disabled]="!!why">
+          <input type="radio" name="visibility" [value]="v" [checked]="visibility() === v" [disabled]="!!why || busy()"
+            (change)="visibility.set(v)" [attr.aria-describedby]="'vis-' + v" />
+          <nx-icon [name]="meta[v].icon" [size]="17" />
+          <span class="grow"><strong>{{ meta[v].label }}</strong>
+            <span class="block small muted" [id]="'vis-' + v">{{ why ?? meta[v].description }}</span></span>
+        </label>
+      }
+    </fieldset>
+
+    <section aria-labelledby="share-people">
+      <h3 id="share-people" class="sec">Personas y unidades</h3>
+      @if (!sharingEnabled()) {
+        <p class="muted small m0">Con visibilidad Personal nadie más lo ve. Elija <strong>Equipo</strong> para compartirlo con personas o unidades.</p>
+      } @else {
+        @if (visibility() === 'WORKSPACE') { <p class="muted small m0">Toda la empresa puede usarlo. Agregue permisos de edición para quien deba mantenerlo.</p> }
+        <ul class="shares">
+          @for (s of shares(); track s.principalType + s.principalId; let i = $index) {
+            <li>
+              <nx-icon [name]="s.principalType === 'USER' ? 'user' : 'building'" [size]="16" />
+              <span class="grow name">{{ s.principalName }}<span class="small muted"> · {{ s.principalType === 'USER' ? 'Persona' : 'Unidad y subunidades' }}</span></span>
+              <label class="sr-only" [for]="'perm-' + i">Permiso de {{ s.principalName }}</label>
+              <select class="input perm" [id]="'perm-' + i" [ngModel]="s.permission" (ngModelChange)="setPermission(i, $event)" [disabled]="busy()">
+                <option value="USE">Usar</option><option value="EDIT">Editar</option>
+              </select>
+              <button type="button" class="btn ghost icon sm danger" [title]="'Quitar a ' + s.principalName" [attr.aria-label]="'Quitar a ' + s.principalName" (click)="remove(i)"><nx-icon name="x" [size]="15" /></button>
+            </li>
+          } @empty {
+            <li class="muted small empty-li">Aún no lo comparte con nadie.</li>
+          }
+        </ul>
+
+        <div class="add">
+          @if (members()) {
+            <div class="segmented" role="radiogroup" aria-label="Compartir con">
+              <button type="button" role="radio" [attr.aria-checked]="addType === 'USER'" [class.active]="addType === 'USER'" (click)="setType('USER')"><nx-icon name="user" [size]="14" />Persona</button>
+              <button type="button" role="radio" [attr.aria-checked]="addType === 'UNIT'" [class.active]="addType === 'UNIT'" (click)="setType('UNIT')"><nx-icon name="building" [size]="14" />Unidad</button>
+            </div>
+          }
+          <div class="add-row">
+            <label class="sr-only" for="share-add">{{ addType === 'USER' ? 'Persona' : 'Unidad' }} a agregar</label>
+            <select id="share-add" class="input" [(ngModel)]="addId" [disabled]="busy()">
+              <option value="">{{ addType === 'USER' ? 'Elegir persona…' : 'Elegir unidad…' }}</option>
+              @for (o of options(); track o.id) { <option [value]="o.id">{{ o.name }}</option> }
+            </select>
+            <label class="sr-only" for="share-perm">Permiso</label>
+            <select id="share-perm" class="input perm" [(ngModel)]="addPermission"><option value="USE">Usar</option><option value="EDIT">Editar</option></select>
+            <button type="button" class="btn" [disabled]="!addId || busy()" (click)="add()"><nx-icon name="plus" [size]="15" />Agregar</button>
+          </div>
+          @if (!members()) {
+            <p class="hint small"><nx-icon name="info" [size]="14" />Solo la administración puede ver la lista de personas del workspace. Puede compartir con unidades; para una persona concreta, pida a un administrador que la agregue.</p>
+          }
+          @if (unitsError()) { <p class="error-text m0">No se pudieron cargar las unidades: {{ unitsError() }}</p> }
+          <p class="hint small"><strong>Usar</strong>: conversar y usarlo en flujos. <strong>Editar</strong>: cambiar su configuración, entrenamiento y rutinas.</p>
+        </div>
+      }
+    </section>
+
+    @if (error()) { <div class="callout danger" role="alert"><nx-icon name="alert" [size]="16" /><span>{{ error() }}</span></div> }
+
+    <details class="more">
+      <summary>Propiedad y copia</summary>
+      <div class="stack">
+        @if (canManageOwner()) {
+          <div class="field">
+            <label for="transfer-to">Transferir la propiedad a</label>
+            <div class="add-row">
+              <select id="transfer-to" class="input" [(ngModel)]="transferTo" [disabled]="busy()">
+                <option value="">Elegir persona…</option>
+                @for (c of transferCandidates(); track c.id) { <option [value]="c.id">{{ c.name }}</option> }
+              </select>
+              <button type="button" class="btn" [disabled]="!transferTo || busy()" (click)="transfer()">Transferir</button>
+            </div>
+            @if (!transferCandidates().length) { <span class="hint">{{ members() ? 'No hay otras personas en el workspace.' : 'Compártalo primero con la persona (requiere que un administrador la agregue) para poder transferírselo.' }}</span> }
+          </div>
+        }
+        <div class="field">
+          <label for="dup-name">Duplicar en mis agentes (Personal)</label>
+          <div class="add-row">
+            <input id="dup-name" class="input" [(ngModel)]="duplicateName" [disabled]="busy()" />
+            <button type="button" class="btn" [disabled]="busy()" (click)="duplicate()"><nx-icon name="copy" [size]="15" />Duplicar</button>
+          </div>
+          <span class="hint">Copia perfil, modelo, herramientas, skills, conocimiento y ejemplos; no las conversaciones, evaluaciones ni rutinas.</span>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <div class="modal-foot">
+    <button type="button" class="btn" (click)="close()">Cancelar</button>
+    <button type="button" class="btn primary" [disabled]="busy() || !dirty()" (click)="save()"><nx-icon name="save" [size]="16" />{{ busy() ? 'Guardando…' : 'Guardar' }}</button>
+  </div>
+</dialog>

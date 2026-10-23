@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { adminGuard, authGuard, guestGuard } from './core/auth.guard';
+import { adminGuard, authGuard, guestGuard, platformGuard } from './core/auth.guard';
 import { ShellComponent } from './layout/shell.component';
 
 export const routes: Routes = [
@@ -13,6 +13,8 @@ export const routes: Routes = [
       // Portal de usuarios (todos los roles)
       { path: '', loadComponent: () => import('./features/dashboard/dashboard.page').then((m) => m.DashboardPage) },
       { path: 'agents', loadComponent: () => import('./features/agents/agents-list.page').then((m) => m.AgentsListPage) },
+      { path: 'agents/explore', loadComponent: () => import('./features/agents/explore/explore-agents.page').then((m) => m.ExploreAgentsPage) },
+      { path: 'agents/new', loadComponent: () => import('./features/agents/agent-new.page').then((m) => m.AgentNewPage) },
       { path: 'agents/:id', loadComponent: () => import('./features/agents/agent-detail.page').then((m) => m.AgentDetailPage) },
       { path: 'connectors', loadComponent: () => import('./features/connectors/connectors-list.page').then((m) => m.ConnectorsListPage) },
       { path: 'integrations', loadComponent: () => import('./features/integrations/integrations.page').then((m) => m.IntegrationsPage) },
@@ -41,6 +43,17 @@ export const routes: Routes = [
           { path: 'alerts', loadComponent: () => import('./features/admin/alerts.page').then((m) => m.AlertsPage) },
           { path: 'edges', loadComponent: () => import('./features/admin/edges.page').then((m) => m.EdgesPage) },
           { path: 'security', loadComponent: () => import('./features/admin/security.page').then((m) => m.SecurityPage) },
+          { path: 'settings', loadComponent: () => import('./features/admin/workspace-settings.page').then((m) => m.WorkspaceSettingsPage) },
+        ],
+      },
+
+      // Consola de plataforma Nexo (administradores de Nexo, ADR 0006 D6) — separada de la administración del cliente
+      {
+        path: 'platform',
+        canActivate: [platformGuard],
+        children: [
+          { path: '', loadComponent: () => import('./features/platform/platform-success.page').then((m) => m.PlatformSuccessPage) },
+          { path: 'copilot-quality', loadComponent: () => import('./features/platform/platform-quality.page').then((m) => m.PlatformQualityPage) },
         ],
       },
     ],

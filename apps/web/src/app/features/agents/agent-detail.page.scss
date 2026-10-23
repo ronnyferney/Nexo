@@ -44,3 +44,11 @@
 @media (max-width: 640px) { .hide-sm { display: none; } .add-fallback { flex-wrap: wrap; } }
 .ml { margin-left: 8px; }
 .fallbacks .badge { white-space: normal; height: auto; min-height: 22px; }
+.meta-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }
+.meta-badges .badge { gap: 4px; }
+.head-actions { gap: 8px; justify-content: flex-end; }
+.copilot-btn { border-color: color-mix(in srgb, #9b5cf6 55%, var(--border)); color: #7c45e0; background: color-mix(in srgb, #9b5cf6 8%, var(--surface)); }
+.copilot-btn:hover:not(:disabled) { border-color: #9b5cf6; color: #6a34d4; }
+.ro-note { margin-bottom: 16px; }
+.health-slot { margin-bottom: 14px; }
+@media (prefers-color-scheme: dark) { .copilot-btn, .copilot-btn:hover:not(:disabled) { color: #c4a5ff; } }
