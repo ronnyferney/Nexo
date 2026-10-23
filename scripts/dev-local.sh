@@ -6,7 +6,9 @@
 #   npm run local:status   # estado de los servicios
 #   npm run local:logs     # sigue los logs de API y web
 #
-# Requisitos: Node.js 22+ y Docker Desktop (o PostgreSQL 16 y Redis 7 ya corriendo en 5432/6379).
+# Requisitos: Node.js 22+ y Docker Desktop. Con Docker, PostgreSQL y Redis de Nexo usan puertos propios (55432 y 6390)
+# para no chocar con un PostgreSQL o Redis que ya tenga instalado. Sin Docker se usan PostgreSQL 16 y Redis 7 locales
+# en 5432/6379 (usuario/contraseña/base `nexo`).
 # Opcional al primer arranque: ADMIN_EMAIL=correo@empresa.com npm run local (usuario maestro; por defecto, el correo
 # de `git config user.email`). La contraseña inicial se genera y se guarda en .dev/credenciales.txt (solo su usuario).
 set -euo pipefail
@@ -16,6 +18,8 @@ DEV="$ROOT/.dev"
 API_ENV="$ROOT/apps/api/.env"
 WEB_URL="http://localhost:4200"
 API_URL="http://localhost:3000/api"
+PG_PORT="${NEXO_PG_PORT:-55432}"
+REDIS_PORT="${NEXO_REDIS_PORT:-6390}"
 mkdir -p "$DEV"
 
 info() { printf '\033[1;34m▸\033[0m %s\n' "$*"; }
@@ -51,29 +55,42 @@ check_prereqs() {
 }
 
 start_infra() {
-  if port_open 5432 && port_open 6379; then
-    ok "PostgreSQL (5432) y Redis (6379) ya están corriendo"
+  if ! command -v docker >/dev/null; then
+    # Sin Docker: PostgreSQL y Redis locales en sus puertos estándar.
+    PG_PORT=5432 REDIS_PORT=6379
+    port_open 5432 && port_open 6379 ||
+      fail "Falta Docker Desktop (brew install --cask docker) o PostgreSQL 16 + Redis 7 locales en 5432/6379"
+    warn "Sin Docker: se usan PostgreSQL (5432) y Redis (6379) locales; requieren usuario, contraseña y base 'nexo'"
     return
   fi
-  command -v docker >/dev/null || fail "Falta Docker Desktop (brew install --cask docker) o PostgreSQL 16 + Redis 7 locales"
   if ! docker info >/dev/null 2>&1; then
     if [[ "$(uname)" == "Darwin" ]]; then
-      info "Abriendo Docker Desktop…"
+      info "Abriendo Docker Desktop (la primera vez acepte los términos y espere a que diga «Engine running»)…"
       open -a Docker || true
     fi
-    wait_for "Docker" 120 docker info
+    wait_for "Docker" 300 docker info
   fi
-  info "Levantando PostgreSQL y Redis con Docker…"
-  (cd "$ROOT" && docker compose up -d postgres redis)
-  wait_for "PostgreSQL" 60 port_open 5432
-  wait_for "Redis" 30 port_open 6379
-  sleep 2
+  info "Levantando PostgreSQL ($PG_PORT) y Redis ($REDIS_PORT) de Nexo con Docker…"
+  (cd "$ROOT" && NEXO_PG_PORT="$PG_PORT" NEXO_REDIS_PORT="$REDIS_PORT" docker compose up -d postgres redis)
+  wait_for "PostgreSQL" 90 docker compose -f "$ROOT/docker-compose.yml" exec -T postgres pg_isready -U nexo
+  wait_for "Redis" 30 port_open "$REDIS_PORT"
   ok "PostgreSQL y Redis listos"
+}
+
+# Apunta la API a la base y al Redis que se acaban de levantar (solo esas dos claves de apps/api/.env).
+sync_env_ports() {
+  PG="$PG_PORT" RD="$REDIS_PORT" FILE="$API_ENV" node -e '
+    const fs = require("fs");
+    let s = fs.readFileSync(process.env.FILE, "utf8");
+    const url = `postgresql://nexo:nexo@localhost:${process.env.PG}/nexo?schema=public`;
+    s = s.replace(/^DATABASE_URL=.*$/m, `DATABASE_URL=${url}`).replace(/^REDIS_PORT=.*$/m, `REDIS_PORT=${process.env.RD}`);
+    fs.writeFileSync(process.env.FILE, s);
+  '
 }
 
 ensure_env() {
   if [[ -f "$API_ENV" ]]; then
-    ok "Configuración existente: apps/api/.env (no se modifica)"
+    ok "Configuración existente: apps/api/.env (solo se ajustan los puertos de base de datos y Redis)"
     return
   fi
   info "Creando apps/api/.env con secretos generados…"
@@ -120,7 +137,8 @@ install_deps() {
 
 migrate() {
   info "Aplicando migraciones de base de datos…"
-  (cd "$ROOT/apps/api" && npx prisma generate >/dev/null && npx prisma migrate deploy)
+  (cd "$ROOT/apps/api" && npx prisma generate >/dev/null && npx prisma migrate deploy) ||
+    fail "No se pudo migrar la base de datos en localhost:$PG_PORT (revise que PostgreSQL de Nexo esté arriba: npm run local:status)"
   ok "Base de datos al día"
 }
 
@@ -156,6 +174,7 @@ up() {
   check_prereqs
   start_infra
   ensure_env
+  sync_env_ports
   install_deps
   migrate
   info "Arrancando API y web…"
@@ -183,8 +202,11 @@ stop() {
 status() {
   curl -sf "$API_URL/health/version" >/dev/null && ok "API: $(curl -s "$API_URL/health/version")" || warn "API detenida"
   curl -sf "$WEB_URL" >/dev/null && ok "Web: $WEB_URL" || warn "Web detenida"
-  port_open 5432 && ok "PostgreSQL: 5432" || warn "PostgreSQL detenido"
-  port_open 6379 && ok "Redis: 6379" || warn "Redis detenido"
+  local pg rd
+  pg="$(sed -n 's#^DATABASE_URL=.*@localhost:\([0-9]*\)/.*#\1#p' "$API_ENV" 2>/dev/null)"
+  rd="$(sed -n 's/^REDIS_PORT=//p' "$API_ENV" 2>/dev/null)"
+  port_open "${pg:-$PG_PORT}" && ok "PostgreSQL: ${pg:-$PG_PORT}" || warn "PostgreSQL detenido"
+  port_open "${rd:-$REDIS_PORT}" && ok "Redis: ${rd:-$REDIS_PORT}" || warn "Redis detenido"
 }
 
 case "${1:-up}" in
