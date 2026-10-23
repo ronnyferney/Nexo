@@ -39,6 +39,14 @@ const ROOT = path.join(__dirname, '..', '..');
 const URL_UNSAFE = ' %+~`#$&*()|[]{}:;<>?!\'/@"\\=,^';
 /** Para que ENCRYPTION_KEY sea hexadecimal (64 caracteres = 32 bytes), se excluye todo lo que no sea [0-9a-fA-F]. */
 const NON_HEX_LETTERS = 'ghijklmnopqrstuvwxyzGHIJKLMNOPQRSTUVWXYZ';
+/**
+ * Apps OAuth de la plataforma (`OAUTH_<PROVEEDOR>_CLIENT_ID/SECRET`, ver apps/api/src/modules/oauth/oauth.providers.ts).
+ * Viven como claves del secreto de la app (vacías = sin app de plataforma: los clientes usan su app propia).
+ */
+const OAUTH_PLATFORM_KEYS = ['HUBSPOT', 'GOOGLE', 'MICROSOFT', 'SALESFORCE', 'LINKEDIN', 'SLACK'].flatMap((p) => [
+  `OAUTH_${p}_CLIENT_ID`,
+  `OAUTH_${p}_CLIENT_SECRET`,
+]);
 
 /**
  * Piloto de Nexo optimizado en costo, con prácticas de producción:
@@ -123,9 +131,14 @@ export class NexoPilotStack extends cdk.Stack {
 
     // ---------- Secretos ----------
     const appSecret = new secretsmanager.Secret(this, 'AppSecret', {
-      description: 'Nexo: JWT_SECRET (generado) y ANTHROPIC_API_KEY (completar tras el despliegue)',
+      description:
+        'Nexo: JWT_SECRET (generado), ANTHROPIC_API_KEY y apps OAuth de la plataforma OAUTH_* (opcionales; completar ' +
+        'tras el despliegue)',
       generateSecretString: {
-        secretStringTemplate: JSON.stringify({ ANTHROPIC_API_KEY: '' }),
+        secretStringTemplate: JSON.stringify({
+          ANTHROPIC_API_KEY: '',
+          ...Object.fromEntries(OAUTH_PLATFORM_KEYS.map((k) => [k, ''])),
+        }),
         generateStringKey: 'JWT_SECRET',
         passwordLength: 64,
         excludePunctuation: true,
@@ -195,7 +208,8 @@ export class NexoPilotStack extends cdk.Stack {
       COPILOT_PROVIDER: 'anthropic',
       COPILOT_MODEL: 'claude-opus-5-5',
       COPILOT_MONTHLY_QUOTA_USD: '2',
-      PLATFORM_ADMIN_EMAILS: props.platformAdminEmails ?? props.adminEmail ?? '',
+      // `||`: una variable de GitHub sin definir llega como '' y debe caer al usuario maestro.
+      PLATFORM_ADMIN_EMAILS: props.platformAdminEmails || props.adminEmail || '',
     };
     const apiSecrets: Record<string, ecs.Secret> = {
       DB_USER: ecs.Secret.fromSecretsManager(db.secret!, 'username'),
@@ -203,6 +217,7 @@ export class NexoPilotStack extends cdk.Stack {
       JWT_SECRET: ecs.Secret.fromSecretsManager(appSecret, 'JWT_SECRET'),
       ANTHROPIC_API_KEY: ecs.Secret.fromSecretsManager(appSecret, 'ANTHROPIC_API_KEY'),
       ENCRYPTION_KEY: ecs.Secret.fromSecretsManager(encryptionSecret),
+      ...Object.fromEntries(OAUTH_PLATFORM_KEYS.map((k) => [k, ecs.Secret.fromSecretsManager(appSecret, k)])),
     };
     // Solo la API crea el usuario maestro (el worker no recibe la contraseña).
     const bootstrapEnv: Record<string, string> = props.adminEmail

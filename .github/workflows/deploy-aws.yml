@@ -6,7 +6,8 @@ name: Desplegar piloto AWS
 # Autenticación por OIDC: sin llaves de AWS en GitHub. Requisitos (una sola vez, ver docs/deploy-aws.md):
 #   - cdk bootstrap en la cuenta/región
 #   - stack NexoGithubOidc desplegado y su salida guardada como secreto AWS_DEPLOY_ROLE_ARN
-#   - variable AWS_REGION (y opcionalmente DOMAIN_NAME, HOSTED_ZONE_ID, HOSTED_ZONE_NAME)
+#   - variable AWS_REGION; ADMIN_EMAIL (usuario maestro) y opcionalmente PLATFORM_ADMIN_EMAILS (por defecto, el
+#     usuario maestro), DOMAIN_NAME, HOSTED_ZONE_ID y HOSTED_ZONE_NAME
 on:
   workflow_dispatch:
     inputs:

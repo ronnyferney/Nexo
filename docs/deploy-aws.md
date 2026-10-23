@@ -63,8 +63,10 @@ El primer despliegue tarda ~20–30 min (sobre todo RDS).
    Entre por la URL de salida `Url` y cámbiela de inmediato en **Mi cuenta** (ícono de engranaje junto a su nombre).
    La contraseña nunca pasa por GitHub, el código ni el chat; volver a desplegar no la cambia.
    Sin `ADMIN_EMAIL`, el primer usuario que se registre en la URL es OWNER de su workspace.
-3. **OAuth (opcional):** registre en cada proveedor la URL de redirección `https://<dominio>/api/oauth/callback` y cargue
-   `OAUTH_<PROVEEDOR>_CLIENT_ID/SECRET` como secretos de la tarea (o use apps OAuth propias de cada cliente desde la bóveda).
+3. **OAuth (opcional):** registre en cada proveedor la URL de redirección `https://<dominio>/api/oauth/callback` y
+   complete las claves `OAUTH_<PROVEEDOR>_CLIENT_ID/SECRET` (HUBSPOT, GOOGLE, MICROSOFT, SALESFORCE, LINKEDIN, SLACK) en
+   el secreto de la salida `AppSecretArn`; luego fuerce un nuevo despliegue de la API y del worker. Las claves vacías
+   significan "sin app de la plataforma": cada cliente puede usar su app propia desde la integración.
 4. **Nexo Edge:** los clientes instalan el Edge en su red apuntando a `NEXO_URL=https://<dominio>`.
 
 ## Operación
