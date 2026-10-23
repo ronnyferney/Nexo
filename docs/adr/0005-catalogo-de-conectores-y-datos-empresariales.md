@@ -31,6 +31,10 @@ de datos **en redes privadas**, que la nube de Nexo no debe alcanzar directament
 - Segunda tanda: **LinkedIn** (OAuth2 de usuario sin PKCE, que LinkedIn no admite en el flujo web): perfil del
   miembro y publicaciones como miembro (verificadas); publicaciones como página de empresa (requieren el producto
   Community Management API aprobado por LinkedIn).
+- Tercera tanda (productividad): **Microsoft 365** (Calendario corporativo, To Do, Planner, Teams), **Google Calendar**
+  (con enlace de Meet), **Google Meet** (salas, asistentes, transcripciones), **Gmail (bandeja y respuestas)** separado de
+  **Gmail (envío)** para no exigir scopes restringidos a quien solo envía, y **Slack** completo con "Agregar a Slack"
+  (OAuth v2, scopes separados por coma) además del token de bot.
 - Instalar crea: secretos (`<SLUG>_<CAMPO>`), el conector (`catalogId`), sus operaciones y queda listo para agentes y flujos.
 - Se acompaña de **skills comerciales** (prospección, calificación BANT, seguimiento de oportunidades, preparación de
   reunión) y una **plantilla de flujo** "Lead entrante → enriquecer → calificar con IA → crear en CRM → notificar".
