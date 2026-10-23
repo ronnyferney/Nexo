@@ -31,11 +31,13 @@ export type PreflightDecision =
 
 const exhausted = (s: UnitBudgetState) => !!s.budget && s.spentUsd >= s.budget.limitUsd;
 
-/** ¿El modelo está permitido? La primera unidad de la cadena (unidad → raíz) con restricciones manda. */
+/**
+ * ¿El modelo está permitido? Toda unidad de la cadena (unidad → raíz) que restrinja modelos debe incluirlo:
+ * una restricción de una unidad superior aplica a todas sus subunidades.
+ */
 export function modelAllowed(chain: UnitBudgetState[], ref: string): { ok: true } | { ok: false; unitName: string } {
-  const restricting = chain.find((u) => u.allowedModels.length > 0);
-  if (!restricting || restricting.allowedModels.includes(ref)) return { ok: true };
-  return { ok: false, unitName: restricting.name };
+  const denying = chain.find((u) => u.allowedModels.length > 0 && !u.allowedModels.includes(ref));
+  return denying ? { ok: false, unitName: denying.name } : { ok: true };
 }
 
 /**

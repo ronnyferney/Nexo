@@ -60,6 +60,24 @@ enum UsageSource {
   CHAT
   WORKFLOW
   MCP
+  ROUTINE
+}
+
+enum KnowledgeSourceType {
+  TEXT
+  URL
+  FILE
+}
+
+enum DocumentStatus {
+  READY
+  FAILED
+}
+
+enum RunStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
 }
 
 enum TriggerType {
@@ -96,6 +114,9 @@ model Workspace {
   llmConnections LlmConnection[]
   orgUnits       OrgUnit[]
   usage          UsageRecord[]
+  skills         Skill[]
+  knowledgeBases KnowledgeBase[]
+  agentRoutines  AgentRoutine[]
 }
 
 model Membership {
@@ -177,24 +198,32 @@ model ConnectorOperation {
 }
 
 model Agent {
-  id            String         @id @default(cuid())
-  name          String
-  description   String?
-  provider      String         @default("anthropic")
-  model         String         @default("claude-opus-5-5")
-  systemPrompt  String         @default("")
+  id             String           @id @default(cuid())
+  name           String
+  description    String?
+  provider       String           @default("anthropic")
+  model          String           @default("claude-opus-5-5")
+  systemPrompt   String           @default("")
   /// low | medium | high | xhigh | max
-  effort        String         @default("medium")
-  maxTurns      Int            @default(12)
+  effort         String           @default("medium")
+  maxTurns       Int              @default(12)
+  /// Perfil estructurado: { role, goals[], responsibilities[], boundaries[], tone, outputFormat, language } (ADR 0003).
+  profile        Json             @default("{}")
+  /// Cadena de respaldo "<providerId>:<modelId>" (máx. 3).
+  fallbackModels String[]         @default([])
   /// Centro de costo cuando el agente corre sin usuario (flujos, webhooks, MCP).
-  costCenterId  String?
-  costCenter    OrgUnit?       @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
-  workspaceId   String
-  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  tools         AgentTool[]
-  conversations Conversation[]
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  costCenterId   String?
+  costCenter     OrgUnit?         @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+  workspaceId    String
+  workspace      Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tools          AgentTool[]
+  conversations  Conversation[]
+  skills         AgentSkill[]
+  knowledge      AgentKnowledge[]
+  examples       AgentExample[]
+  routines       AgentRoutine[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
 
   @@index([workspaceId])
 }
@@ -226,22 +255,25 @@ model Conversation {
 
 /// Flujo de automatización como grafo dirigido (nodos + aristas).
 model Workflow {
-  id           String      @id @default(cuid())
-  name         String
-  description  String?
-  active       Boolean     @default(false)
+  id              String            @id @default(cuid())
+  name            String
+  description     String?
+  active          Boolean           @default(false)
   /// { nodes: WorkflowNode[], edges: WorkflowEdge[] }
-  definition   Json        @default("{\"nodes\":[],\"edges\":[]}")
+  definition      Json              @default("{\"nodes\":[],\"edges\":[]}")
   /// Cron para disparador programado (opcional).
-  schedule     String?
+  schedule        String?
   /// Token público para disparo vía webhook.
-  webhookToken String      @unique @default(cuid())
-  version      Int         @default(1)
-  workspaceId  String
-  workspace    Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  executions   Execution[]
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  webhookToken    String            @unique @default(cuid())
+  version         Int               @default(1)
+  /// Flujo que se dispara cuando una ejecución de este flujo falla (práctica n8n).
+  errorWorkflowId String?
+  workspaceId     String
+  workspace       Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  executions      Execution[]
+  versions        WorkflowVersion[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
 
   @@index([workspaceId])
 }
@@ -335,7 +367,7 @@ model Budget {
   orgUnitId           String       @unique
   orgUnit             OrgUnit      @relation(fields: [orgUnitId], references: [id], onDelete: Cascade)
   period              BudgetPeriod @default(MONTHLY)
-  limitUsd            Decimal      @db.Decimal(14, 4)
+  limitUsd            Decimal      @db.Decimal(18, 8)
   policy              BudgetPolicy @default(BLOCK)
   alertThresholds     Int[]        @default([50, 80, 100])
   downgradeProviderId String?
@@ -362,7 +394,7 @@ model BudgetAlert {
   periodKey String
   threshold Int
   spentUsd  Decimal  @db.Decimal(18, 8)
-  limitUsd  Decimal  @db.Decimal(14, 4)
+  limitUsd  Decimal  @db.Decimal(18, 8)
   createdAt DateTime @default(now())
 
   @@unique([orgUnitId, periodKey, threshold])
@@ -392,4 +424,145 @@ model UsageRecord {
 
   @@index([workspaceId, createdAt])
   @@index([orgUnitId, createdAt])
+}
+
+// ===================== Estudio de agentes y n8n (ADR 0003) =====================
+
+/// Habilidad reutilizable: instrucciones + operaciones, cargada bajo demanda por el agente (load_skill).
+model Skill {
+  id           String       @id @default(cuid())
+  name         String
+  slug         String
+  description  String
+  instructions String
+  /// Operaciones de conector que la skill aporta como herramientas.
+  operationIds String[]     @default([])
+  workspaceId  String
+  workspace    Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agents       AgentSkill[]
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@unique([workspaceId, slug])
+}
+
+model AgentSkill {
+  agentId String
+  skillId String
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  skill   Skill  @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@id([agentId, skillId])
+}
+
+model KnowledgeBase {
+  id          String              @id @default(cuid())
+  name        String
+  description String?
+  workspaceId String
+  workspace   Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  documents   KnowledgeDocument[]
+  chunks      KnowledgeChunk[]
+  agents      AgentKnowledge[]
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([workspaceId])
+}
+
+model AgentKnowledge {
+  agentId         String
+  knowledgeBaseId String
+  agent           Agent         @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+
+  @@id([agentId, knowledgeBaseId])
+}
+
+model KnowledgeDocument {
+  id              String              @id @default(cuid())
+  title           String
+  sourceType      KnowledgeSourceType
+  source          String?
+  status          DocumentStatus      @default(READY)
+  error           String?
+  charCount       Int                 @default(0)
+  knowledgeBaseId String
+  knowledgeBase   KnowledgeBase       @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  chunks          KnowledgeChunk[]
+  createdAt       DateTime            @default(now())
+
+  @@index([knowledgeBaseId])
+}
+
+/// Fragmento indexado con búsqueda full-text de PostgreSQL (columna tsvector generada en la migración).
+model KnowledgeChunk {
+  id              String                   @id @default(cuid())
+  ordinal         Int
+  content         String
+  search          Unsupported("tsvector")?
+  documentId      String
+  document        KnowledgeDocument        @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  knowledgeBaseId String
+  knowledgeBase   KnowledgeBase            @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+
+  @@index([knowledgeBaseId])
+}
+
+/// Ejemplo de entrenamiento few-shot (entrada → salida esperada).
+model AgentExample {
+  id        String   @id @default(cuid())
+  input     String
+  output    String
+  agentId   String
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
+
+/// Tarea recurrente de un agente (cron + instrucción).
+model AgentRoutine {
+  id               String       @id @default(cuid())
+  name             String
+  prompt           String
+  schedule         String
+  timezone         String       @default("UTC")
+  enabled          Boolean      @default(true)
+  notifyWebhookUrl String?
+  lastRunAt        DateTime?
+  lastStatus       RunStatus?
+  agentId          String
+  agent            Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  workspaceId      String
+  workspace        Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  runs             RoutineRun[]
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([workspaceId])
+}
+
+model RoutineRun {
+  id         String       @id @default(cuid())
+  status     RunStatus    @default(RUNNING)
+  output     String?
+  error      String?
+  costUsd    Decimal      @default(0) @db.Decimal(18, 8)
+  routineId  String
+  routine    AgentRoutine @relation(fields: [routineId], references: [id], onDelete: Cascade)
+  startedAt  DateTime     @default(now())
+  finishedAt DateTime?
+
+  @@index([routineId, startedAt])
+}
+
+/// Versión anterior de la definición de un flujo (historial inmutable).
+model WorkflowVersion {
+  id         String   @id @default(cuid())
+  version    Int
+  definition Json
+  workflowId String
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([workflowId, version])
 }

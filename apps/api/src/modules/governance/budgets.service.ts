@@ -1,6 +1,7 @@
-import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { Prisma, type Budget, type OrgUnit, type UsageSource } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { LlmGatewayService } from '../llm/llm-gateway.service';
 import type { TurnUsage } from '../llm/llm-provider';
 import { BudgetExceededException } from './budget.errors';
 import { blockingUnit, periodKey, preflight, reachedThresholds, type UnitBudgetState } from './budget-policy';
@@ -35,6 +36,7 @@ export class BudgetsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly org: OrgService,
+    private readonly gateway: LlmGatewayService,
   ) {}
 
   /** Estado de la cadena unidad → raíz con el gasto del periodo vigente de cada presupuesto. */
@@ -152,6 +154,17 @@ export class BudgetsService {
 
   async upsert(workspaceId: string, orgUnitId: string, dto: UpsertBudgetDto) {
     await this.org.unit(workspaceId, orgUnitId);
+    if (dto.policy === 'DOWNGRADE' && dto.downgradeModel) {
+      const providerId = dto.downgradeProviderId;
+      if (!providerId) throw new BadRequestException('Indique el proveedor del modelo de degradación');
+      const catalog = await this.gateway.catalog(workspaceId);
+      const exists = catalog.some((c) => c.id === providerId && c.models.some((m) => m.id === dto.downgradeModel));
+      if (!exists) {
+        throw new BadRequestException(
+          `El modelo de degradación ${providerId}:${dto.downgradeModel} no existe o no está habilitado`,
+        );
+      }
+    }
     const data = {
       period: dto.period,
       limitUsd: new Prisma.Decimal(dto.limitUsd),
@@ -160,7 +173,11 @@ export class BudgetsService {
       downgradeProviderId: dto.policy === 'DOWNGRADE' ? (dto.downgradeProviderId ?? null) : null,
       downgradeModel: dto.policy === 'DOWNGRADE' ? (dto.downgradeModel ?? null) : null,
     };
-    const budget = await this.prisma.budget.upsert({ where: { orgUnitId }, create: { orgUnitId, ...data }, update: data });
+    const budget = await this.prisma.budget.upsert({
+      where: { orgUnitId },
+      create: { orgUnitId, ...data },
+      update: data,
+    });
     // Un presupuesto nuevo o reducido puede quedar por encima de sus umbrales con el gasto ya acumulado.
     await this.raiseAlerts([budget], new Date());
     return (await this.list(workspaceId)).find((b) => b.orgUnitId === orgUnitId);

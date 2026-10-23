@@ -55,7 +55,7 @@ export class UpdateMemberDto {
 
 export class UpsertBudgetDto {
   @ApiProperty({ enum: BudgetPeriod }) @IsEnum(BudgetPeriod) period!: BudgetPeriod;
-  @ApiProperty() @IsNumber() @Min(0) @Max(100_000_000) limitUsd!: number;
+  @ApiProperty() @IsNumber({ maxDecimalPlaces: 8 }) @Min(0) @Max(100_000_000) limitUsd!: number;
   @ApiProperty({ enum: BudgetPolicy }) @IsEnum(BudgetPolicy) policy!: BudgetPolicy;
   @ApiPropertyOptional({ type: [Number] })
   @IsOptional()

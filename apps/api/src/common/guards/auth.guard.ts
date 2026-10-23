@@ -47,12 +47,19 @@ export class AuthGuard implements CanActivate {
   }
 
   private async fromJwt(token: string): Promise<AuthContext> {
+    let payload: JwtPayload;
     try {
-      const payload = await this.jwt.verifyAsync<JwtPayload>(token);
-      return { userId: payload.sub, workspaceId: payload.wid, role: payload.role, via: 'jwt' };
+      payload = await this.jwt.verifyAsync<JwtPayload>(token);
     } catch {
       throw new UnauthorizedException('Token inválido o expirado');
     }
+    // El rol vigente se toma de la membresía, no del token: degradar o retirar a un miembro aplica de inmediato.
+    const membership = await this.prisma.membership.findUnique({
+      where: { userId_workspaceId: { userId: payload.sub, workspaceId: payload.wid } },
+      select: { role: true },
+    });
+    if (!membership) throw new UnauthorizedException('Ya no es miembro de este workspace');
+    return { userId: payload.sub, workspaceId: payload.wid, role: membership.role, via: 'jwt' };
   }
 
   private async fromApiKey(token: string): Promise<AuthContext> {

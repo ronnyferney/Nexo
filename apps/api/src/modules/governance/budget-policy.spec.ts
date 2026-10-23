@@ -86,6 +86,14 @@ describe('preflight', () => {
     expect(modelAllowed(chain, 'anthropic:claude-haiku-5-5').ok).toBe(true);
   });
 
+  it('la restricción de una unidad superior aplica aunque la subunidad permita el modelo', () => {
+    const chain = [
+      unit('Ventas', undefined, 0, ['anthropic:opus']),
+      unit('Empresa', undefined, 0, ['anthropic:haiku']),
+    ];
+    expect(modelAllowed(chain, 'anthropic:opus')).toEqual({ ok: false, unitName: 'Empresa' });
+  });
+
   it('bloquea si el modelo de degradación no está permitido', () => {
     const chain = [
       unit('Soporte', { policy: 'DOWNGRADE', limitUsd: 1, downgradeProviderId: 'ollama', downgradeModel: 'llama' }, 2, [
