@@ -382,6 +382,13 @@ export interface Execution {
   workflow?: { id: string; name: string };
 }
 
+/** `GET /health/version` (público): versión desplegada de la plataforma, para soporte. */
+export interface BuildInfo {
+  version: string;
+  commit: string | null;
+  builtAt: string | null;
+}
+
 export interface Stats {
   connectors: number;
   agents: number;

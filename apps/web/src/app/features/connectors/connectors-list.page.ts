@@ -1,11 +1,12 @@
-import { ChangeDetectionStrategy, Component, inject, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, input, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import type { Connector, ConnectorType } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
 import { IconComponent } from '../../shared/icon.component';
+import { OAUTH_QUERY_CLEAR, oauthErrorMessage } from '../../shared/oauth-result';
 import { RelativeTimePipe } from '../../shared/relative-time.pipe';
 import { CONNECTOR_TYPES, DB_PRESETS, DEFAULT_CONFIG } from './connector-presets';
 
@@ -56,7 +57,7 @@ import { CONNECTOR_TYPES, DB_PRESETS, DEFAULT_CONFIG } from './connector-presets
 
       @if (loadError()) {
         <div class="card empty" role="alert"><nx-icon name="alert" [size]="32" /><h3>No se pudieron cargar los conectores</h3><p>{{ loadError() }}</p>
-          <button class="btn" (click)="ngOnInit()"><nx-icon name="refresh" />Reintentar</button></div>
+          <button class="btn" (click)="load()"><nx-icon name="refresh" />Reintentar</button></div>
       } @else if (loading()) {
         <p class="muted" role="status">Cargando conectores…</p>
       } @else if (connectors().length) {
@@ -89,8 +90,12 @@ import { CONNECTOR_TYPES, DB_PRESETS, DEFAULT_CONFIG } from './connector-presets
 export class ConnectorsListPage implements OnInit {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly toast = inject(ToastService);
   protected readonly auth = inject(AuthService);
+  /** Retorno OAuth sin conector identificable (p. ej. `?oauth=error&reason=invalid_state`). */
+  readonly oauth = input<string>();
+  readonly oauthReason = input<string>(undefined, { alias: 'reason' });
   readonly types = CONNECTOR_TYPES;
   readonly connectors = signal<Connector[]>([]);
   readonly loading = signal(true);
@@ -102,6 +107,18 @@ export class ConnectorsListPage implements OnInit {
   preset = DB_PRESETS[0].id;
 
   async ngOnInit() {
+    this.handleOAuthReturn();
+    await this.load();
+  }
+
+  private handleOAuthReturn() {
+    if (!this.oauth()) return;
+    if (this.oauth() === 'ok') this.toast.success('Cuenta conectada correctamente');
+    else this.toast.error(oauthErrorMessage(this.oauthReason()));
+    void this.router.navigate([], { relativeTo: this.route, queryParams: OAUTH_QUERY_CLEAR, queryParamsHandling: 'merge', replaceUrl: true });
+  }
+
+  async load() {
     this.loading.set(true);
     this.loadError.set(null);
     try {

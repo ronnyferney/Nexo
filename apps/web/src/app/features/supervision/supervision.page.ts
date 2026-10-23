@@ -2,7 +2,6 @@ import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } 
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { errorMessage } from '../../core/api.service';
-import { AuthService } from '../../core/auth.service';
 import { TrainingApi } from '../../core/training.api';
 import type { Feedback, FeedbackStatus } from '../../core/training.models';
 import { IconComponent } from '../../shared/icon.component';
@@ -10,7 +9,10 @@ import { FeedbackReviewItemComponent } from '../agents/training/feedback-review-
 
 type StatusFilter = FeedbackStatus | 'ALL';
 
-/** Bandeja de supervisión del workspace (ADR 0004 D1): retroalimentación del chat de todos los agentes. */
+/**
+ * Bandeja de supervisión (ADR 0004 D1): `GET /feedback` ya devuelve solo los agentes que el usuario puede editar
+ * (ADR 0007 D4), así que cada elemento se puede revisar sin depender del rol del workspace.
+ */
 @Component({
   selector: 'nx-supervision',
   imports: [FormsModule, RouterLink, IconComponent, FeedbackReviewItemComponent],
@@ -33,9 +35,7 @@ type StatusFilter = FeedbackStatus | 'ALL';
         </div>
       </div>
 
-      @if (!auth.canEdit()) {
-        <div class="callout info mb"><nx-icon name="info" [size]="16" /><span>Tiene acceso de lectura: puede consultar la bandeja, pero solo los editores aprueban o descartan.</span></div>
-      }
+      <p class="muted small mb">Se muestra la retroalimentación de los agentes que usted puede editar: los suyos y los que le compartieron con permiso de edición.</p>
 
       @if (loading() && !items().length) {
         <div class="card empty"><p>Cargando bandeja…</p></div>
@@ -46,7 +46,7 @@ type StatusFilter = FeedbackStatus | 'ALL';
         <p class="muted small count" role="status">{{ visible().length }} {{ visible().length === 1 ? 'elemento' : 'elementos' }}</p>
         <div class="stack">
           @for (fb of visible(); track fb.id) {
-            <nx-feedback-review-item [feedback]="fb" [canEdit]="auth.canEdit()" [showAgent]="true" (reviewed)="onReviewed($event.feedback)" />
+            <nx-feedback-review-item [feedback]="fb" [canEdit]="true" [showAgent]="true" (reviewed)="onReviewed($event.feedback)" />
           } @empty {
             <div class="card empty"><nx-icon name="inbox" [size]="36" /><h3>{{ status() === 'PENDING' ? 'Bandeja al día' : 'Sin resultados' }}</h3>
               <p>{{ status() === 'PENDING' ? 'No hay retroalimentación pendiente de revisión.' : 'No hay retroalimentación con estos filtros.' }}
@@ -66,7 +66,6 @@ type StatusFilter = FeedbackStatus | 'ALL';
 })
 export class SupervisionPage implements OnInit {
   private readonly training = inject(TrainingApi);
-  protected readonly auth = inject(AuthService);
   readonly statuses: { id: StatusFilter; label: string }[] = [
     { id: 'PENDING', label: 'Pendientes' },
     { id: 'APPROVED', label: 'Aprobados' },

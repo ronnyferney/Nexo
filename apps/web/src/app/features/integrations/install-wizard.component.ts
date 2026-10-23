@@ -12,6 +12,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { errorMessage } from '../../core/api.service';
@@ -93,7 +94,13 @@ import { AUTH_METHOD_META, catalogLogo, categoryLabel } from './catalog-meta';
               <span>Al instalar, lo llevaremos a la página de {{ e.name }} para que inicie sesión y autorice el acceso.
                 Al aceptar volverá a Nexo con la cuenta conectada. Puede desconectarla en cualquier momento desde el conector.</span></div>
           }
-          @if (error()) { <div class="callout danger" role="alert">{{ error() }}</div> }
+          @if (conflict()) {
+            <div class="callout warning" role="alert"><nx-icon name="lock" [size]="16" />
+              <div><strong>Las credenciales de {{ e.name }} ya están en la bóveda</strong>
+                <p class="conflict-text">{{ conflict() }}.</p>
+                <p class="conflict-text">Para instalar otra instancia con la misma cuenta, use exactamente las mismas credenciales. Para cambiarlas,
+                  pida a un administrador del workspace que las reemplace en Administración › Seguridad › Secretos o que haga la instalación.</p></div></div>
+          } @else if (error()) { <div class="callout danger" role="alert">{{ error() }}</div> }
         </div>
 
         <div class="modal-foot">
@@ -117,6 +124,7 @@ import { AUTH_METHOD_META, catalogLogo, categoryLabel } from './catalog-meta';
     .secret-row .btn { height: auto; flex-shrink: 0; }
     .docs { margin-right: auto; }
     img { object-fit: contain; }
+    .conflict-text { margin: 4px 0 0; }
   `,
 })
 export class InstallWizardComponent implements OnInit {
@@ -135,6 +143,8 @@ export class InstallWizardComponent implements OnInit {
   readonly revealed = signal<Record<string, boolean>>({});
   readonly busy = signal(false);
   readonly error = signal<string | null>(null);
+  /** 409 de la API: un EDITOR intentó reemplazar credenciales ya guardadas en la bóveda (solo ADMIN/OWNER puede). */
+  readonly conflict = signal<string | null>(null);
   name = '';
 
   /** Campos visibles para el método elegido (si la API los etiqueta con `authMethods`). */
@@ -183,6 +193,7 @@ export class InstallWizardComponent implements OnInit {
     for (const [k, v] of Object.entries(this.credentials())) if (keys.has(k) && v?.trim()) credentials[k] = v.trim();
     this.busy.set(true);
     this.error.set(null);
+    this.conflict.set(null);
     try {
       const res = await this.api.install(e.id, { name: this.name.trim() || undefined, authMethod: this.method(), credentials });
       if (this.method() === 'oauth2_code' && isHttpUrl(res.authorizeUrl)) {
@@ -195,7 +206,9 @@ export class InstallWizardComponent implements OnInit {
       this.dialog().nativeElement.close();
       await this.router.navigate(['/connectors', res.id]);
     } catch (err) {
-      this.error.set(errorMessage(err));
+      const msg = errorMessage(err);
+      if (err instanceof HttpErrorResponse && err.status === 409) this.conflict.set(msg.replace(/\.\s*$/, ''));
+      else this.error.set(msg);
       this.busy.set(false);
     }
   }

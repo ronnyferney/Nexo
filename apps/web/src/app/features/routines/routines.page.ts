@@ -2,10 +2,13 @@ import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } 
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { errorMessage } from '../../core/api.service';
+import { AgentsScopeApi } from '../../core/agents-scope.api';
 import { AuthService } from '../../core/auth.service';
+import type { Agent } from '../../core/models';
 import { StudioApi } from '../../core/studio.api';
 import type { Routine, RoutineRun } from '../../core/studio.models';
 import { ToastService } from '../../core/toast.service';
+import { canWriteAgent } from '../../shared/agent-permissions';
 import { describeCron } from '../../shared/cron';
 import { IconComponent } from '../../shared/icon.component';
 import { RelativeTimePipe } from '../../shared/relative-time.pipe';
@@ -57,14 +60,14 @@ const DATE_TIME = new Intl.DateTimeFormat('es', { dateStyle: 'medium', timeStyle
                     </td>
                     <td class="nowrap small" [title]="r.nextRunAt ? fmt(r.nextRunAt) : ''">{{ r.enabled && r.nextRunAt ? (r.nextRunAt | ago) : '—' }}</td>
                     <td>
-                      <label class="switch" [title]="r.enabled ? 'Deshabilitar' : 'Habilitar'">
-                        <input type="checkbox" role="switch" [checked]="r.enabled" [disabled]="!auth.canEdit() || toggling().has(r.id)"
+                      <label class="switch" [title]="!canManage(r) ? 'Requiere permiso de edición sobre el agente' : r.enabled ? 'Deshabilitar' : 'Habilitar'">
+                        <input type="checkbox" role="switch" [checked]="r.enabled" [disabled]="!canManage(r) || toggling().has(r.id)"
                           [attr.aria-label]="(r.enabled ? 'Deshabilitar ' : 'Habilitar ') + r.name" (change)="toggle(r, $any($event.target))" />
                         <span></span>
                       </label>
                     </td>
                     <td class="nowrap actions">
-                      @if (auth.canEdit()) {
+                      @if (canManage(r)) {
                         <button class="btn sm" [disabled]="running().has(r.id)" (click)="run(r)"><nx-icon name="play" [size]="14" />{{ running().has(r.id) ? 'Ejecutando…' : 'Ejecutar' }}</button>
                       }
                       <button class="btn ghost icon sm" [title]="expanded() === r.id ? 'Ocultar historial' : 'Ver historial'" [attr.aria-expanded]="expanded() === r.id"
@@ -113,9 +116,12 @@ const DATE_TIME = new Intl.DateTimeFormat('es', { dateStyle: 'medium', timeStyle
 })
 export class RoutinesPage implements OnInit {
   private readonly studio = inject(StudioApi);
+  private readonly agentsApi = inject(AgentsScopeApi);
   private readonly toast = inject(ToastService);
   protected readonly auth = inject(AuthService);
   readonly routines = signal<Routine[]>([]);
+  /** Agentes sobre los que el usuario puede escribir: ejecutar y habilitar exigen EDIT sobre el agente (ADR 0007). */
+  readonly editableAgents = signal(new Set<string>());
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
   readonly filter = signal('');
@@ -135,6 +141,10 @@ export class RoutinesPage implements OnInit {
     void this.load();
   }
 
+  canManage(r: Routine) {
+    return this.editableAgents().has(r.agentId);
+  }
+
   fmt(iso: string) {
     return DATE_TIME.format(new Date(iso));
   }
@@ -143,7 +153,14 @@ export class RoutinesPage implements OnInit {
     this.loading.set(true);
     this.error.set(null);
     try {
-      this.routines.set(await this.studio.routines());
+      const [routines, agents] = await Promise.all([
+        this.studio.routines(),
+        // La administración ve todas las rutinas: necesita también los agentes ajenos (`scope=all`, ADMIN_VIEW).
+        this.agentsApi.agents(this.auth.isAdmin() ? 'all' : undefined).catch(() => [] as Agent[]),
+      ]);
+      const role = this.auth.session()?.role;
+      this.editableAgents.set(new Set(agents.filter((a) => canWriteAgent(a.myPermission, role, a.visibility)).map((a) => a.id)));
+      this.routines.set(routines);
     } catch (e) {
       this.error.set(errorMessage(e));
     } finally {

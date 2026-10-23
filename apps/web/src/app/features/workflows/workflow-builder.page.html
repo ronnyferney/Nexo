@@ -267,7 +267,7 @@
               <div class="row"><input class="input mono small" readonly [value]="webhookUrl()" />
                 <button class="btn icon" title="Copiar" (click)="copyRef(webhookUrl())"><nx-icon name="copy" [size]="15" /></button></div>
               <span class="hint">POST con JSON. Agregue <code>?wait=true</code> para respuesta síncrona. Requiere flujo activo.</span>
-              @if (auth.canEdit()) { <button class="btn sm" style="align-self:flex-start" (click)="regenerateWebhook()">Regenerar token</button> }
+              @if (auth.isAdmin()) { <button class="btn sm" style="align-self:flex-start" (click)="regenerateWebhook()">Regenerar token</button> }
             </div>
             <div class="divider"></div>
             @if (auth.canEdit()) { <button class="btn danger sm" style="align-self:flex-start" (click)="remove()"><nx-icon name="trash" [size]="14" />Eliminar flujo</button> }

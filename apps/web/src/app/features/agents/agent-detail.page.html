@@ -43,13 +43,35 @@
           } @else {
             <button class="btn" [disabled]="launchBusy()" (click)="launchOpen.set(true)"><nx-icon name="rocket" [size]="16" />Lanzar</button>
           }
-          <button class="btn danger icon" title="Eliminar agente" aria-label="Eliminar agente" (click)="remove()"><nx-icon name="trash" /></button>
+          @if (canDeleteAgent()) {
+            <button class="btn danger icon" title="Eliminar agente" aria-label="Eliminar agente" (click)="remove()"><nx-icon name="trash" /></button>
+          }
           <button class="btn primary" [disabled]="saving() || !dirty()" (click)="save()"><nx-icon name="save" />{{ saving() ? 'Guardando…' : 'Guardar' }}</button>
         } @else {
           <button class="btn" [disabled]="duplicating()" (click)="duplicate()"><nx-icon name="copy" [size]="16" />{{ duplicating() ? 'Duplicando…' : 'Duplicar en mis agentes' }}</button>
+          @if (canDeleteAgent()) {
+            <button class="btn danger icon" title="Eliminar agente" aria-label="Eliminar agente" (click)="remove()"><nx-icon name="trash" /></button>
+          }
         }
       </div>
     </div>
+
+    @if (copilotNotice(); as n) {
+      <div class="callout warning ro-note copilot-notice" role="status">
+        <nx-icon name="sparkles" [size]="16" />
+        <div class="grow">
+          <strong>El Copilot creó el agente; quedan tareas pendientes</strong>
+          @if (n.pendingIntegrations.length) {
+            <p class="m0">Instale estas integraciones del catálogo y vincule sus operaciones en «Herramientas»: <strong>{{ n.pendingIntegrations.join(', ') }}</strong>.
+              <a routerLink="/integrations">Ir al catálogo de integraciones</a></p>
+          }
+          @if (n.warnings.length) {
+            <ul class="m0">@for (w of n.warnings; track $index) { <li>{{ w }}</li> }</ul>
+          }
+        </div>
+        <button type="button" class="btn ghost icon sm" title="Descartar aviso" aria-label="Descartar aviso" (click)="copilotNotice.set(null)"><nx-icon name="x" [size]="14" /></button>
+      </div>
+    }
 
     @if (!seesConfig()) {
       <div class="callout info ro-note" role="note"><nx-icon name="eye" [size]="16" />

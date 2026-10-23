@@ -4,7 +4,7 @@ import { Router, RouterLink } from '@angular/router';
 import { AccessApi } from '../../core/access.api';
 import { type AgentHealth, PERMISSION_LABELS, VISIBILITY_META } from '../../core/access.models';
 import { ApiService, errorMessage } from '../../core/api.service';
-import type { CopilotApplyResult, CopilotProposal } from '../../core/copilot.models';
+import type { CopilotApplyNavigationState, CopilotApplyResult, CopilotProposal } from '../../core/copilot.models';
 import { AuthService } from '../../core/auth.service';
 import type { Agent, CatalogModel, Connector, Effort, OrgUnitOption, ProviderInfo } from '../../core/models';
 import { StudioApi } from '../../core/studio.api';
@@ -12,6 +12,7 @@ import { type AgentProfile, EMPTY_PROFILE, type KnowledgeBase, normalizeProfile,
 import { ToastService } from '../../core/toast.service';
 import { TIER_LABELS, treeOrder } from '../../shared/budget';
 import { ShareAudienceComponent } from '../../shared/agent-badges.component';
+import { canManageAgentOwnership, canWriteAgent } from '../../shared/agent-permissions';
 import { IconComponent } from '../../shared/icon.component';
 import { formatUsd, NumberPipe } from '../../shared/usd.pipe';
 import { DEFAULT_TARGET_SCORE } from '../../core/training.models';
@@ -116,7 +117,20 @@ export class AgentDetailPage implements OnInit {
   readonly permissionLabels = PERMISSION_LABELS;
   /** Permiso efectivo; si la API aún no lo devuelve, se usa el rol del workspace. */
   readonly permission = computed(() => this.agent()?.myPermission ?? (this.auth.canEdit() ? 'EDIT' : 'USE'));
-  readonly canEditAgent = computed(() => this.permission() === 'OWNER' || this.permission() === 'EDIT');
+  /**
+   * Edita como dueño o con share EDIT, con el rol del workspace como tope (un VIEWER solo edita sus agentes PRIVATE).
+   * La administración (ADMIN_VIEW) ve la vista de gobierno de solo lectura.
+   */
+  readonly canEditAgent = computed(
+    () =>
+      (this.permission() === 'OWNER' || this.permission() === 'EDIT') &&
+      canWriteAgent(this.permission(), this.auth.session()?.role, this.agent()?.visibility),
+  );
+  /** Eliminar: solo el dueño o ADMIN/OWNER del workspace (un share EDIT no basta) y, como en la API, con permiso de escritura. */
+  readonly canDeleteAgent = computed(() => {
+    const role = this.auth.session()?.role;
+    return canWriteAgent(this.permission(), role, this.agent()?.visibility) && canManageAgentOwnership(this.permission(), role);
+  });
   /** Ve la configuración completa (editores y gobierno de administración). */
   readonly seesConfig = computed(() => this.canEditAgent() || this.permission() === 'ADMIN_VIEW');
   readonly isOwner = computed(() => {
@@ -124,6 +138,8 @@ export class AgentDetailPage implements OnInit {
     return this.permission() === 'OWNER' || (!!a?.ownerId && a.ownerId === this.auth.me()?.id);
   });
   readonly copilotOpen = signal(false);
+  /** Resumen de la propuesta del Copilot que creó este agente (llega como estado de navegación; ver `AgentNewPage`). */
+  readonly copilotNotice = signal<CopilotApplyNavigationState['copilotApply'] | null>(null);
   readonly shareOpen = signal(false);
   readonly launchOpen = signal(false);
   readonly health = signal<AgentHealth | null>(null);
@@ -204,6 +220,7 @@ export class AgentDetailPage implements OnInit {
         this.copilotOpen.set(false);
         this.health.set(null);
         this.agent.set(null);
+        this.readCopilotNotice();
         void this.load();
       });
     });
@@ -212,6 +229,7 @@ export class AgentDetailPage implements OnInit {
   async ngOnInit() {
     const t = this.initialTab();
     if (t && this.tabs.some((x) => x.id === t)) this.tab.set(t as AgentTab);
+    this.readCopilotNotice();
     await this.load();
   }
 
@@ -462,10 +480,21 @@ export class AgentDetailPage implements OnInit {
     setTimeout(() => this.healthCard()?.reveal());
   }
 
+  /** Solo de la navegación en curso: al recargar la página el aviso no reaparece. */
+  private readCopilotNotice() {
+    // ngOnInit/effect pueden ejecutarse cuando la navegación ya terminó: se cae a la última navegación exitosa.
+    const nav = this.router.currentNavigation() ?? this.router.lastSuccessfulNavigation;
+    const state = nav?.extras.state as CopilotApplyNavigationState | undefined;
+    const r = state?.copilotApply;
+    this.copilotNotice.set(r && (r.pendingIntegrations?.length || r.warnings?.length) ? r : null);
+  }
+
   async onCopilotApplied(ev: { proposal: CopilotProposal; result: CopilotApplyResult }) {
-    if (ev.result.agentId && ev.result.agentId !== this.id()) {
+    const { agentId, ...summary } = ev.result;
+    if (agentId && agentId !== this.id()) {
       this.copilotOpen.set(false);
-      await this.router.navigate(['/agents', ev.result.agentId]);
+      const state: CopilotApplyNavigationState = { copilotApply: summary };
+      await this.router.navigate(['/agents', agentId], { state });
       return;
     }
     if (this.dirty()) this.toast.info('Se recargó el agente con los cambios aplicados; sus cambios sin guardar se descartaron.');

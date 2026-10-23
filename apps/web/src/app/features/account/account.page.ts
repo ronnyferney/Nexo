@@ -1,11 +1,15 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
+import type { BuildInfo } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
 import { IconComponent } from '../../shared/icon.component';
 
-/** Mi cuenta: datos del usuario y cambio de contraseña (obligatorio para el usuario maestro al primer ingreso). */
+/**
+ * Mi cuenta: datos del usuario, cambio de contraseña (obligatorio para el usuario maestro al primer ingreso) y versión
+ * de la plataforma para soporte.
+ */
 @Component({
   selector: 'nx-account',
   imports: [FormsModule, IconComponent],
@@ -41,17 +45,71 @@ import { IconComponent } from '../../shared/icon.component';
             [disabled]="saving() || !f.valid || next !== confirm"><nx-icon name="save" />Guardar contraseña</button>
         </div>
       </form>
+
+      <section class="card stack about" aria-labelledby="about-title">
+        <div class="card-title" style="margin:0"><div class="icon-tile"><nx-icon name="info" /></div>
+          <div><h2 id="about-title">Acerca de Nexo</h2><p class="muted small">Indique estos datos al contactar a soporte</p></div></div>
+        @if (versionError()) {
+          <p class="muted small" role="alert">No se pudo consultar la versión de la plataforma. {{ versionError() }}
+            <button type="button" class="btn sm" (click)="loadVersion()">Reintentar</button></p>
+        } @else if (version(); as v) {
+          <dl class="kv small">
+            <dt>Versión</dt><dd><code>{{ v.version }}</code></dd>
+            <dt>Commit</dt><dd><code>{{ v.commit ? v.commit.slice(0, 12) : 'No disponible' }}</code></dd>
+            <dt>Compilada</dt><dd>{{ v.builtAt ? fmt(v.builtAt) : 'No disponible' }}</dd>
+          </dl>
+          <div class="row"><button type="button" class="btn sm" (click)="copyVersion(v)"><nx-icon name="copy" [size]="14" />Copiar datos de versión</button></div>
+        } @else {
+          <p class="muted small" role="status">Consultando versión…</p>
+        }
+      </section>
     </div>
   `,
+  styles: `
+    .about { max-width: 760px; margin-top: 16px; }
+    .kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
+    .kv dt { color: var(--muted); }
+    .kv dd { margin: 0; overflow-wrap: anywhere; }
+  `,
 })
-export class AccountPage {
+export class AccountPage implements OnInit {
   protected readonly auth = inject(AuthService);
   private readonly api = inject(ApiService);
   private readonly toast = inject(ToastService);
   readonly saving = signal(false);
+  readonly version = signal<BuildInfo | null>(null);
+  readonly versionError = signal<string | null>(null);
   current = '';
   next = '';
   confirm = '';
+
+  ngOnInit() {
+    void this.loadVersion();
+  }
+
+  async loadVersion() {
+    this.versionError.set(null);
+    try {
+      this.version.set(await this.api.version());
+    } catch (e) {
+      this.versionError.set(errorMessage(e));
+    }
+  }
+
+  fmt(iso: string) {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' });
+  }
+
+  async copyVersion(v: BuildInfo) {
+    const text = `Nexo ${v.version}${v.commit ? ` (${v.commit})` : ''}${v.builtAt ? ` · ${v.builtAt}` : ''}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      this.toast.success('Datos de versión copiados');
+    } catch {
+      this.toast.error('No se pudo copiar; seleccione el texto manualmente');
+    }
+  }
 
   async save() {
     if (this.next !== this.confirm) return;

@@ -226,6 +226,7 @@ export class CopilotPanelComponent implements OnDestroy {
     this.abort = new AbortController();
     let current: Extract<Item, { kind: 'assistant' }> | null = null;
     let tools: Extract<Item, { kind: 'tools' }> | null = null;
+    let quotaHit = false;
     try {
       const sessionId = await this.ensureSession(mode);
       await this.api.sendMessage(
@@ -266,7 +267,11 @@ export class CopilotPanelComponent implements OnDestroy {
             }
             case 'error':
               current = tools = null;
-              this.push(mode, { kind: 'error', text: e.message });
+              // Cupo agotado a mitad del stream: mismo estado que el 402 al iniciar (compositor bloqueado y aviso).
+              if (e.code === 'COPILOT_QUOTA_EXCEEDED') {
+                quotaHit = true;
+                this.quotaBlocked.set(true);
+              } else this.push(mode, { kind: 'error', text: e.message });
               break;
           }
           this.touch(mode);
@@ -276,12 +281,14 @@ export class CopilotPanelComponent implements OnDestroy {
       );
     } catch (e) {
       if ((e as Error).name === 'AbortError') this.push(mode, { kind: 'notice', text: 'Respuesta detenida.' });
-      else if (e instanceof CopilotStreamError && (e.status === 402 || e.status === 429)) this.quotaBlocked.set(true);
-      else this.push(mode, { kind: 'error', text: errorMessage(e) });
+      else if (e instanceof CopilotStreamError && (e.status === 402 || e.status === 429)) {
+        quotaHit = true;
+        this.quotaBlocked.set(true);
+      } else this.push(mode, { kind: 'error', text: errorMessage(e) });
     } finally {
       this.streaming.set(false);
       this.touch(mode);
-      void this.refreshQuota();
+      void this.refreshQuota(quotaHit);
     }
   }
 
@@ -328,11 +335,12 @@ export class CopilotPanelComponent implements OnDestroy {
     }
   }
 
-  private async refreshQuota() {
+  /** `keepBlocked`: el servidor acaba de rechazar por cupo; no se desbloquea aunque la lectura del cupo vaya rezagada. */
+  private async refreshQuota(keepBlocked = false) {
     try {
       const q = await this.api.quota();
       this.quota.set(q);
-      this.quotaBlocked.set(q.remainingUsd <= 0);
+      this.quotaBlocked.set(keepBlocked || q.remainingUsd <= 0);
     } catch {
       // El cupo es informativo: si falla, el servidor sigue aplicándolo al enviar.
     }

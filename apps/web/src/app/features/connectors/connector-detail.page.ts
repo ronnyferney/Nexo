@@ -7,6 +7,7 @@ import type { Connector, Operation } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
 import { IconComponent } from '../../shared/icon.component';
 import { JsonEditorComponent } from '../../shared/json-editor.component';
+import { OAUTH_QUERY_CLEAR, oauthErrorMessage } from '../../shared/oauth-result';
 import { TemplateRefPipe } from '../../shared/template-ref.pipe';
 import { AUTH_TYPES, DEFAULT_DEFINITION, DEFAULT_SCHEMA } from './connector-presets';
 import { ConnectorOAuthComponent } from './connector-oauth.component';
@@ -54,9 +55,9 @@ export class ConnectorDetailPage implements OnInit {
   private readonly toast = inject(ToastService);
   protected readonly auth = inject(AuthService);
   readonly id = input.required<string>();
-  /** Resultado del consentimiento OAuth2 al volver del proveedor: `?oauth=ok|error` (ADR 0005 D3). */
+  /** Resultado del consentimiento OAuth2 al volver del proveedor: `?oauth=ok|error&reason=<código>` (ADR 0005 D3). */
   readonly oauth = input<string>();
-  readonly oauthMessage = input<string>(undefined, { alias: 'message' });
+  readonly oauthReason = input<string>(undefined, { alias: 'reason' });
   readonly authTypes = AUTH_TYPES;
 
   readonly connector = signal<Connector | null>(null);
@@ -85,8 +86,8 @@ export class ConnectorDetailPage implements OnInit {
     const result = this.oauth();
     if (!result) return;
     if (result === 'ok') this.toast.success('Cuenta conectada correctamente');
-    else this.toast.error(this.oauthMessage() ? `No se pudo conectar la cuenta: ${this.oauthMessage()}` : 'No se pudo conectar la cuenta. Intente de nuevo.');
-    void this.router.navigate([], { relativeTo: this.route, queryParams: { oauth: null, message: null }, queryParamsHandling: 'merge', replaceUrl: true });
+    else this.toast.error(oauthErrorMessage(this.oauthReason()));
+    void this.router.navigate([], { relativeTo: this.route, queryParams: OAUTH_QUERY_CLEAR, queryParamsHandling: 'merge', replaceUrl: true });
   }
 
   async load() {

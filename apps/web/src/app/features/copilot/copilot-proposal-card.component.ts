@@ -52,11 +52,17 @@ export interface ProposalRef {
 
       @if (result(); as r) {
         <div class="callout info small" role="status"><nx-icon name="checkCircle" [size]="15" />
-          <span>Se crearon {{ r.created.skills }} skills, {{ r.created.examples }} ejemplos, {{ r.created.evalCases }} casos de evaluación y {{ r.created.routines }} rutinas.</span></div>
+          <span>Se crearon {{ r.created.skills }} skills, {{ r.created.examples }} ejemplos, {{ r.created.evalCases }} casos de evaluación y {{ r.created.routines }} rutinas.
+            @if (r.linked; as l) { Se vincularon {{ l.operations }} operaciones, {{ l.skills }} skills existentes y {{ l.knowledgeBases }} bases de conocimiento. }</span></div>
         @if (r.pendingIntegrations.length) {
           <div class="callout warning small"><nx-icon name="puzzle" [size]="15" />
             <span>Integraciones pendientes de instalar: <strong>{{ r.pendingIntegrations.join(', ') }}</strong>.
-              <a routerLink="/integrations">Ir al catálogo</a></span></div>
+              Instálelas y vincúlelas al agente. <a routerLink="/integrations">Ir al catálogo</a></span></div>
+        }
+        @if (r.warnings.length) {
+          <div class="callout warning small"><nx-icon name="alert" [size]="15" />
+            <div><strong>Avisos al aplicar</strong>
+              <ul class="warns">@for (w of r.warnings; track $index) { <li>{{ w }}</li> }</ul></div></div>
         }
       }
 
@@ -84,6 +90,7 @@ export interface ProposalRef {
     summary { cursor: pointer; color: var(--primary); font-weight: 600; }
     .secs { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
     footer { gap: 8px; flex-wrap: wrap; }
+    .warns { margin: 4px 0 0; padding-left: 18px; }
   `,
 })
 export class CopilotProposalCardComponent implements OnInit {

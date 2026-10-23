@@ -38,8 +38,19 @@ export interface CopilotProposal {
 /** `POST /copilot/proposals/:id/apply`. */
 export interface CopilotApplyResult {
   agentId: string;
+  /** Recursos nuevos creados (skills nuevas, ejemplos, casos de evaluación y rutinas deshabilitadas). */
   created: { skills: number; examples: number; evalCases: number; routines: number };
+  /** Recursos existentes vinculados al agente. */
+  linked: { operations: number; skills: number; knowledgeBases: number };
+  /** Ids del catálogo de integraciones que el usuario debe instalar y luego vincular. */
   pendingIntegrations: string[];
+  /** Referencias omitidas (recursos que ya no existen) u otros avisos. */
+  warnings: string[];
+}
+
+/** Estado de navegación al abrir el agente recién creado por el Copilot (`history.state.copilotApply`). */
+export interface CopilotApplyNavigationState {
+  copilotApply?: Omit<CopilotApplyResult, 'agentId'>;
 }
 
 /** `GET /copilot/quota`. */
@@ -79,6 +90,7 @@ export const COPILOT_TOOL_LABELS: Record<string, string> = {
   list_skills: 'Revisó las skills',
   list_knowledge_bases: 'Revisó las bases de conocimiento',
   get_recent_failures: 'Analizó fallos recientes',
+  search_product_docs: 'Consultó la documentación de Nexo',
   propose_agent: 'Preparó una propuesta de agente',
   propose_changes: 'Preparó una propuesta de cambios',
 };

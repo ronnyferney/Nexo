@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, ElementRef, inject, input, OnInit, 
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { ApiService, errorMessage } from '../../core/api.service';
-import type { CopilotApplyResult, CopilotProposal } from '../../core/copilot.models';
+import type { CopilotApplyNavigationState, CopilotApplyResult, CopilotProposal } from '../../core/copilot.models';
 import { ToastService } from '../../core/toast.service';
 import { IconComponent } from '../../shared/icon.component';
 import { CopilotPanelComponent } from '../copilot/copilot-panel.component';
@@ -143,7 +143,11 @@ export class AgentNewPage implements OnInit {
   }
 
   async onApplied(ev: { proposal: CopilotProposal; result: CopilotApplyResult }) {
-    if (ev.result.agentId) await this.router.navigate(['/agents', ev.result.agentId]);
+    const { agentId, ...summary } = ev.result;
+    if (!agentId) return;
+    // La tarjeta se destruye al navegar: el resumen (integraciones pendientes y avisos) viaja como estado de navegación.
+    const state: CopilotApplyNavigationState = { copilotApply: summary };
+    await this.router.navigate(['/agents', agentId], { state });
   }
 
   async createEmpty() {

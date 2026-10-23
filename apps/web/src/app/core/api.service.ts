@@ -9,6 +9,7 @@ import type {
   BudgetAlert,
   BudgetInput,
   BudgetRow,
+  BuildInfo,
   Connector,
   Execution,
   LlmConnection,
@@ -55,6 +56,9 @@ export class ApiService {
   private delete<T>(path: string) {
     return firstValueFrom(this.http.delete<T>(`${this.base}${path}`));
   }
+
+  /** Versión de la plataforma (público). */
+  version = () => this.get<BuildInfo>('/health/version');
 
   // Workspace
   stats = () => this.get<Stats>('/workspace/stats');
