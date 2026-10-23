@@ -21,22 +21,20 @@ import type { CatalogAuthMethod, CatalogEntry } from '../../core/integrations.mo
 import { ToastService } from '../../core/toast.service';
 import { IconComponent } from '../../shared/icon.component';
 import { isHttpUrl } from '../../shared/safe-url';
-import { AUTH_METHOD_META, catalogLogo, categoryLabel } from './catalog-meta';
+import { BrandLogoComponent } from './brand-logo.component';
+import { AUTH_METHOD_META, categoryLabel } from './catalog-meta';
 
 /** Asistente de instalación de una integración del catálogo (ADR 0005 D2) sobre un `<dialog>` modal. */
 @Component({
   selector: 'nx-install-wizard',
-  imports: [FormsModule, IconComponent],
+  imports: [FormsModule, IconComponent, BrandLogoComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <dialog #dlg class="modal" aria-labelledby="iw-title" (cancel)="onCancel($event)" (close)="closed.emit()">
       @let e = entry();
-      @let logo = logoOf(e);
       <form (ngSubmit)="submit()" #f="ngForm">
         <div class="modal-head">
-          <div class="icon-tile">
-            @if (logo.img) { <img [src]="logo.img" alt="" width="22" height="22" /> } @else { <nx-icon [name]="logo.icon" /> }
-          </div>
+          <nx-brand-logo [entry]="e" [size]="40" />
           <div class="grow">
             <h2 id="iw-title">Instalar {{ e.name }}</h2>
             <span class="muted small">{{ category(e) }} · {{ e.operations.length }} {{ e.operations.length === 1 ? 'operación incluida' : 'operaciones incluidas' }}</span>
@@ -65,7 +63,7 @@ import { AUTH_METHOD_META, catalogLogo, categoryLabel } from './catalog-meta';
 
           @for (fl of fields(); track fl.key) {
             <div class="field">
-              <label [for]="'iw-' + fl.key">{{ fl.label }}@if (!fl.required) { <span class="muted"> (opcional)</span> }</label>
+              <label [for]="'iw-' + fl.key">{{ fl.label }}@if (!fl.required && !fl.label.toLowerCase().includes('opcional')) { <span class="muted"> (opcional)</span> }</label>
               <div class="secret-row">
                 <input class="input" [class.mono]="fl.secret" [id]="'iw-' + fl.key" [name]="'cred_' + fl.key"
                   [type]="fl.secret && !revealed()[fl.key] ? 'password' : 'text'" [required]="fl.required"
@@ -123,7 +121,6 @@ import { AUTH_METHOD_META, catalogLogo, categoryLabel } from './catalog-meta';
     .secret-row { display: flex; gap: 6px; }
     .secret-row .btn { height: auto; flex-shrink: 0; }
     .docs { margin-right: auto; }
-    img { object-fit: contain; }
     .conflict-text { margin: 4px 0 0; }
   `,
 })
@@ -166,7 +163,6 @@ export class InstallWizardComponent implements OnInit {
     this.credentials.set(defaults);
   }
 
-  logoOf = catalogLogo;
   category = (e: CatalogEntry) => categoryLabel(e.category);
   isHttp = isHttpUrl;
 

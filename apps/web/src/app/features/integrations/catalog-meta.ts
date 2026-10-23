@@ -1,5 +1,4 @@
-import type { CatalogAuthMethod, CatalogCategory, CatalogEntry } from '../../core/integrations.models';
-import { hasIcon } from '../../shared/icon.component';
+import type { CatalogAuthMethod, CatalogCategory, CatalogEntry, CatalogOperation } from '../../core/integrations.models';
 
 export const CATEGORIES: { id: CatalogCategory; label: string; icon: string }[] = [
   { id: 'CRM', label: 'CRM', icon: 'users' },
@@ -18,10 +17,28 @@ export const AUTH_METHOD_META: Record<CatalogAuthMethod, { label: string; descri
   mcp: { label: 'Servidor MCP', description: 'Conexión al servidor MCP oficial del proveedor.' },
 };
 
-/** Logo de la entrada: URL de imagen, ícono del mapa o, en su defecto, el ícono de la categoría. */
-export function catalogLogo(e: Pick<CatalogEntry, 'icon' | 'category'>): { img: string | null; icon: string } {
-  const icon = e.icon ?? '';
-  if (/^(https?:\/\/|\/|data:image\/)/.test(icon)) return { img: icon, icon: 'puzzle' };
-  if (hasIcon(icon)) return { img: null, icon };
-  return { img: null, icon: CATEGORIES.find((c) => c.id === e.category)?.icon ?? 'puzzle' };
-}
+/**
+ * Campos que `GET /connector-catalog` ya devuelve y el modelo de `core/` aún no declara (opcionales para tolerar
+ * versiones anteriores de la API): verificación contra la documentación oficial y operaciones de escritura.
+ */
+export type CatalogEntryView = CatalogEntry & {
+  verified?: boolean;
+  verificationNotes?: string;
+  operations: (CatalogOperation & { write?: boolean })[];
+};
+
+/** Selección curada para la sección «Más usadas» (en este orden); los ids ausentes del catálogo se ignoran. */
+export const FEATURED_IDS = [
+  'gmail-inbox',
+  'google-calendar',
+  'microsoft-mail',
+  'microsoft-outlook',
+  'microsoft-teams',
+  'slack',
+  'hubspot',
+  'google-sheets',
+  'linkedin',
+];
+
+/** Filas visibles por sección antes de «Ver las N aplicaciones». */
+export const SECTION_PREVIEW = 6;

@@ -1,0 +1,121 @@
+<div class="page">
+  <div class="gallery">
+    <header class="head">
+      <div>
+        <h1>Integraciones</h1>
+        <p class="total">Disponibles <span class="count">{{ loading() ? '…' : catalog().length }}</span>
+          @if (filtering() && !loading()) { <span class="muted">· {{ rows().length }} {{ rows().length === 1 ? 'coincide' : 'coinciden' }}</span> }
+        </p>
+      </div>
+      <div class="tools" role="search">
+        <div class="search">
+          <nx-icon name="search" [size]="16" />
+          <label class="sr-only" for="int-search">Buscar integraciones por nombre, descripción u operación</label>
+          <input id="int-search" class="input" type="search" placeholder="Buscar integraciones" autocomplete="off"
+            [ngModel]="query()" (ngModelChange)="query.set($event)" />
+        </div>
+        <label class="sr-only" for="int-cat">Filtrar por categoría</label>
+        <select id="int-cat" class="input cat" [ngModel]="category()" (ngModelChange)="category.set($event)">
+          <option value="">Todas las categorías</option>
+          @for (c of categoryOptions(); track c.id) { <option [value]="c.id">{{ c.label }} ({{ c.count }})</option> }
+        </select>
+        <a class="btn ghost" routerLink="/connectors"><nx-icon name="plug" [size]="16" />Mis conectores</a>
+      </div>
+    </header>
+
+    @if (loading()) {
+      <div aria-busy="true"><span class="sr-only" role="status">Cargando catálogo…</span>
+        <div class="skel-title"></div>
+        <div class="grid-rows">@for (i of [1, 2, 3, 4, 5, 6]; track i) { <div class="skel-row"><span></span><span></span></div> }</div>
+      </div>
+    } @else if (error()) {
+      <div class="empty" role="alert"><nx-icon name="alert" [size]="32" /><h3>No se pudo cargar el catálogo</h3><p>{{ error() }}</p>
+        <button class="btn" (click)="load()"><nx-icon name="refresh" />Reintentar</button></div>
+    } @else if (!catalog().length) {
+      <div class="empty"><nx-icon name="puzzle" [size]="36" /><h3>Catálogo vacío</h3>
+        <p>Aún no hay integraciones disponibles. Puede crear un conector manualmente.</p>
+        <a class="btn" routerLink="/connectors"><nx-icon name="plug" />Ir a Mis conectores</a></div>
+    } @else if (!rows().length) {
+      <div class="empty"><nx-icon name="search" [size]="32" /><h3>Sin resultados</h3>
+        <p>Ninguna integración ni operación coincide con el filtro.</p>
+        <button class="btn" (click)="clearFilters()">Limpiar filtros</button></div>
+    } @else {
+      <p class="sr-only" role="status">{{ rows().length }} integraciones</p>
+      @for (s of sections(); track s.id) {
+        @let open = filtering() || expanded().has(s.id);
+        <section class="sec" [attr.aria-labelledby]="'sec-' + s.id">
+          <div class="sec-head">
+            <h2 [id]="'sec-' + s.id">{{ s.title }}</h2><span class="count">{{ s.rows.length }}</span>
+            @if (s.installed) {
+              <a class="sec-link small" routerLink="/connectors">Mis conectores<nx-icon name="chevronDown" [size]="14" class="chev" /></a>
+            }
+          </div>
+
+          @if (s.kit) {
+            <div class="kit" role="group" aria-labelledby="kit-title">
+              <span class="kit-icon"><nx-icon name="rocket" [size]="18" /></span>
+              <p class="kit-text"><strong id="kit-title">Kit comercial</strong>
+                <span class="muted">Skills de prospección y calificación BANT, más un flujo de leads listo para usar.</span>
+                @if (kitSkills(); as ks) {
+                  <span class="kit-ok" role="status" [title]="skillNames(ks)"><nx-icon name="checkCircle" [size]="14" />
+                    {{ ks.length ? ks.length + ' skills listas' : 'Skills listas' }} · <a routerLink="/skills">Ver skills</a></span>
+                }
+              </p>
+              @if (auth.canEdit()) {
+                <div class="kit-actions">
+                  <button class="btn sm primary" [disabled]="busy()" (click)="installKit()"><nx-icon name="sparkles" [size]="14" />
+                    {{ busy() === 'kit' ? 'Instalando…' : kitSkills() ? 'Reinstalar skills' : 'Instalar skills' }}</button>
+                  <button class="btn sm" [disabled]="busy()" (click)="createLeadWorkflow()"><nx-icon name="flow" [size]="14" />
+                    {{ busy() === 'flow' ? 'Creando…' : 'Crear flujo de leads' }}</button>
+                </div>
+              } @else {
+                <span class="small muted">Solicite a un editor que lo instale.</span>
+              }
+            </div>
+          }
+
+          <ul class="grid-rows" [id]="'list-' + s.id">
+            @for (r of open ? s.rows : s.rows.slice(0, preview); track r.entry.id; let i = $index) {
+              @let e = r.entry;
+              @let oauth = oauthLabel(e);
+              <li>
+                <button type="button" class="int-row" [id]="'row-' + s.id + '-' + i" (click)="openDetail(e, $event)"
+                  [attr.aria-label]="e.name + (e.installed ? ', instalada' : '') + ': ver detalle'" [attr.aria-describedby]="'rd-' + s.id + '-' + i">
+                  <nx-brand-logo [entry]="e" [size]="44" />
+                  <span class="int-body">
+                    <span class="int-name"><strong>{{ e.name }}</strong>
+                      <span class="tags">
+                        @if (oauth) { <span class="badge tag" [title]="'Iniciar sesión con ' + oauth">Iniciar sesión<span class="long">&nbsp;con {{ oauth }}</span></span> }
+                        @if (e.verified === false) { <span class="badge warning tag" title="Pendiente de verificar contra la documentación oficial">Sin verificar</span> }
+                      </span>
+                    </span>
+                    <span class="int-desc" [id]="'rd-' + s.id + '-' + i">
+                      @if (r.matchedOp) { Incluye la operación «{{ r.matchedOp }}» } @else { {{ e.description }} }
+                    </span>
+                  </span>
+                  @if (e.installed) {
+                    <span class="act done" title="Instalada"><nx-icon name="check" [size]="16" /></span>
+                  } @else if (auth.canEdit()) {
+                    <span class="act" title="Instalar"><nx-icon name="plus" [size]="16" /></span>
+                  }
+                </button>
+              </li>
+            }
+          </ul>
+
+          @if (!filtering() && s.rows.length > preview) {
+            <button type="button" class="more" [attr.aria-expanded]="open" [attr.aria-controls]="'list-' + s.id"
+              (click)="toggle(s.id); !open && focusRow(s.id, preview)">
+              {{ open ? 'Ver menos' : 'Ver las ' + s.rows.length + ' aplicaciones' }}
+              <nx-icon [name]="open ? 'chevronUp' : 'chevronDown'" [size]="14" /></button>
+          }
+        </section>
+      }
+    }
+  </div>
+</div>
+
+@if (detail(); as d) {
+  <nx-integration-detail [entry]="d" (closed)="detail.set(null)" (install)="startInstall(d)" />
+}
+@if (selected(); as s) { <nx-install-wizard [entry]="s" (closed)="wizardClosed()" /> }
