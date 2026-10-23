@@ -31,4 +31,5 @@ npm start                                    # http://localhost:4200 (proxy /api
 - **Estilo API:** Prettier (`printWidth: 120`, comillas simples), DTO con `class-validator`, `import type` para tipos.
 - **Estilo Web:** componentes standalone, `ChangeDetectionStrategy.OnPush`, signals, `inject()`, control flow `@if/@for`, clases del design system de `src/styles.scss`. Llaves literales `{{ }}` en plantillas Angular con el pipe `tpl`.
 - **Calidad:** ningún cambio se da por terminado sin ejecutar los comandos de validación de la app tocada. Cada bug corregido lleva una prueba que lo reproduce.
+- **Migraciones Prisma:** la columna generada `KnowledgeChunk.search` (tsvector), su índice GIN `KnowledgeChunk_search_idx` y el índice parcial `OrgUnit_root_per_workspace` se crean con SQL manual que Prisma no modela. Tras `prisma migrate dev --create-only`, **elimina del SQL generado cualquier `DROP INDEX`/`ALTER COLUMN "search"` sobre ellos** antes de aplicar. Nunca edites una migración ya aplicada.
 - **Git:** commits pequeños en español con prefijo convencional (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`).

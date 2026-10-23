@@ -13,12 +13,6 @@ CREATE TYPE "SuggestionStatus" AS ENUM ('PENDING', 'APPLIED', 'REJECTED');
 -- AlterEnum
 ALTER TYPE "UsageSource" ADD VALUE 'EVAL';
 
--- DropIndex
-DROP INDEX "KnowledgeChunk_search_idx";
-
--- AlterTable
-ALTER TABLE "KnowledgeChunk" ALTER COLUMN "search" DROP DEFAULT;
-
 -- CreateTable
 CREATE TABLE "MessageFeedback" (
     "id" TEXT NOT NULL,
