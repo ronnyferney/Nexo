@@ -44,9 +44,12 @@ describe('Usuario maestro del primer arranque y cambio de contraseña (E2E)', ()
   it('cambia la contraseña exigiendo la actual', async () => {
     const token = ((await login(app, EMAIL, PASSWORD)).body as { accessToken: string }).accessToken;
     const api = new Api(app, token);
-    await api
+    // Contraseña actual incorrecta → 400 con mensaje (un 401 cerraría la sesión en la web) y la sesión sigue válida.
+    const wrong = await api
       .post('/auth/change-password', { currentPassword: 'incorrecta', newPassword: 'Nueva-Clave-789' })
-      .expect(401);
+      .expect(400);
+    expect((wrong.body as { message: string }).message).toContain('contraseña actual');
+    await api.get('/auth/me').expect(200);
     await api.post('/auth/change-password', { currentPassword: PASSWORD, newPassword: PASSWORD }).expect(400);
     await api.post('/auth/change-password', { currentPassword: PASSWORD, newPassword: 'corta' }).expect(400);
     await api.post('/auth/change-password', { currentPassword: PASSWORD, newPassword: 'Nueva-Clave-789' }).expect(200);

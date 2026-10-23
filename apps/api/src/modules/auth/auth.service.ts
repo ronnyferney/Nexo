@@ -73,7 +73,8 @@ export class AuthService {
   async changePassword(userId: string, dto: ChangePasswordDto): Promise<{ changed: true }> {
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
     if (!(await bcrypt.compare(dto.currentPassword, user.passwordHash))) {
-      throw new UnauthorizedException('La contraseña actual no es correcta');
+      // 400 y no 401: el interceptor de la web cierra la sesión ante cualquier 401.
+      throw new BadRequestException('La contraseña actual no es correcta');
     }
     if (dto.currentPassword === dto.newPassword) {
       throw new BadRequestException('La nueva contraseña debe ser distinta de la actual');
