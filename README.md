@@ -1,6 +1,6 @@
 # Nexo — Plataforma de Agentes de IA y Automatización
 
-Nexo permite **crear agentes de IA conectados a cualquier sistema** de la empresa y **orquestar flujos de automatización** entre ellos. Integra APIs **REST**, web services **SOAP**, **GraphQL** y servidores **MCP** (Model Context Protocol), y a la vez **expone sus propios agentes y flujos como servidor MCP** para Claude, IDEs y otros agentes.
+Nexo permite **crear agentes de IA conectados a cualquier sistema** de la empresa y **orquestar flujos de automatización** entre ellos. Integra APIs **REST**, web services **SOAP**, **GraphQL**, servidores **MCP** (Model Context Protocol) y **bases de datos** (directas o en redes privadas vía **Nexo Edge**), y a la vez **expone sus agentes lanzados y flujos activos como servidor MCP** para Claude, IDEs y otros agentes.
 
 | Capa | Tecnología |
 |---|---|
@@ -9,13 +9,22 @@ Nexo permite **crear agentes de IA conectados a cualquier sistema** de la empres
 | Datos | PostgreSQL 16 + Prisma ORM |
 | Colas | Redis 7 + BullMQ (workers escalables horizontalmente, cron) |
 | IA | Claude (Anthropic SDK) con tool use, streaming y thinking adaptativo; proveedores enchufables |
-| Protocolos | REST/OpenAPI · SOAP 1.1/1.2/WSDL · GraphQL · MCP (cliente y servidor) |
+| Protocolos | REST/OpenAPI · SOAP 1.1/1.2/WSDL · GraphQL · MCP (cliente y servidor) · SQL (PostgreSQL, MySQL, SQL Server) |
 
 ## Capacidades
 
 **Conectores**
 - REST con importación automática desde **OpenAPI 3**; SOAP con importación desde **WSDL**; GraphQL; **MCP** (Streamable HTTP / SSE) con descubrimiento de tools.
-- Autenticación declarativa: API key, Bearer, Basic, **OAuth2 client credentials** (con caché de token).
+- Autenticación declarativa: API key, Bearer, Basic, **OAuth2 client credentials** (con caché de token) y **OAuth2 de
+  usuario** (authorization code + PKCE, tokens cifrados con renovación automática; app OAuth de la plataforma o propia).
+- **Catálogo de integraciones** instalables con un clic (credenciales a la bóveda, operaciones prediseñadas para agentes):
+  Lusha (MCP y API REST), HubSpot CRM, LinkedIn, Salesforce, Pipedrive, Google Sheets, Gmail (envío), Gmail (bandeja y
+  respuestas), Google Calendar, Google Meet, Microsoft 365 Outlook, Microsoft 365 Correo (bandeja), Calendario
+  corporativo (Microsoft 365), Microsoft To Do, Microsoft Planner, Microsoft Teams, WhatsApp Business (Cloud API) y Slack;
+  con skills comerciales de apoyo.
+- **Bases de datos** PostgreSQL, MySQL y SQL Server con consultas declaradas y parámetros enlazados (sin SQL libre),
+  solo lectura por defecto y descubrimiento de esquema. En la nube del cliente en modo directo; en red privada con
+  **Nexo Edge** (`apps/edge`), que se conecta hacia afuera por WSS y guarda las credenciales en la red del cliente.
 - **Bóveda de secretos** cifrada (AES-256-GCM) referenciable como `{{ secrets.NOMBRE }}`.
 - Validación de entrada con JSON Schema (Ajv), timeouts, límite de tamaño y **protección SSRF**.
 - Playground para probar cada operación.
@@ -26,6 +35,15 @@ Nexo permite **crear agentes de IA conectados a cualquier sistema** de la empres
 - **Aprobación humana** (human-in-the-loop) por herramienta.
 - Chat con **streaming SSE**, trazas en vivo de cada herramienta y conversaciones persistidas.
 - Proveedor `mock` para desarrollo y pruebas sin credenciales.
+- **Visibilidad**: Personal (por defecto), Equipo (compartido con personas, unidades o **grupos de usuarios** con permiso
+  de uso o edición) o Empresa; conversaciones privadas por usuario; transferir, duplicar y **Explorar agentes**.
+- **Salud del agente** (puntaje 0–100 sin costo de IA) y **lanzamiento** con garantía de calidad: salud ≥ 70 y
+  evaluación ≥ meta (o excepción de un ADMIN). Solo los agentes lanzados pasan a Empresa y se publican por MCP.
+
+**Nexo Copilot**
+- Arquitecto de agentes integrado: entrevista al crear un agente, panel lateral para mejorar y diagnosticar, y
+  **propuestas con diff** que el usuario aplica (nunca modifica nada por sí solo).
+- Costo a cargo de Nexo con cupo mensual por workspace (`COPILOT_MONTHLY_QUOTA_USD`, por defecto 2 USD).
 
 **Flujos de automatización**
 - Constructor visual (drag & drop, zoom, conexiones) con nodos: disparador, conector, agente IA, condición, transformación, espera y respuesta.
@@ -54,9 +72,15 @@ Nexo permite **crear agentes de IA conectados a cualquier sistema** de la empres
 - Portal de usuarios con **Mi consumo**: presupuesto disponible y gasto propio.
 
 **Plataforma**
-- Multi-tenant por workspace, roles (OWNER, ADMIN, EDITOR, VIEWER), JWT + API keys.
-- **Servidor MCP** en `/api/mcp`: cada agente y flujo activo se publica como tool.
-- OpenAPI/Swagger en `/api/docs`, health checks, logs estructurados (pino), rate limiting, helmet.
+- Multi-tenant por workspace, roles (OWNER, ADMIN, EDITOR, VIEWER), JWT + API keys; grupos de usuarios administrados en
+  la consola.
+- **Servidor MCP** en `/api/mcp`: cada agente de Empresa lanzado y cada flujo activo se publica como tool.
+- **Usuario maestro** de primer arranque: con `BOOTSTRAP_ADMIN_EMAIL` y `BOOTSTRAP_ADMIN_PASSWORD` (≥ 12 caracteres) se
+  crea un OWNER del workspace inicial si aún no existe.
+- **Consola de plataforma** (administradores de Nexo en `PLATFORM_ADMIN_EMAILS`): éxito de clientes y calidad del Copilot.
+- OpenAPI/Swagger en `/api/docs`, health checks (`/api/health`, versión en `/api/health/version`), logs estructurados
+  (pino), rate limiting, helmet.
+- La protección de datos sensibles hacia los modelos (ADR 0008) está decidida pero **aún no implementada**.
 
 ## Inicio rápido (desarrollo)
 
@@ -91,8 +115,9 @@ Web en `http://localhost:8080`. La API y los workers comparten imagen; `WORKER_E
 
 ## Publicación y despliegue
 
-Versiones semánticas con CHANGELOG generado desde los commits, imágenes inmutables en GHCR y despliegue en AWS de una
-versión publicada (sin reconstruir). Guía: [docs/release.md](docs/release.md) · AWS: [docs/deploy-aws.md](docs/deploy-aws.md).
+Versiones semánticas con CHANGELOG generado desde los commits; la etiqueta `vX.Y.Z` ejecuta `release.yml` (CI completo,
+imágenes inmutables `nexo-api`, `nexo-web` y `nexo-edge` en GHCR y GitHub Release) y `deploy-aws.yml` despliega en AWS
+una versión publicada (sin reconstruir) y la verifica con `/api/health/version`. Guía: [docs/release.md](docs/release.md) · AWS: [docs/deploy-aws.md](docs/deploy-aws.md).
 
 ```bash
 npm run release:dry      # versión y notas calculadas
@@ -101,7 +126,8 @@ npm run release && git push --follow-tags origin HEAD
 
 ## Conectar un cliente MCP a Nexo
 
-Cree una API key en **Configuración** y agregue a su cliente MCP:
+Cree una API key en **Administración → Seguridad** y agregue a su cliente MCP. Se publican como tools los agentes con
+visibilidad Empresa y lanzados (`agent_*`) y los flujos activos (`workflow_*`):
 
 ```json
 {
@@ -133,20 +159,34 @@ apps/
       config/             configuración y validación de entorno
       infrastructure/     Prisma
       modules/
-        auth/             registro, login, JWT, cambio de workspace
-        workspaces/       secretos, API keys, métricas
-        connectors/       dominio + adaptadores REST, SOAP, GraphQL, MCP
-        llm/              puerto LlmProvider + Anthropic + Mock
-        agents/           runtime de agentes, chat SSE, conversaciones
+        auth/             registro, login, JWT, cambio de workspace, usuario maestro
+        workspaces/       secretos, API keys, métricas, ajustes del workspace
+        connectors/       dominio + adaptadores REST, SOAP, GraphQL, MCP, DATABASE + catálogo de integraciones
+        oauth/            OAuth2 de usuario (authorization code + PKCE) para conectores
+        edge/             Nexo Edge: administración, gateway WebSocket, enrutamiento por Redis
+        llm/              puerto LlmDriver (Anthropic, OpenAI-compatible, Mock) + LlmGatewayService
+        governance/       unidades, presupuestos, alertas y consumo
+        agents/           runtime de agentes, prompt compuesto, chat SSE, conversaciones
+        agent-access/     permisos y shares de agentes, salud del agente
+        groups/           grupos de usuarios
+        skills/           skills reutilizables
+        knowledge/        bases de conocimiento y búsqueda full-text
+        routines/         rutinas programadas por agente
+        training/         feedback, evaluaciones, versiones y sugerencias
+        copilot/          Nexo Copilot y consola de plataforma
         workflows/        motor DAG, ejecutores de nodos, cola BullMQ, webhooks, cron
         mcp-server/       Nexo como servidor MCP
+        health/           salud y versión desplegada
+  edge/                   Nexo Edge (agente on-premise para bases de datos privadas)
   web/                    Angular
     src/app/
       core/               API tipada, autenticación, interceptores, guards
-      layout/             shell con navegación
+      layout/             shell con navegación (portal, administración, plataforma)
       shared/             componentes reutilizables
-      features/           dashboard, agents, connectors, workflows, executions, settings
-docs/ARCHITECTURE.md      decisiones de arquitectura
+      features/           dashboard, agents, copilot, skills, knowledge, routines, supervision, workflows,
+                          executions, integrations, connectors, usage, account, admin, platform, auth
+infra/                    AWS CDK (registro ECR, piloto, rol OIDC)
+docs/ARCHITECTURE.md      arquitectura actual · docs/adr/ decisiones
 ```
 
 ## Calidad

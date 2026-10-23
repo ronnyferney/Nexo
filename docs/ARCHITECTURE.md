@@ -1,51 +1,162 @@
 # Arquitectura de Nexo
 
+Decisiones registradas en [`docs/adr/`](adr/) (0001–0009). Este documento describe la plataforma tal como está hoy.
+
 ## Vista general
 
 ```
-             ┌──────────────┐         ┌───────────────────────────────────────────┐
- Usuarios ──▶│  Angular SPA │──/api──▶│ API NestJS (stateless, N réplicas)        │
-             └──────────────┘         │  auth · connectors · agents · workflows   │
- Clientes MCP ───────── /api/mcp ────▶│  mcp-server · webhooks (/api/hooks/:token)│
- Sistemas externos ─── webhooks ─────▶└──────────┬───────────────┬────────────────┘
-                                                 │ Prisma        │ BullMQ (Redis)
-                                            ┌────▼────┐     ┌────▼─────────────┐
-                                            │Postgres │◀────│ Workers (N)      │
-                                            └─────────┘     │ motor de flujos  │
-                                                            └────┬─────────────┘
-                                         REST · SOAP · GraphQL · MCP · LLM (Claude)
+             ┌──────────────┐         ┌────────────────────────────────────────────────┐
+ Usuarios ──▶│  Angular SPA │──/api──▶│ API NestJS (stateless, N réplicas)             │
+             └──────────────┘         │  auth · connectors · agents · workflows · ...  │
+ Clientes MCP ───────── /api/mcp ────▶│  mcp-server · webhooks (/api/hooks/:token)     │
+ Sistemas externos ─── webhooks ─────▶│  oauth (/api/oauth/callback) · edge (WS)       │
+ Nexo Edge (red del cliente) ─ WSS ──▶└──────────┬───────────────┬─────────────────────┘
+                                                 │ Prisma        │ BullMQ + pub/sub (Redis)
+                                            ┌────▼────┐     ┌────▼──────────────────────┐
+                                            │Postgres │◀────│ Workers (N)               │
+                                            └─────────┘     │ flujos · rutinas · evals  │
+                                                            └────┬──────────────────────┘
+                     REST · SOAP · GraphQL · MCP · bases de datos · LLM (Anthropic, OpenAI-compatibles)
 ```
+
+## Despliegue
+
+```
+                         ┌──────────────── nube de Nexo ─────────────────────────────────┐
+ Navegador / MCP ──443──▶│ web (nginx: SPA + /version.json, proxy /api → api, WS Upgrade)│
+                         │   │                                                           │
+                         │   ▼                                                           │
+                         │ api  (WORKER_ENABLED=false, N réplicas)  ◀──┐                 │
+                         │ worker (WORKER_ENABLED=true, N réplicas)    │ misma imagen    │
+                         │   │            │                                              │
+                         │   ▼            ▼                                              │
+                         │ PostgreSQL 16  Redis 7 (colas BullMQ, pub/sub de Edge)        │
+                         └───────────────────────────────────────────────────────────────┘
+                                   ▲ WSS saliente (/api/edge/ws, token nexoedge_...)
+ ┌──────── red del cliente ────────┴──┐
+ │ edge (apps/edge) ──▶ BD privadas   │  credenciales locales en edge.yaml
+ └────────────────────────────────────┘
+```
+
+- Local: `docker-compose.yml` levanta `postgres`, `redis`, `api`, `worker` y `web` (puerto 8080).
+- AWS (`infra/`, CDK): stacks `NexoRegistry` (ECR), `NexoPilot` (ALB → servicio `web`; servicios Fargate `api` y
+  `worker`; RDS PostgreSQL 16; ElastiCache Redis) y el rol OIDC de GitHub. Guía: [deploy-aws.md](deploy-aws.md).
+- Imágenes publicadas por versión: `nexo-api` (API y worker), `nexo-web`, `nexo-edge`.
 
 ## Principios
 
 1. **Módulos por dominio** (`connectors`, `agents`, `workflows`…). Cada módulo expone servicios; los controladores solo traducen HTTP.
 2. **Puertos y adaptadores** donde el sistema toca el exterior:
-   - `ConnectorAdapter` → `RestAdapter`, `SoapAdapter`, `GraphqlAdapter`, `McpAdapter`. Un protocolo nuevo es una clase nueva registrada en `ConnectorsModule`.
-   - `LlmProvider` → `AnthropicProvider`, `MockProvider`. Agregar OpenAI, Gemini u Ollama no toca agentes ni flujos.
+   - `ConnectorAdapter` → `RestAdapter`, `SoapAdapter`, `GraphqlAdapter`, `McpAdapter`, `DatabaseAdapter`. Un protocolo
+     nuevo es una clase nueva registrada en `ConnectorsModule`.
+   - `LlmDriver` (por `LlmKind`) → `AnthropicDriver`, `OpenAiCompatibleDriver`, `MockDriver`, registrados en `LlmModule`.
+     Cada driver crea un `LlmClient` que es dueño de su bucle de tool use y de su historial nativo. `LlmGatewayService`
+     resuelve proveedor y modelo de un agente al cliente y su tarifa. Un proveedor nuevo (p. ej. Bedrock) es un driver nuevo.
    - `NodeExecutor` → un ejecutor por tipo de nodo. El `WorkflowEngine` es TypeScript puro, sin Nest ni base de datos, y se prueba de forma aislada.
-3. **API sin estado + workers**: la API encola ejecuciones; los workers (BullMQ) las procesan. Ambos escalan horizontalmente. `WORKER_ENABLED=false` separa los roles.
-4. **Seguridad por defecto**: secretos cifrados (AES-256-GCM), API keys guardadas como hash SHA-256, protección SSRF en todas las llamadas salientes, plantillas sin `eval` y con bloqueo de `__proto__`, validación estricta de DTO, rate limiting, helmet, logs con datos sensibles redactados.
+   - Catálogo de integraciones y resolutores de destinatarios de shares como tablas declarativas (sin `if (type === ...)`).
+3. **API sin estado + workers**: la API encola trabajo; los workers (BullMQ) procesan las colas `workflows`, `routines`
+   y `evals`. Ambos escalan horizontalmente. `WORKER_ENABLED=false` separa los roles.
+4. **Seguridad por defecto**: secretos y tokens OAuth cifrados (AES-256-GCM), API keys y tokens de Edge guardados como
+   hash SHA-256, protección SSRF en todas las llamadas salientes (`HttpClientService`), plantillas sin `eval` y con
+   bloqueo de `__proto__`, validación estricta de DTO, rate limiting, helmet, logs con datos sensibles redactados.
 5. **Multi-tenant**: toda consulta filtra por `workspaceId`, tomado del token y nunca del cliente.
+
+## Mapa de módulos (`apps/api/src/modules`)
+
+| Módulo | Responsabilidad |
+|---|---|
+| `auth` | Registro, login, JWT, cambio de workspace y usuario maestro de primer arranque (`BootstrapAdminService`). |
+| `workspaces` | Secretos de la bóveda, API keys, métricas y ajustes del workspace (`allowPersonalAgents`). |
+| `connectors` | Dominio de conectores, adaptadores REST/SOAP/GraphQL/MCP/DATABASE y catálogo de integraciones (`catalog/`). |
+| `oauth` | OAuth2 de usuario para conectores: authorization code + PKCE, callback público, tokens cifrados y renovación. |
+| `edge` | Nexo Edge: administración de agentes on-premise, gateway WebSocket y enrutamiento por Redis pub/sub. |
+| `llm` | Puerto `LlmDriver`, `LlmGatewayService`, catálogo de modelos/tarifas y administración de conexiones LLM. |
+| `governance` | Unidades corporativas, centros de costo, bolsas de presupuesto, alertas y reportes de consumo. |
+| `agents` | CRUD de agentes, composición del prompt, runtime (tools, respaldo de modelos), chat SSE y conversaciones. |
+| `agent-access` | Permisos por agente (`AgentAccessService`), destinatarios de shares (`SharePrincipalsService`) y salud del agente. |
+| `groups` | Grupos de usuarios transversales a las unidades, destino de shares `GROUP`. |
+| `skills` | Skills reutilizables con divulgación progresiva (`load_skill`). |
+| `knowledge` | Bases de conocimiento: ingesta (texto, URL, archivo), fragmentación y búsqueda full-text. |
+| `routines` | Rutinas programadas por agente (cron con zona horaria en BullMQ) e historial de corridas. |
+| `training` | Feedback, bandeja de supervisión, casos y corridas de evaluación (juez IA), versiones y sugerencias. |
+| `copilot` | Nexo Copilot (sesiones, herramientas internas, propuestas, cupo) y consola de plataforma (`platform/`). |
+| `workflows` | Motor DAG, ejecutores de nodos, cola BullMQ, webhooks, cron, versiones y retención de ejecuciones. |
+| `mcp-server` | Nexo como servidor MCP en `/api/mcp`. |
+| `health` | `GET /api/health` (base de datos) y `GET /api/health/version` (versión desplegada). |
+
+Fuera de `modules/`: `common/` (crypto, guards, decoradores, plantillas, `HttpClientService`, filtros, `build-info`),
+`config/` (configuración y validación de entorno) e `infrastructure/` (Prisma). `apps/edge` es una aplicación Node
+independiente.
 
 ## Motor de flujos
 
 - El grafo debe ser un DAG con un único disparador (`workflow.validator.ts`).
+- Nodos: `trigger`, `connector`, `agent`, `condition`, `transform`, `delay`, `output`, `subworkflow` (profundidad
+  máx. 5) y `loop` (sub-flujo por elemento con concurrencia 1–10).
 - La ejecución avanza por oleadas: un nodo está listo cuando todos sus predecesores se resolvieron. Los nodos listos se ejecutan en paralelo.
 - Una arista está activa si su origen terminó y, en nodos condición, si la rama (`sourceHandle`) coincide. Un nodo sin aristas entrantes activas se **omite** y la omisión se propaga, de modo que las ramas se unen sin lógica especial.
 - Reintentos con backoff exponencial (máx. 5), `onError: continue` y cancelación cooperativa.
 - La bitácora (`steps`) se persiste en cada transición, así la UI muestra el progreso en vivo.
+- Prácticas de n8n (ADR 0003 D6): flujo de error (`errorWorkflowId`), historial de versiones (`WorkflowVersion`;
+  restaurar crea una versión nueva), probar un nodo con datos fijados y retención (`EXECUTIONS_RETENTION_DAYS`, por
+  defecto 30, limpieza diaria).
+- Un nodo `agent` solo puede referenciar agentes que quien guarda el flujo puede USAR (ADR 0007 D5).
 
 ## Agentes
 
-- `AgentRuntimeService` arma las tools desde las operaciones asignadas (`<conector>__<operación>`) y delega el bucle al proveedor.
-- `AnthropicProvider` ejecuta el bucle de tool use con streaming, thinking adaptativo, `effort` configurable, ejecución paralela de tools y fallback del lado del servidor ante rechazos por política.
+- `AgentRuntimeService` arma las tools desde las operaciones asignadas (`<conector>__<operación>`), las de sus skills y
+  las internas (`load_skill`, `search_knowledge`), compone el prompt desde el perfil (`composeSystemPrompt`, vista
+  previa en `GET /agents/:id/prompt-preview`) y delega el bucle al `LlmClient` resuelto por `LlmGatewayService`.
+- Si el proveedor falla, recorre la cadena `fallbackModels`; cada intento pasa por el gobierno de costos.
+- El cliente Anthropic ejecuta el bucle de tool use con streaming, thinking adaptativo, `effort` configurable, ejecución
+  paralela de tools y fallback del lado del servidor ante rechazos por política.
 - El historial se guarda **en formato nativo del proveedor y solo se agrega al final** (los bloques de razonamiento se devuelven sin modificar).
 - La aprobación humana se resuelve en el runtime: si la tool la requiere y el usuario no la aprobó, el modelo recibe un resultado que le pide solicitar autorización.
+- **Bucle de mejora supervisada** (ADR 0004, módulo `training`): 👍/👎 y correcciones → bandeja de supervisión →
+  ejemplos y casos de evaluación → corridas en la cola `evals` con juez IA y revisión humana de la zona dudosa →
+  sugerencias aprobadas por humanos → `AgentVersion` y publicación de la mejor.
+
+## Visibilidad, permisos, grupos y lanzamiento (ADR 0006 D3/D4, ADR 0007)
+
+- `Agent.visibility`: `PRIVATE` (por defecto, solo el dueño), `TEAM` (shares) o `WORKSPACE` (todos los miembros).
+  `Agent.ownerId` + `AgentShare { principalType: USER|UNIT|GROUP, permission: USE|EDIT }`.
+- Todo acceso a agentes, entrenamiento, rutinas y conversaciones pasa por `AgentAccessService` (permiso efectivo
+  `OWNER`/`EDIT`/`USE`/`ADMIN_VIEW`). ADMIN/OWNER ven configuración, costo y salud de todos los agentes, pero no
+  conversaciones ajenas; cada usuario solo lee sus conversaciones. Un agente no visible responde 404.
+- `SharePrincipalsService` valida y nombra los destinatarios de un share con un resolutor por tipo (usuario del
+  workspace, unidad corporativa con sus subunidades, grupo). Los **grupos de usuarios** (`UserGroup`, módulo `groups`)
+  los administra ADMIN+ (`/admin/groups`); `GET /groups` (EDITOR+) alimenta el diálogo de compartir. La membresía
+  aplica de inmediato; un share a un grupo permite USE incluso a miembros VIEWER.
+- **Salud** (`GET /agents/:id/health`, `GET /agents/health`): puntaje determinista 0–100 sin costo de IA
+  (`agent-health.rules.ts`).
+- **Lanzamiento**: `POST /agents/:id/launch` exige salud ≥ 70 y última evaluación ≥ `targetScore` (o override de ADMIN
+  con motivo). Pasar a `WORKSPACE` exige `LAUNCHED`. Las rutinas solo se ejecutan si el agente está `LAUNCHED` o es
+  `PRIVATE` con dueño.
+
+## Integraciones (ADR 0005)
+
+- **Catálogo** versionado en código (`connectors/catalog/catalog.index.ts`, un archivo por integración en
+  `integrations/`): `GET /connector-catalog` y `POST /connector-catalog/:id/install` crean secretos `<SLUG>_<CAMPO>`,
+  el conector (`catalogId`) y sus operaciones prediseñadas; incluye skills comerciales.
+- **OAuth2 de usuario** (`oauth`): `state` JWT firmado de 10 min con el `code_verifier` cifrado, PKCE S256 (desactivable
+  por proveedor, p. ej. LinkedIn), callback público `GET /api/oauth/callback` que redirige a `WEB_URL`, tokens en
+  `OAuthCredential` cifrados y renovación serializada por conector. App OAuth de la plataforma
+  (`OAUTH_<PROVEEDOR>_CLIENT_ID/SECRET`) o propia del cliente (secretos del workspace).
+- **Base de datos** (`DatabaseAdapter`, `ConnectorType.DATABASE`): PostgreSQL, MySQL y SQL Server; operaciones =
+  consultas declaradas con parámetros enlazados (nunca SQL libre), modo `read` restringido a `SELECT`/`WITH`,
+  escrituras solo con `allowWrites`, descubrimiento de esquema y pool por conector con cierre por inactividad.
+  Modo `direct` (host validado contra SSRF) o modo `edge`.
+- **Nexo Edge** (`apps/edge` + módulo `edge`): conexión saliente WSS a `/api/edge/ws` con token `nexoedge_...`;
+  credenciales y políticas locales en `edge.yaml`, que el Edge re-valida. La instancia que tiene el socket escucha
+  `edge:req:<edgeId>` en Redis y responde por `edge:res:<requestId>`, así workers y otras réplicas lo alcanzan.
+  Protocolo en [edge-protocol.md](edge-protocol.md).
 
 ## MCP
 
 - **Cliente**: `McpAdapter` mantiene un pool de sesiones por conector (cierre por inactividad, reconexión automática) y convierte las tools remotas en operaciones.
-- **Servidor**: `/api/mcp` (Streamable HTTP sin estado). Por cada solicitud se construye un `McpServer` con los agentes y flujos activos del workspace autenticado por API key.
+- **Servidor**: `/api/mcp` (Streamable HTTP sin estado, solo `POST`), autenticado con API key del workspace. Por cada
+  solicitud se construye un `McpServer` con los agentes `WORKSPACE` + `LAUNCHED` (tools `agent_*`) y los flujos con
+  `active = true` (tools `workflow_*`, esperan hasta 60 s el resultado).
 
 ## Gobierno de IA (ADR 0002)
 
@@ -55,13 +166,55 @@
   (`BudgetsService.plan`: modelos permitidos, bloqueo o degradación), control antes de cada turno (`assertCanSpend`)
   y registro por turno (`record`: `UsageRecord` + incremento atómico del libro mayor en toda la cadena + alertas).
 - La lógica de decisión vive en funciones puras (`governance/budget-policy.ts`) con pruebas unitarias.
+- Las alertas por umbral se registran en `BudgetAlert` y se ven en la consola; no se notifican por correo ni Slack.
+
+## Nexo Copilot y consola de plataforma (ADR 0006)
+
+- Agente de plataforma propiedad de Nexo (no es un agente del workspace): configuración versionada en
+  `copilot/definition/`, modelo `COPILOT_PROVIDER`/`COPILOT_MODEL` (por defecto `anthropic`/`claude-opus-5-5`; `mock`
+  sin clave). Reutiliza el runtime con herramientas internas de solo lectura y **nunca modifica nada**: genera
+  `CopilotProposal` que el usuario revisa y aplica (EDITOR+).
+- Consumo con `source: COPILOT`, fuera de los presupuestos del cliente, con cupo mensual por workspace
+  (`COPILOT_MONTHLY_QUOTA_USD`, por defecto 2 USD).
+- Consola de plataforma (`/api/platform/*`, web `/platform`) solo para `PLATFORM_ADMIN_EMAILS`: métricas de éxito de
+  clientes y calidad del Copilot (calificaciones; conversación solo si el usuario la compartió). Conjunto de evaluación
+  propio en `copilot/eval/`.
+
+## Usuario maestro de primer arranque
+
+`BootstrapAdminService` crea al arrancar, si `BOOTSTRAP_ADMIN_EMAIL` y `BOOTSTRAP_ADMIN_PASSWORD` (≥ 12 caracteres)
+están definidos y el usuario no existe, un OWNER del workspace `BOOTSTRAP_WORKSPACE_NAME` (por defecto "Nexo"). Si ya
+existe no hace nada (nunca cambia la contraseña), por lo que es seguro con varias réplicas. En AWS la contraseña viene
+de Secrets Manager.
+
+## Publicación de versiones (ADR 0009)
+
+- Una versión semántica para el monorepo, calculada desde los commits convencionales por `scripts/release.mjs`
+  (`npm run release`). Guía: [release.md](release.md).
+- La etiqueta `vX.Y.Z` dispara `.github/workflows/release.yml`: verifica versiones, ejecuta el CI completo
+  (`ci.yml` vía `workflow_call`), construye una vez `nexo-api`, `nexo-web` y `nexo-edge` en GHCR y crea el GitHub Release.
+- `deploy-aws.yml` recibe una versión, copia sus imágenes a ECR conservando el digest, despliega `NexoPilot` con esa
+  etiqueta y comprueba `GET /api/health/version` (público; `version`, `commit`, `builtAt` desde `APP_VERSION`,
+  `GIT_SHA`, `BUILD_DATE`) y `/version.json` de la web. Revertir = desplegar la versión anterior; migraciones aditivas.
+
+## Protección de datos (ADR 0008): aceptado, no implementado
+
+El ADR 0008 (detector `DataGuard`, política `DataPolicy` con enmascarado reversible, clasificación de datos y
+enrutamiento a modelos aprobados, auditoría, telemetría de producto, acceso de soporte excepcional y retención de
+conversaciones) está **aceptado pero no implementado**: no existen esos modelos en `schema.prisma` ni código en la API.
+Hoy los mensajes y resultados de herramientas llegan al modelo sin enmascarar.
 
 ## Evolución sugerida
 
-- Proveedor Bedrock y notificaciones de alertas por correo/Slack.
-- Nodos `loop`/`map` para iterar listas y sub-flujos.
-- Agentes como herramientas de otros agentes (multi-agente).
-- Versionado y despliegue por entornos (dev/qa/prod) de flujos.
-- Base de conocimiento (RAG) con pgvector.
-- Observabilidad con OpenTelemetry y métricas de costo por agente.
-- SSO (SAML/OIDC) y auditoría.
+Priorizada por valor de negocio y riesgo:
+
+1. **Implementar ADR 0008** (protección de datos hacia los modelos, auditoría y retención de conversaciones): mayor
+   riesgo legal y comercial abierto.
+2. **SSO (SAML/OIDC) y auditoría** general de acciones administrativas (hoy solo queda registrado el override de lanzamiento).
+3. **Notificación de alertas de presupuesto** por correo/Slack (hoy solo se registran en la consola).
+4. **Observabilidad con OpenTelemetry** (trazas API → cola → worker → proveedor) y métricas de costo por agente exportables.
+5. **Despliegue de flujos por entornos** (dev/qa/prod) sobre el historial de versiones existente.
+6. **Embeddings + pgvector** detrás de la misma interfaz `search()` de conocimiento (hoy full-text de PostgreSQL);
+   ingesta de PDF/Office.
+7. **Agentes como herramientas de otros agentes** (multi-agente).
+8. **Driver Bedrock** y fase 2 de ADR 0005 (Oracle, actualizaciones automáticas del Edge) y de ADR 0007 (visibilidad `EXTERNAL`).
