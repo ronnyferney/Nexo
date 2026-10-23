@@ -25,6 +25,8 @@ export interface NexoPilotStackProps extends cdk.StackProps {
    * Sin versión se construyen las imágenes desde el código local (solo para pruebas).
    */
   imageTag?: string;
+  /** Correos de los administradores de la plataforma Nexo (consola de plataforma, ADR 0006 D6), separados por coma. */
+  platformAdminEmails?: string;
 }
 
 const ROOT = path.join(__dirname, '..', '..');
@@ -175,6 +177,10 @@ export class NexoPilotStack extends cdk.Stack {
       CONNECTOR_ALLOW_PRIVATE_NETWORKS: 'false',
       EXECUTIONS_RETENTION_DAYS: '30',
       WORKER_CONCURRENCY: '10',
+      COPILOT_PROVIDER: 'anthropic',
+      COPILOT_MODEL: 'claude-opus-5-5',
+      COPILOT_MONTHLY_QUOTA_USD: '2',
+      PLATFORM_ADMIN_EMAILS: props.platformAdminEmails ?? '',
     };
     const apiSecrets: Record<string, ecs.Secret> = {
       DB_USER: ecs.Secret.fromSecretsManager(db.secret!, 'username'),
