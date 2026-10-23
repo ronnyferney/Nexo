@@ -138,4 +138,74 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
       edges: [edge('trigger', 'resumen'), edge('resumen', 'respuesta')],
     },
   },
+  {
+    id: 'lead-commercial',
+    name: 'Lead entrante → enriquecer → calificar con IA → crear en CRM → notificar',
+    description:
+      'Recibe un lead por webhook, lo enriquece (p. ej. Lusha), un agente lo califica con BANT y, si el puntaje es ≥ 70, lo crea en el CRM y avisa al equipo.',
+    icon: 'target',
+    todo: [
+      'Elegir la operación de enriquecimiento en «Enriquecer lead» (p. ej. Lusha)',
+      'Elegir el agente calificador (sugerido: con la skill «Calificación BANT»)',
+      'Elegir la operación del CRM en «Crear en CRM» y la de mensajería en «Notificar al equipo»',
+      'Activar el flujo para habilitar el webhook',
+    ],
+    definition: {
+      nodes: [
+        node('trigger', 'trigger', 'Lead entrante', 80, 220),
+        node('enriquecer', 'connector', 'Enriquecer lead', 340, 220, {
+          operationId: '',
+          input: { email: '{{ input.email }}', empresa: '{{ input.empresa }}' },
+          retries: 1,
+          onError: 'continue',
+        }),
+        node('calificar', 'agent', 'Calificar con IA (BANT)', 600, 220, {
+          agentId: '',
+          message:
+            'Califica este lead con el método BANT (presupuesto, autoridad, necesidad, tiempo). Responde solo JSON con la forma ' +
+            '{"score": 0-100, "presupuesto": "...", "autoridad": "...", "necesidad": "...", "tiempo": "...", "resumen": "..."}.\n\n' +
+            'Lead: {{ input | json }}\n\nDatos de enriquecimiento: {{ nodes.enriquecer.output.data | json }}',
+          parseJson: true,
+        }),
+        node('calificado', 'condition', '¿Score ≥ 70?', 860, 220, {
+          combinator: 'and',
+          rules: [{ left: '{{ nodes.calificar.output.json.score }}', operator: 'gte', right: 70 }],
+        }),
+        node('crm', 'connector', 'Crear en CRM', 1120, 120, {
+          operationId: '',
+          input: {
+            nombre: '{{ input.nombre }}',
+            email: '{{ input.email }}',
+            empresa: '{{ input.empresa }}',
+            score: '{{ nodes.calificar.output.json.score }}',
+            notas: '{{ nodes.calificar.output.json.resumen }}',
+          },
+          retries: 2,
+        }),
+        node('notificar', 'connector', 'Notificar al equipo', 1380, 120, {
+          operationId: '',
+          input: {
+            texto: 'Nuevo lead calificado: {{ input.nombre }} ({{ input.empresa }}) · score {{ nodes.calificar.output.json.score }}',
+          },
+          retries: 2,
+        }),
+        node('nutricion', 'transform', 'Lead en nutrición', 1120, 320, {
+          output: { estado: 'nutricion', score: '{{ nodes.calificar.output.json.score }}', motivo: '{{ nodes.calificar.output.json.resumen }}' },
+        }),
+        node('respuesta', 'output', 'Respuesta', 1640, 220, {
+          output: { recibido: true, score: '{{ nodes.calificar.output.json.score }}', bant: '{{ nodes.calificar.output.json }}' },
+        }),
+      ],
+      edges: [
+        edge('trigger', 'enriquecer'),
+        edge('enriquecer', 'calificar'),
+        edge('calificar', 'calificado'),
+        edge('calificado', 'crm', 'true'),
+        edge('crm', 'notificar'),
+        edge('notificar', 'respuesta'),
+        edge('calificado', 'nutricion', 'false'),
+        edge('nutricion', 'respuesta'),
+      ],
+    },
+  },
 ];

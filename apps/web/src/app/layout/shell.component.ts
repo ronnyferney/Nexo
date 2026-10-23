@@ -87,6 +87,7 @@ export class ShellComponent implements OnInit {
     { path: '/supervision', label: 'Supervisión', icon: 'inbox', exact: false },
     { path: '/workflows', label: 'Flujos', icon: 'flow', exact: false },
     { path: '/executions', label: 'Ejecuciones', icon: 'history', exact: false },
+    { path: '/integrations', label: 'Integraciones', icon: 'puzzle', exact: false },
     { path: '/connectors', label: 'Conectores', icon: 'plug', exact: false },
     { path: '/my-usage', label: 'Mi consumo', icon: 'wallet', exact: false },
   ];
@@ -96,6 +97,7 @@ export class ShellComponent implements OnInit {
     { path: '/admin/organization', label: 'Organización', icon: 'building', exact: false },
     { path: '/admin/budgets', label: 'Presupuestos', icon: 'wallet', exact: false },
     { path: '/admin/alerts', label: 'Alertas', icon: 'bell', exact: false },
+    { path: '/admin/edges', label: 'Nexo Edge', icon: 'server', exact: false },
     { path: '/admin/security', label: 'Seguridad', icon: 'shield', exact: false },
   ];
 

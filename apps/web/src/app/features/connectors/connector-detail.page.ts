@@ -1,6 +1,6 @@
-import { ChangeDetectionStrategy, Component, inject, input, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import type { Connector, Operation } from '../../core/models';
@@ -9,12 +9,31 @@ import { IconComponent } from '../../shared/icon.component';
 import { JsonEditorComponent } from '../../shared/json-editor.component';
 import { TemplateRefPipe } from '../../shared/template-ref.pipe';
 import { AUTH_TYPES, DEFAULT_DEFINITION, DEFAULT_SCHEMA } from './connector-presets';
+import { ConnectorOAuthComponent } from './connector-oauth.component';
+import { DatabaseConfigComponent } from './database-config.component';
+import { QueryResultTableComponent } from './query-result-table.component';
+import { SchemaExplorerComponent } from './schema-explorer.component';
+import { SqlOperationEditorComponent } from './sql-operation-editor.component';
+import { asSqlResult, detectSqlParams } from './sql-params';
+
+type InvokeResult = { ok: boolean; status?: number; data: unknown; durationMs: number };
 
 type OpDraft = Partial<Operation> & { isNew?: boolean };
 
 @Component({
   selector: 'nx-connector-detail',
-  imports: [FormsModule, RouterLink, IconComponent, JsonEditorComponent, TemplateRefPipe],
+  imports: [
+    FormsModule,
+    RouterLink,
+    IconComponent,
+    JsonEditorComponent,
+    TemplateRefPipe,
+    ConnectorOAuthComponent,
+    DatabaseConfigComponent,
+    SchemaExplorerComponent,
+    SqlOperationEditorComponent,
+    QueryResultTableComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './connector-detail.page.html',
   styles: `
@@ -24,23 +43,31 @@ type OpDraft = Partial<Operation> & { isNew?: boolean };
     .op-item.active { border-color: var(--primary); background: var(--primary-50); }
     .op-item code { color: var(--muted); font-size: 11.5px; }
     .result { margin-top: 8px; }
+    .oauth { display: block; margin-bottom: 16px; }
     @media (max-width: 900px) { .ops { grid-template-columns: 1fr; } }
   `,
 })
 export class ConnectorDetailPage implements OnInit {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly toast = inject(ToastService);
   protected readonly auth = inject(AuthService);
   readonly id = input.required<string>();
+  /** Resultado del consentimiento OAuth2 al volver del proveedor: `?oauth=ok|error` (ADR 0005 D3). */
+  readonly oauth = input<string>();
+  readonly oauthMessage = input<string>(undefined, { alias: 'message' });
   readonly authTypes = AUTH_TYPES;
 
   readonly connector = signal<Connector | null>(null);
-  readonly tab = signal<'config' | 'operations'>('config');
+  readonly loadError = signal<string | null>(null);
+  readonly tab = signal<'config' | 'schema' | 'operations'>('config');
   readonly busy = signal<string | null>(null);
   readonly testResult = signal<{ ok: boolean; message: string } | null>(null);
   readonly selected = signal<OpDraft | null>(null);
-  readonly invokeResult = signal<unknown>(null);
+  readonly invokeResult = signal<InvokeResult | null>(null);
+  readonly isOAuth = computed(() => this.connector()?.auth?.['type'] === 'oauth2_code');
+  readonly sqlResult = computed(() => (this.connector()?.type === 'DATABASE' ? asSqlResult(this.invokeResult()?.data) : null));
 
   name = '';
   description = '';
@@ -50,11 +77,28 @@ export class ConnectorDetailPage implements OnInit {
   invokeInput: unknown = {};
 
   async ngOnInit() {
+    this.handleOAuthReturn();
     await this.load();
   }
 
+  private handleOAuthReturn() {
+    const result = this.oauth();
+    if (!result) return;
+    if (result === 'ok') this.toast.success('Cuenta conectada correctamente');
+    else this.toast.error(this.oauthMessage() ? `No se pudo conectar la cuenta: ${this.oauthMessage()}` : 'No se pudo conectar la cuenta. Intente de nuevo.');
+    void this.router.navigate([], { relativeTo: this.route, queryParams: { oauth: null, message: null }, queryParamsHandling: 'merge', replaceUrl: true });
+  }
+
   async load() {
-    const c = await this.api.connector(this.id());
+    this.loadError.set(null);
+    let c: Connector;
+    try {
+      c = await this.api.connector(this.id());
+    } catch (e) {
+      if (!this.connector()) this.loadError.set(errorMessage(e));
+      else this.toast.error(errorMessage(e));
+      return;
+    }
     this.connector.set(c);
     this.name = c.name;
     this.description = c.description ?? '';
@@ -70,7 +114,7 @@ export class ConnectorDetailPage implements OnInit {
       await this.api.updateConnector(this.id(), {
         name: this.name,
         description: this.description || undefined,
-        config: { ...this.config, headers: this.headers },
+        config: this.connector()?.type === 'DATABASE' ? this.config : { ...this.config, headers: this.headers },
         auth: this.authCfg,
       });
       this.toast.success('Conector guardado');
@@ -98,6 +142,19 @@ export class ConnectorDetailPage implements OnInit {
     await this.router.navigate(['/connectors']);
   }
 
+  onQueriesCreated() {
+    void this.load().then(() => this.tab.set('operations'));
+  }
+
+  scopesText() {
+    const s = this.authCfg['scopes'];
+    return Array.isArray(s) ? s.join(' ') : (s ?? '');
+  }
+
+  setScopes(text: string) {
+    this.authCfg = { ...this.authCfg, scopes: text.split(/\s+/).filter(Boolean) };
+  }
+
   setAuthType(type: string) {
     this.authCfg = { type, ...(type === 'apiKey' ? { in: 'header', name: 'x-api-key', value: '{{ secrets.API_KEY }}' } : {}) };
   }
@@ -110,7 +167,10 @@ export class ConnectorDetailPage implements OnInit {
 
   selectOperation(op: Operation) {
     this.invokeResult.set(null);
-    this.invokeInput = {};
+    this.invokeInput =
+      this.connector()?.type === 'DATABASE'
+        ? Object.fromEntries(detectSqlParams(String(op.definition?.['sql'] ?? '')).map((p) => [p, '']))
+        : {};
     this.selected.set({ ...op });
   }
 

@@ -1,4 +1,4 @@
-export type ConnectorType = 'REST' | 'SOAP' | 'GRAPHQL' | 'MCP';
+export type ConnectorType = 'REST' | 'SOAP' | 'GRAPHQL' | 'MCP' | 'DATABASE';
 export type ExecutionStatus = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
@@ -35,6 +35,8 @@ export interface Connector {
   config: Record<string, unknown>;
   auth: Record<string, unknown>;
   operations?: Operation[];
+  /** Definición del catálogo de la que se instaló (ADR 0005 D2). */
+  catalogId?: string | null;
   _count?: { operations: number };
   updatedAt: string;
 }

@@ -1,38 +1,57 @@
+@if (loadError()) {
+  <div class="page"><div class="card empty" role="alert"><nx-icon name="alert" [size]="32" /><h3>No se pudo cargar el conector</h3><p>{{ loadError() }}</p>
+    <div class="row" style="justify-content:center"><a class="btn" routerLink="/connectors">Volver a conectores</a><button class="btn" (click)="load()"><nx-icon name="refresh" />Reintentar</button></div></div></div>
+} @else if (!connector()) {
+  <div class="page"><p class="muted" role="status">Cargando conector…</p></div>
+}
 @if (connector(); as c) {
   <div class="page">
     <div class="page-header">
       <div class="row">
-        <a class="btn ghost icon" routerLink="/connectors"><nx-icon name="arrowLeft" /></a>
-        <div class="icon-tile {{ c.type }}"><nx-icon name="plug" /></div>
-        <div><h1>{{ c.name }}</h1><p><span class="badge">{{ c.type }}</span> · {{ c.operations?.length ?? 0 }} operaciones</p></div>
+        <a class="btn ghost icon" routerLink="/connectors" title="Volver a conectores" aria-label="Volver a conectores"><nx-icon name="arrowLeft" /></a>
+        <div class="icon-tile {{ c.type }}"><nx-icon [name]="c.type === 'DATABASE' ? 'database' : 'plug'" /></div>
+        <div><h1>{{ c.name }}</h1><p class="row wrap" style="gap:6px"><span class="badge">{{ c.type }}</span>
+          @if (c.catalogId) { <a class="badge primary" routerLink="/integrations" title="Instalado desde el catálogo de integraciones"><nx-icon name="puzzle" [size]="12" />Del catálogo</a> }
+          <span>{{ c.operations?.length ?? 0 }} operaciones</span></p></div>
       </div>
-      <div class="row">
+      <div class="row wrap">
         <button class="btn" [disabled]="busy()" (click)="test()"><nx-icon name="zap" />{{ busy() === 'test' ? 'Probando…' : 'Probar conexión' }}</button>
-        @if (c.type !== 'GRAPHQL' && auth.canEdit()) {
+        @if (c.type === 'DATABASE') {
+          <button class="btn" (click)="tab.set('schema')"><nx-icon name="table" />Explorar esquema</button>
+        } @else if (c.type !== 'GRAPHQL' && auth.canEdit()) {
           <button class="btn" [disabled]="busy()" (click)="discover()"><nx-icon name="search" />{{ busy() === 'discover' ? 'Importando…' : discoverLabel(c.type) }}</button>
         }
-        @if (auth.canEdit()) { <button class="btn danger icon" title="Eliminar" (click)="remove()"><nx-icon name="trash" /></button> }
+        @if (auth.canEdit()) { <button class="btn danger icon" title="Eliminar conector" aria-label="Eliminar conector" (click)="remove()"><nx-icon name="trash" /></button> }
       </div>
     </div>
 
     @if (testResult(); as t) {
-      <div class="card" style="margin-bottom:16px" [style.border-color]="t.ok ? 'var(--success)' : 'var(--danger)'">
+      <div class="card" role="status" style="margin-bottom:16px" [style.border-color]="t.ok ? 'var(--success)' : 'var(--danger)'">
         <span class="badge" [class.success]="t.ok" [class.danger]="!t.ok">{{ t.ok ? 'Conexión exitosa' : 'Falló la conexión' }}</span>
         <span style="margin-left:8px">{{ t.message }}</span>
       </div>
     }
 
-    <div class="tabs">
-      <button class="tab" [class.active]="tab() === 'config'" (click)="tab.set('config')">Configuración</button>
-      <button class="tab" [class.active]="tab() === 'operations'" (click)="tab.set('operations')">Operaciones ({{ c.operations?.length ?? 0 }})</button>
+    @if (isOAuth()) { <nx-connector-oauth class="oauth" [connectorId]="c.id" /> }
+
+    <div class="tabs scroll" role="tablist">
+      <button class="tab" role="tab" [attr.aria-selected]="tab() === 'config'" [class.active]="tab() === 'config'" (click)="tab.set('config')">Configuración</button>
+      @if (c.type === 'DATABASE') {
+        <button class="tab" role="tab" [attr.aria-selected]="tab() === 'schema'" [class.active]="tab() === 'schema'" (click)="tab.set('schema')">Esquema</button>
+      }
+      <button class="tab" role="tab" [attr.aria-selected]="tab() === 'operations'" [class.active]="tab() === 'operations'" (click)="tab.set('operations')">Operaciones ({{ c.operations?.length ?? 0 }})</button>
     </div>
+
+    @if (tab() === 'schema' && c.type === 'DATABASE') {
+      <nx-schema-explorer [connectorId]="c.id" (created)="onQueriesCreated()" />
+    }
 
     @if (tab() === 'config') {
       <div class="grid grid-2">
         <div class="card stack">
           <h2>General</h2>
-          <div class="field"><label>Nombre</label><input class="input" [(ngModel)]="name" /></div>
-          <div class="field"><label>Descripción</label><textarea class="input" rows="2" [(ngModel)]="description"></textarea></div>
+          <div class="field"><label for="cd-name">Nombre</label><input id="cd-name" class="input" [(ngModel)]="name" /></div>
+          <div class="field"><label for="cd-desc">Descripción</label><textarea id="cd-desc" class="input" rows="2" [(ngModel)]="description"></textarea></div>
 
           @switch (c.type) {
             @case ('REST') {
@@ -58,8 +77,17 @@
               <div class="field"><label>URL del servidor MCP</label><input class="input mono" [(ngModel)]="config['url']" placeholder="https://mcp.ejemplo.com/mcp" /></div>
             }
           }
-          <div class="field"><label>Headers adicionales (JSON)</label><nx-json-editor [(value)]="headers" [rows]="4" /></div>
+          @if (c.type !== 'DATABASE') {
+            <div class="field"><label>Headers adicionales (JSON)</label><nx-json-editor [(value)]="headers" [rows]="4" /></div>
+          }
         </div>
+
+        @if (c.type === 'DATABASE') {
+          <div class="card stack">
+            <h2><nx-icon name="database" [size]="16" /> Conexión a la base de datos</h2>
+            <nx-database-config [config]="$any(config)" (configChange)="config = $event" [connectorName]="c.name" />
+          </div>
+        } @else {
 
         <div class="card stack">
           <h2><nx-icon name="lock" [size]="16" /> Autenticación</h2>
@@ -88,6 +116,17 @@
               </div>
               <div class="field"><label>Scope</label><input class="input mono" [(ngModel)]="authCfg['scope']" /></div>
             }
+            @case ('oauth2_code') {
+              <div class="field"><label for="oa-auth">URL de autorización</label><input id="oa-auth" class="input mono" [(ngModel)]="authCfg['authorizeUrl']" placeholder="https://proveedor.com/oauth/authorize" /></div>
+              <div class="field"><label for="oa-token">Token URL</label><input id="oa-token" class="input mono" [(ngModel)]="authCfg['tokenUrl']" /></div>
+              <div class="field"><label for="oa-scopes">Permisos (scopes, separados por espacio)</label><input id="oa-scopes" class="input mono" [ngModel]="scopesText()" (ngModelChange)="setScopes($event)" /></div>
+              <div class="grid grid-2">
+                <div class="field"><label for="oa-cid">Client ID (opcional)</label><input id="oa-cid" class="input mono" [(ngModel)]="authCfg['clientId']" /></div>
+                <div class="field"><label for="oa-csec">Client secret (opcional)</label><input id="oa-csec" class="input mono" [(ngModel)]="authCfg['clientSecret']" [placeholder]="'secrets.CLIENT_SECRET' | tpl" /></div>
+              </div>
+              <span class="hint small muted">Déjelos vacíos para usar la app OAuth de la plataforma; complételos (con secretos) si su empresa exige su propia app.
+                Tras guardar, use «Conectar cuenta» arriba.</span>
+            }
           }
           <div class="card" style="background:var(--surface-2); box-shadow:none">
             <div class="small"><strong>Buenas prácticas:</strong> no escriba credenciales en claro. Guárdelas en
@@ -95,6 +134,7 @@
               Se cifran con AES-256-GCM y solo se descifran al ejecutar.</div>
           </div>
         </div>
+        }
       </div>
       @if (auth.canEdit()) {
         <div class="row" style="margin-top:16px"><span class="spacer"></span>
@@ -126,11 +166,18 @@
               </div>
               <div class="field"><label>Descripción (la lee el agente para decidir cuándo usarla)</label>
                 <textarea class="input" rows="2" [ngModel]="op.description" (ngModelChange)="patchSelected({ description: $event })"></textarea></div>
-              <div class="grid grid-2">
-                <div class="field"><label>Definición ({{ c.type }})</label><nx-json-editor [value]="op.definition" (valueChange)="patchSelected({ definition: $any($event) })" [rows]="10" />
-                  <span class="hint">Use <code>{{ 'input.campo' | tpl }}</code> para mapear la entrada.</span></div>
-                <div class="field"><label>JSON Schema de entrada</label><nx-json-editor [value]="op.inputSchema" (valueChange)="patchSelected({ inputSchema: $any($event) })" [rows]="10" /></div>
-              </div>
+              @if (c.type === 'DATABASE') {
+                <nx-sql-operation-editor [definition]="op.definition ?? {}" (definitionChange)="patchSelected({ definition: $event })"
+                  [inputSchema]="op.inputSchema ?? {}" (inputSchemaChange)="patchSelected({ inputSchema: $event })"
+                  [autoSchema]="!!op.isNew" [allowWrites]="!!c.config['allowWrites']" />
+                <div class="field"><label>JSON Schema de entrada (propuesto desde los parámetros)</label><nx-json-editor [value]="op.inputSchema" (valueChange)="patchSelected({ inputSchema: $any($event) })" [rows]="8" /></div>
+              } @else {
+                <div class="grid grid-2">
+                  <div class="field"><label>Definición ({{ c.type }})</label><nx-json-editor [value]="op.definition" (valueChange)="patchSelected({ definition: $any($event) })" [rows]="10" />
+                    <span class="hint">Use <code>{{ 'input.campo' | tpl }}</code> para mapear la entrada.</span></div>
+                  <div class="field"><label>JSON Schema de entrada</label><nx-json-editor [value]="op.inputSchema" (valueChange)="patchSelected({ inputSchema: $any($event) })" [rows]="10" /></div>
+                </div>
+              }
               @if (auth.canEdit()) {
                 <div class="row"><span class="spacer"></span><button class="btn primary" [disabled]="busy() || !op.key || !op.name" (click)="saveOperation()"><nx-icon name="save" />Guardar operación</button></div>
               }
@@ -141,7 +188,15 @@
                 <h3><nx-icon name="play" [size]="15" /> Probar operación</h3>
                 <nx-json-editor [(value)]="invokeInput" [rows]="5" placeholder='{ "id": "123" }' />
                 <div class="row"><span class="spacer"></span><button class="btn" [disabled]="busy()" (click)="invoke()">{{ busy() === 'invoke' ? 'Ejecutando…' : 'Ejecutar' }}</button></div>
-                @if (invokeResult()) { <pre class="code-block result">{{ json(invokeResult()) }}</pre> }
+                @if (invokeResult(); as r) {
+                  @if (sqlResult(); as sr) {
+                    <div class="result stack">
+                      @if (!r.ok) { <span class="badge danger">Error{{ r.status ? ' ' + r.status : '' }}</span> }
+                      <nx-query-result-table [result]="sr" [durationMs]="r.durationMs" />
+                      <details><summary class="small muted">Ver respuesta JSON</summary><pre class="code-block">{{ json(r) }}</pre></details>
+                    </div>
+                  } @else { <pre class="code-block result">{{ json(r) }}</pre> }
+                }
               </div>
             }
           </div>
