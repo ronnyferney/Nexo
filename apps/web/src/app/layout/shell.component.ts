@@ -81,6 +81,9 @@ export class ShellComponent implements OnInit {
   protected readonly portalNav = [
     { path: '/', label: 'Inicio', icon: 'dashboard', exact: true },
     { path: '/agents', label: 'Agentes', icon: 'bot', exact: false },
+    { path: '/skills', label: 'Skills', icon: 'sparkles', exact: false },
+    { path: '/knowledge', label: 'Conocimiento', icon: 'book', exact: false },
+    { path: '/routines', label: 'Rutinas', icon: 'calendar', exact: false },
     { path: '/workflows', label: 'Flujos', icon: 'flow', exact: false },
     { path: '/executions', label: 'Ejecuciones', icon: 'history', exact: false },
     { path: '/connectors', label: 'Conectores', icon: 'plug', exact: false },

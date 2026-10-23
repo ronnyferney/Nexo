@@ -1,0 +1,148 @@
+@if (loading() && !kb()) {
+  <div class="page"><div class="card empty"><p>Cargando base de conocimiento…</p></div></div>
+} @else if (error() && !kb()) {
+  <div class="page">
+    <div class="card empty"><nx-icon name="alert" [size]="28" /><h3>No se pudo cargar la base</h3><p>{{ error() }}</p>
+      <div class="row" style="justify-content:center"><a class="btn" routerLink="/knowledge">Volver</a><button class="btn primary" (click)="load()">Reintentar</button></div></div>
+  </div>
+}
+@if (kb(); as k) {
+  <div class="page">
+    <div class="page-header">
+      <div class="row head-info">
+        <a class="btn ghost icon" routerLink="/knowledge" title="Volver a conocimiento" aria-label="Volver a conocimiento"><nx-icon name="arrowLeft" /></a>
+        <div class="icon-tile"><nx-icon name="book" /></div>
+        <div class="who"><h1>{{ k.name }}</h1>
+          <p>{{ k.documentCount | num }} documentos · {{ k.chunkCount | num }} fragmentos · usada en {{ k.agentCount }} {{ k.agentCount === 1 ? 'agente' : 'agentes' }}</p></div>
+      </div>
+      @if (auth.canEdit()) {
+        <div class="row">
+          <button class="btn" (click)="editMeta()"><nx-icon name="pencil" [size]="15" />Editar</button>
+          <button class="btn danger icon" title="Eliminar base" aria-label="Eliminar base" (click)="removeBase()"><nx-icon name="trash" /></button>
+        </div>
+      }
+    </div>
+
+    @if (editingMeta()) {
+      <form class="card editor stack mb" (ngSubmit)="saveMeta()">
+        <div class="grid grid-2">
+          <div class="field"><label for="kb-name">Nombre</label><input id="kb-name" class="input" name="name" required [(ngModel)]="meta.name" /></div>
+          <div class="field"><label for="kb-desc">Descripción</label><input id="kb-desc" class="input" name="description" [(ngModel)]="meta.description" /></div>
+        </div>
+        <div class="row"><span class="spacer"></span>
+          <button type="button" class="btn" (click)="editingMeta.set(false)">Cancelar</button>
+          <button type="submit" class="btn primary" [disabled]="meta.name.trim().length < 2">Guardar</button></div>
+      </form>
+    } @else if (k.description) {
+      <p class="muted desc">{{ k.description }}</p>
+    }
+
+    <div class="kb-layout">
+      <div class="stack">
+        @if (auth.canEdit()) {
+          <div class="card stack">
+            <div class="row wrap"><nx-icon name="plus" [size]="16" /><h2>Agregar documento</h2><span class="spacer"></span>
+              <div class="segmented" role="tablist" aria-label="Origen del documento">
+                <button type="button" role="tab" [class.active]="mode() === 'text'" [attr.aria-selected]="mode() === 'text'" (click)="mode.set('text')"><nx-icon name="pencil" [size]="14" />Texto</button>
+                <button type="button" role="tab" [class.active]="mode() === 'url'" [attr.aria-selected]="mode() === 'url'" (click)="mode.set('url')"><nx-icon name="link" [size]="14" />URL</button>
+                <button type="button" role="tab" [class.active]="mode() === 'file'" [attr.aria-selected]="mode() === 'file'" (click)="mode.set('file')"><nx-icon name="upload" [size]="14" />Archivo</button>
+              </div>
+            </div>
+            <form class="stack" (ngSubmit)="addDocument()">
+              <div class="field"><label for="doc-title">Título{{ mode() === 'text' ? '' : ' (opcional)' }}</label>
+                <input id="doc-title" class="input" name="title" [(ngModel)]="draft.title" [placeholder]="mode() === 'text' ? 'Ej. Política de devoluciones' : 'Se toma del documento si se deja vacío'" /></div>
+              @switch (mode()) {
+                @case ('text') {
+                  <div class="field"><label for="doc-text">Contenido</label>
+                    <textarea id="doc-text" class="input" name="text" rows="10" [(ngModel)]="draft.text" placeholder="Pegue aquí el texto…"></textarea>
+                    <span class="char-count">{{ draft.text.length | num }} caracteres</span></div>
+                }
+                @case ('url') {
+                  <div class="field"><label for="doc-url">URL de la página</label>
+                    <input id="doc-url" class="input" name="url" type="url" [(ngModel)]="draft.url" placeholder="https://www.ejemplo.com/preguntas-frecuentes" />
+                    <span class="hint">Se descarga la página y se convierte de HTML a texto.</span></div>
+                }
+                @case ('file') {
+                  <div class="field"><label for="doc-file">Archivo</label>
+                    <label class="drop" for="doc-file">
+                      <nx-icon name="upload" [size]="22" />
+                      @if (file(); as f) { <strong>{{ f.name }}</strong><span class="muted small">{{ (f.size / 1024) | num: 1 }} KB</span> }
+                      @else { <strong>Elegir archivo</strong><span class="muted small">{{ extensions }} · máx. {{ maxMb }} MB</span> }
+                    </label>
+                    <input #fileInput id="doc-file" class="sr-only" type="file" [accept]="accept" (change)="onFile(fileInput)" />
+                    @if (fileError()) { <span class="error-text" role="alert">{{ fileError() }}</span> }</div>
+                }
+              }
+              <div class="row"><span class="spacer"></span>
+                <button type="submit" class="btn primary" [disabled]="adding() || !canAdd()"><nx-icon name="plus" [size]="15" />{{ adding() ? 'Procesando…' : 'Agregar documento' }}</button></div>
+            </form>
+          </div>
+        }
+
+        <div class="card">
+          <div class="card-title"><nx-icon name="file" [size]="16" /><h2>Documentos</h2><span class="badge">{{ docs().length }}</span></div>
+          @if (docsError()) { <div class="callout danger mb"><nx-icon name="alert" [size]="16" /><span>{{ docsError() }}</span></div> }
+          @if (docs().length) {
+            <div class="table-wrap">
+              <table class="table">
+                <thead><tr><th>Documento</th><th>Origen</th><th>Estado</th><th class="num">Fragmentos</th><th class="num">Caracteres</th><th>Agregado</th>@if (auth.canEdit()) { <th><span class="sr-only">Acciones</span></th> }</tr></thead>
+                <tbody>
+                  @for (d of docs(); track d.id) {
+                    <tr>
+                      <td class="doc-title"><strong>{{ d.title }}</strong>
+                        @if (d.source) {
+                          @if (isLink(d.source)) { <a class="small block src" [href]="d.source" target="_blank" rel="noopener noreferrer">{{ d.source }}</a> }
+                          @else { <span class="small muted block src">{{ d.source }}</span> }
+                        }</td>
+                      <td class="nowrap"><span class="badge"><nx-icon [name]="sourceIcons[d.sourceType]" [size]="12" />{{ sourceLabels[d.sourceType] }}</span></td>
+                      <td>
+                        @if (d.status === 'READY') { <span class="badge success"><span class="dot"></span>Listo</span> }
+                        @else { <span class="badge danger"><span class="dot"></span>Falló</span>
+                          @if (d.error) { <span class="error-text block">{{ d.error }}</span> } }
+                      </td>
+                      <td class="num">{{ d.chunkCount | num }}</td>
+                      <td class="num">{{ d.charCount | num }}</td>
+                      <td class="small muted">{{ d.createdAt | ago }}</td>
+                      @if (auth.canEdit()) {
+                        <td><button class="btn ghost icon sm danger" title="Eliminar documento" [attr.aria-label]="'Eliminar ' + d.title" (click)="removeDocument(d)"><nx-icon name="trash" [size]="15" /></button></td>
+                      }
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          } @else {
+            <div class="empty"><nx-icon name="file" [size]="30" /><h3>Sin documentos</h3><p>Agregue texto, una URL o un archivo para empezar.</p></div>
+          }
+        </div>
+      </div>
+
+      <div class="card stack search">
+        <div class="row"><nx-icon name="search" [size]="16" /><h2>Probar búsqueda</h2></div>
+        <p class="muted small m0">Así encuentra el agente la información con <code>search_knowledge</code> (búsqueda de texto completo en español).</p>
+        <form class="row search-form" (ngSubmit)="search()">
+          <label class="sr-only" for="kb-q">Consulta</label>
+          <input id="kb-q" class="input" name="q" [(ngModel)]="query" placeholder="¿Cuál es el plazo de devolución?" />
+          <label class="sr-only" for="kb-limit">Resultados</label>
+          <select id="kb-limit" class="input limit" name="limit" [(ngModel)]="limit" title="Número de resultados">
+            <option [ngValue]="3">3</option><option [ngValue]="5">5</option><option [ngValue]="10">10</option>
+          </select>
+          <button type="submit" class="btn primary" [disabled]="searching() || !query.trim()"><nx-icon name="search" [size]="15" />{{ searching() ? 'Buscando…' : 'Buscar' }}</button>
+        </form>
+        @if (searchError()) {
+          <div class="callout danger"><nx-icon name="alert" [size]="16" /><span>{{ searchError() }}</span></div>
+        } @else if (hits(); as hs) {
+          @for (h of hs; track $index; let i = $index) {
+            <div class="hit">
+              <div class="row small"><span class="rank">{{ i + 1 }}</span><strong class="grow">{{ h.title }}</strong>
+                <span class="score" [title]="'Puntaje ' + h.score"><span class="bar"><span [style.width.%]="scoreWidth(h.score)"></span></span>{{ h.score | num: 3 }}</span></div>
+              <p class="small content">{{ h.content }}</p>
+            </div>
+          } @empty {
+            <p class="muted small">Sin resultados. Pruebe con otras palabras clave.</p>
+          }
+        }
+      </div>
+    </div>
+  </div>
+}

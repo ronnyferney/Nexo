@@ -4,6 +4,7 @@ import { Router, RouterLink } from '@angular/router';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import type { Workflow } from '../../core/models';
+import { WORKFLOW_TEMPLATES, type WorkflowTemplate } from './templates';
 import { ToastService } from '../../core/toast.service';
 import { IconComponent } from '../../shared/icon.component';
 import { RelativeTimePipe } from '../../shared/relative-time.pipe';
@@ -20,9 +21,30 @@ import { RelativeTimePipe } from '../../shared/relative-time.pipe';
           <div class="row">
             <input class="input" style="width:260px" placeholder="Nombre del nuevo flujo" [(ngModel)]="name" (keyup.enter)="create()" />
             <button class="btn primary" [disabled]="name.trim().length < 2" (click)="create()"><nx-icon name="plus" />Crear flujo</button>
+            <button class="btn" [attr.aria-expanded]="showTemplates()" aria-controls="wf-templates" (click)="showTemplates.set(!showTemplates())">
+              <nx-icon name="template" />Desde plantilla</button>
           </div>
         }
       </div>
+      @if (showTemplates()) {
+        <section id="wf-templates" class="card stack wf-templates" aria-label="Plantillas de flujos">
+          <div class="row"><h2>Plantillas</h2><span class="spacer"></span>
+            <button class="btn ghost icon sm" aria-label="Cerrar plantillas" (click)="showTemplates.set(false)"><nx-icon name="x" [size]="16" /></button></div>
+          <p class="muted small">Se crea el flujo con los nodos ya conectados. {{ name.trim().length >= 2 ? 'Se usará el nombre «' + name.trim() + '».' : 'Si escribe un nombre arriba, se usará en lugar del de la plantilla.' }}</p>
+          <div class="wf-template-grid">
+            @for (t of templates; track t.id) {
+              <button class="wf-template" [disabled]="creating()" (click)="fromTemplate(t)">
+                <span class="wf-template-head"><nx-icon [name]="t.icon" /><strong>{{ t.name }}</strong></span>
+                <span class="muted small">{{ t.description }}</span>
+                <span class="small wf-template-meta">{{ t.definition.nodes.length }} nodos{{ t.schedule ? ' · cron ' + t.schedule : '' }}</span>
+                @if (t.todo.length) {
+                  <ul class="small wf-template-todo">@for (td of t.todo; track td) { <li>{{ td }}</li> }</ul>
+                }
+              </button>
+            }
+          </div>
+        </section>
+      }
       @if (workflows().length) {
         <div class="card" style="padding:0">
           <table class="table">
@@ -54,6 +76,9 @@ export class WorkflowsListPage implements OnInit {
   protected readonly auth = inject(AuthService);
   readonly workflows = signal<Workflow[]>([]);
   readonly loading = signal(true);
+  readonly showTemplates = signal(false);
+  readonly creating = signal(false);
+  readonly templates = WORKFLOW_TEMPLATES;
   name = '';
 
   async ngOnInit() {
@@ -67,6 +92,24 @@ export class WorkflowsListPage implements OnInit {
       await this.router.navigate(['/workflows', wf.id]);
     } catch (e) {
       this.toast.error(errorMessage(e));
+    }
+  }
+
+  async fromTemplate(t: WorkflowTemplate) {
+    this.creating.set(true);
+    try {
+      const wf = await this.api.createWorkflow({
+        name: this.name.trim().length >= 2 ? this.name.trim() : t.name,
+        description: t.description,
+        definition: structuredClone(t.definition),
+        ...(t.schedule ? { schedule: t.schedule } : {}),
+      });
+      this.toast.success('Flujo creado desde plantilla. Complete los nodos pendientes.');
+      await this.router.navigate(['/workflows', wf.id]);
+    } catch (e) {
+      this.toast.error(errorMessage(e));
+    } finally {
+      this.creating.set(false);
     }
   }
 }

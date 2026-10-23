@@ -1,4 +1,4 @@
-import type { NodeType } from '../../core/models';
+import type { NodeType, WorkflowEdge, WorkflowNode } from '../../core/models';
 
 export interface NodeMeta {
   type: NodeType;
@@ -16,6 +16,8 @@ export const NODE_CATALOG: NodeMeta[] = [
   { type: 'condition', label: 'Condición', description: 'Bifurcar en verdadero / falso', icon: 'branch', color: '#d98a0b', defaults: { combinator: 'and', rules: [{ left: '{{ input.valor }}', operator: 'eq', right: '' }] } },
   { type: 'transform', label: 'Transformar', description: 'Mapear y construir datos', icon: 'shuffle', color: '#12a46b', defaults: { output: { campo: '{{ input.valor }}' } } },
   { type: 'delay', label: 'Espera', description: 'Pausar unos segundos', icon: 'clock', color: '#6b7189', defaults: { ms: 1000 } },
+  { type: 'subworkflow', label: 'Sub-flujo', description: 'Ejecutar otro flujo en línea', icon: 'layers', color: '#0e9aa7', defaults: { workflowId: '', input: { datos: '{{ input }}' } } },
+  { type: 'loop', label: 'Bucle', description: 'Un sub-flujo por elemento de una lista', icon: 'repeat', color: '#c2410c', defaults: { items: '{{ input.items }}', workflowId: '', concurrency: 1 } },
   { type: 'output', label: 'Respuesta', description: 'Salida final del flujo', icon: 'check', color: '#e0435c', defaults: { output: { resultado: '{{ input }}' } } },
 ];
 
@@ -37,3 +39,29 @@ export const OPERATORS = [
 
 export const NODE_W = 220;
 export const NODE_H = 64;
+
+/**
+ * Validación local del grafo (espejo de `workflow.validator.ts` de la API):
+ * exactamente un disparador, conexiones válidas y sin ciclos. Devuelve el primer problema o null.
+ */
+export function validateGraph(nodes: WorkflowNode[], edges: WorkflowEdge[]): string | null {
+  const triggers = nodes.filter((n) => n.type === 'trigger').length;
+  if (triggers === 0) return 'Agregue un nodo disparador';
+  if (triggers > 1) return 'El flujo debe tener un solo disparador';
+  const ids = new Set(nodes.map((n) => n.id));
+  if (ids.size !== nodes.length) return 'Hay nodos con el mismo ID';
+  if (edges.some((e) => !ids.has(e.source) || !ids.has(e.target))) return 'Hay conexiones a nodos inexistentes';
+  const adj = new Map<string, string[]>();
+  for (const e of edges) adj.set(e.source, [...(adj.get(e.source) ?? []), e.target]);
+  const state = new Map<string, 1 | 2>();
+  const visit = (id: string): boolean => {
+    if (state.get(id) === 1) return true;
+    if (state.get(id) === 2) return false;
+    state.set(id, 1);
+    for (const next of adj.get(id) ?? []) if (visit(next)) return true;
+    state.set(id, 2);
+    return false;
+  };
+  if (nodes.some((n) => visit(n.id))) return 'El flujo contiene un ciclo; elimine la conexión que lo cierra';
+  return null;
+}

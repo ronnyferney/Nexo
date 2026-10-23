@@ -192,3 +192,52 @@ textarea.code { font-family: var(--mono); font-size: 12.5px; min-height: 140px; 
 :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .table th.num, .table td.num { text-align: right; }
 .grid > * { min-width: 0; }
+
+/* Constructor de flujos: validación, prueba de nodos, versiones y plantillas (ADR 0003 D6) */
+.wf-invalid { display: inline-flex; align-items: center; gap: 6px; color: var(--danger); max-width: 320px; }
+.wf-test { padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
+.wf-pin { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.wf-pin .checkbox { flex-wrap: wrap; }
+.wf-version-item { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
+.wf-version { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wf-version.current { padding: 8px 10px; border: 1px solid var(--primary); border-radius: 10px; background: var(--primary-50); }
+.wf-version-nodes { list-style: none; margin: 8px 0 4px; padding: 0; display: grid; gap: 4px; }
+.wf-version-nodes li { display: flex; align-items: center; gap: 6px; }
+.wf-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+.wf-templates { margin-bottom: 16px; }
+.wf-template-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+.wf-template { display: flex; flex-direction: column; gap: 6px; text-align: left; padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: inherit; font: inherit; cursor: pointer; }
+.wf-template:hover:not(:disabled) { border-color: var(--primary); background: var(--primary-50); }
+.wf-template:disabled { opacity: 0.6; cursor: progress; }
+.wf-template-head { display: flex; align-items: center; gap: 8px; color: var(--primary); }
+.wf-template-head strong { color: var(--text); }
+.wf-template-meta { color: var(--muted); }
+.wf-template-todo { margin: 0; padding-left: 18px; color: var(--muted); }
+
+/* ===== Estudio de agentes (ADR 0003) ===== */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.tabs.scroll { overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+.tabs.scroll .tab { white-space: nowrap; flex-shrink: 0; }
+.block { display: block; }
+.textarea-mono { font-family: var(--mono); font-size: 12.5px; line-height: 1.55; }
+.char-count { font-size: 11.5px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.char-count.over { color: var(--danger); font-weight: 600; }
+.master-detail { display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 900px) { .master-detail { grid-template-columns: 1fr; } }
+.list-item { display: flex; gap: 10px; align-items: flex-start; width: 100%; text-align: left; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: inherit; font: inherit; cursor: pointer; }
+.list-item:hover { border-color: var(--primary); }
+.list-item.selected { border-color: var(--primary); background: var(--primary-50); }
+.segmented { display: inline-flex; border: 1px solid var(--border); border-radius: 9px; padding: 2px; gap: 2px; background: var(--surface-2); }
+.segmented button { border: 0; background: none; color: var(--muted); font: inherit; font-weight: 550; padding: 5px 12px; border-radius: 7px; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
+.segmented button.active { background: var(--surface); color: var(--primary); box-shadow: var(--shadow); }
+.switch { position: relative; display: inline-flex; width: 36px; height: 20px; flex-shrink: 0; }
+.switch input { opacity: 0; width: 100%; height: 100%; margin: 0; position: absolute; cursor: pointer; z-index: 1; }
+.switch span { position: absolute; inset: 0; border-radius: 999px; background: var(--border); transition: background 0.15s; }
+.switch span::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform 0.15s; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2); }
+.switch input:checked + span { background: var(--success); }
+.switch input:checked + span::after { transform: translateX(16px); }
+.switch input:focus-visible + span { outline: 2px solid var(--primary); outline-offset: 2px; }
+.switch input:disabled { cursor: not-allowed; }
+.switch input:disabled + span { opacity: 0.55; }
+/* Contiene los elementos .sr-only absolutos dentro de tablas con desplazamiento horizontal. */
+.table-wrap { position: relative; }

@@ -11,17 +11,19 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
+import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import type { Agent, Connector, Execution, NodeType, StepLog, Workflow, WorkflowEdge, WorkflowNode } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
+import { type NodeTestResult, WorkflowsApi, type WorkflowVersionInfo } from '../../core/workflows.api';
 import { IconComponent } from '../../shared/icon.component';
 import { JsonEditorComponent } from '../../shared/json-editor.component';
 import { TemplateRefPipe } from '../../shared/template-ref.pipe';
 import { StatusBadgeComponent } from '../../shared/status-badge.component';
-import { NODE_CATALOG, NODE_H, NODE_W, nodeMeta, OPERATORS } from './node-catalog';
+import { NODE_CATALOG, NODE_H, NODE_W, nodeMeta, OPERATORS, validateGraph } from './node-catalog';
 
 type Drag =
   | { kind: 'node'; id: string; dx: number; dy: number }
@@ -30,15 +32,22 @@ type Drag =
 
 const TERMINAL = ['SUCCEEDED', 'FAILED', 'CANCELLED'];
 
+/** Datos fijados de un nodo previo para «Probar este nodo». */
+interface PinnedEntry {
+  on: boolean;
+  value: unknown;
+}
+
 @Component({
   selector: 'nx-workflow-builder',
-  imports: [FormsModule, RouterLink, IconComponent, JsonEditorComponent, StatusBadgeComponent, TemplateRefPipe],
+  imports: [DatePipe, FormsModule, RouterLink, IconComponent, JsonEditorComponent, StatusBadgeComponent, TemplateRefPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './workflow-builder.page.html',
   styleUrl: './workflow-builder.page.scss',
 })
 export class WorkflowBuilderPage implements OnInit, OnDestroy {
   private readonly api = inject(ApiService);
+  private readonly wfApi = inject(WorkflowsApi);
   private readonly router = inject(Router);
   private readonly toast = inject(ToastService);
   protected readonly auth = inject(AuthService);
@@ -48,6 +57,8 @@ export class WorkflowBuilderPage implements OnInit, OnDestroy {
   readonly catalog = NODE_CATALOG;
   readonly operators = OPERATORS;
   readonly meta = nodeMeta;
+  /** Variante tolerante para definiciones históricas con tipos desconocidos. */
+  readonly metaOf = (type: string) => NODE_CATALOG.find((n) => n.type === type);
   readonly W = NODE_W;
   readonly H = NODE_H;
 
@@ -61,7 +72,27 @@ export class WorkflowBuilderPage implements OnInit, OnDestroy {
   readonly pending = signal<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
   readonly dirty = signal(false);
   readonly saving = signal(false);
-  readonly panel = signal<'node' | 'run' | 'settings'>('settings');
+  readonly panel = signal<'node' | 'run' | 'settings' | 'versions'>('settings');
+  /** Primer problema estructural del grafo (bloquea Guardar). */
+  readonly graphError = computed(() => validateGraph(this.nodes(), this.edges()));
+
+  /** Otros flujos del workspace (sub-flujos, bucles y flujo de error). */
+  readonly allWorkflows = signal<Workflow[]>([]);
+  readonly otherWorkflows = computed(() => this.allWorkflows().filter((w) => w.id !== this.id()));
+
+  // Historial de versiones
+  readonly versions = signal<WorkflowVersionInfo[] | null>(null);
+  readonly versionsLoading = signal(false);
+  readonly previewVersion = signal<number | null>(null);
+  readonly restoring = signal<number | null>(null);
+
+  // Probar un nodo (pinned data)
+  readonly testOpen = signal(false);
+  readonly testing = signal(false);
+  readonly testResult = signal<NodeTestResult | null>(null);
+  readonly testError = signal<string | null>(null);
+  readonly pinned = signal<Record<string, PinnedEntry>>({});
+  testInput: unknown = {};
 
   readonly connectors = signal<Connector[]>([]);
   readonly agents = signal<Agent[]>([]);
@@ -84,14 +115,21 @@ export class WorkflowBuilderPage implements OnInit, OnDestroy {
   name = '';
   description = '';
   schedule = '';
+  errorWorkflowId: string | null = null;
   runInput: unknown = {};
   private drag: Drag | null = null;
   private poll?: ReturnType<typeof setInterval>;
 
   async ngOnInit() {
-    const [wf, connectors, agents] = await Promise.all([this.api.workflow(this.id()), this.api.connectors(), this.api.agents()]);
+    const [wf, connectors, agents, workflows] = await Promise.all([
+      this.api.workflow(this.id()),
+      this.api.connectors(),
+      this.api.agents(),
+      this.api.workflows().catch(() => [] as Workflow[]),
+    ]);
     this.connectors.set(await Promise.all(connectors.map((c) => this.api.connector(c.id))));
     this.agents.set(agents);
+    this.allWorkflows.set(workflows);
     this.apply(wf);
     setTimeout(() => this.fitView());
   }
@@ -105,6 +143,7 @@ export class WorkflowBuilderPage implements OnInit, OnDestroy {
     this.name = wf.name;
     this.description = wf.description ?? '';
     this.schedule = wf.schedule ?? '';
+    this.errorWorkflowId = wf.errorWorkflowId ?? null;
     this.nodes.set(structuredClone(wf.definition?.nodes ?? []));
     this.edges.set(structuredClone(wf.definition?.edges ?? []));
     this.dirty.set(false);
@@ -132,6 +171,7 @@ export class WorkflowBuilderPage implements OnInit, OnDestroy {
   }
 
   select(id: string | null) {
+    if (id !== this.selectedNodeId()) this.closeTest();
     this.selectedNodeId.set(id);
     this.selectedEdgeId.set(null);
     this.panel.set(id ? 'node' : 'settings');
@@ -162,11 +202,34 @@ export class WorkflowBuilderPage implements OnInit, OnDestroy {
     this.dirty.set(true);
   }
 
+  /** Duplica el nodo seleccionado (sin conexiones) con un desplazamiento de 32 px. */
+  duplicateSelected() {
+    const src = this.selectedNode();
+    if (!src || !this.auth.canEdit()) return;
+    if (src.type === 'trigger') {
+      this.toast.info('El disparador no se puede duplicar: el flujo admite uno solo');
+      return;
+    }
+    const copy: WorkflowNode = {
+      ...structuredClone(src),
+      id: `${src.type}_${Math.random().toString(36).slice(2, 7)}`,
+      name: `${src.name} (copia)`,
+      position: { x: src.position.x + 32, y: src.position.y + 32 },
+    };
+    this.nodes.update((ns) => [...ns, copy]);
+    this.select(copy.id);
+    this.dirty.set(true);
+  }
+
   @HostListener('document:keydown', ['$event'])
   onKey(e: KeyboardEvent) {
     const tag = (e.target as HTMLElement).tagName;
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)) return;
     if (e.key === 'Delete' || e.key === 'Backspace') this.deleteSelected();
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D')) {
+      e.preventDefault();
+      this.duplicateSelected();
+    }
     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
       e.preventDefault();
       void this.save();
@@ -309,6 +372,12 @@ export class WorkflowBuilderPage implements OnInit, OnDestroy {
         return `${n.config['ms']} ms`;
       case 'trigger':
         return this.schedule ? `Cron ${this.schedule}` : 'Manual / webhook / MCP';
+      case 'subworkflow':
+        return this.workflowName(n.config['workflowId']) ?? 'Seleccione un flujo';
+      case 'loop': {
+        const target = this.workflowName(n.config['workflowId']);
+        return target ? `Por elemento › ${target}` : 'Seleccione un sub-flujo';
+      }
       default:
         return nodeMeta(n.type).description;
     }
@@ -338,14 +407,30 @@ export class WorkflowBuilderPage implements OnInit, OnDestroy {
     this.toast.info(`Copiado: ${ref}`);
   }
 
+  workflowName(id: unknown): string | null {
+    if (!id) return null;
+    return this.allWorkflows().find((w) => w.id === id)?.name ?? 'Flujo no disponible';
+  }
+
+  setConcurrency(v: unknown) {
+    const n = Math.round(Number(v));
+    this.updateConfig({ concurrency: Number.isFinite(n) ? Math.min(10, Math.max(1, n)) : 1 });
+  }
+
   // ---------- Persistencia y ejecución ----------
   async save(): Promise<boolean> {
+    const invalid = this.graphError();
+    if (invalid) {
+      this.toast.error(`No se puede guardar: ${invalid}`);
+      return false;
+    }
     this.saving.set(true);
     try {
       const wf = await this.api.updateWorkflow(this.id(), {
         name: this.name,
         description: this.description || undefined,
         schedule: this.schedule.trim() || null,
+        errorWorkflowId: this.errorWorkflowId || null,
         definition: { nodes: this.nodes(), edges: this.edges() },
       });
       this.workflow.set(wf);
@@ -398,6 +483,114 @@ export class WorkflowBuilderPage implements OnInit, OnDestroy {
     if (!confirm('¿Eliminar este flujo y su historial?')) return;
     await this.api.deleteWorkflow(this.id());
     await this.router.navigate(['/workflows']);
+  }
+
+  // ---------- Historial de versiones ----------
+  openVersions() {
+    this.panel.set('versions');
+    void this.loadVersions();
+  }
+
+  async loadVersions() {
+    this.versionsLoading.set(true);
+    try {
+      const list = await this.wfApi.versions(this.id());
+      const current = this.workflow()?.version;
+      // La versión vigente se muestra aparte; solo se listan las anteriores.
+      this.versions.set(list.filter((v) => !v.current && v.version !== current).sort((a, b) => b.version - a.version));
+    } catch (e) {
+      this.versions.set([]);
+      this.toast.error(errorMessage(e));
+    } finally {
+      this.versionsLoading.set(false);
+    }
+  }
+
+  async togglePreview(version: number) {
+    if (this.previewVersion() === version) {
+      this.previewVersion.set(null);
+      return;
+    }
+    this.previewVersion.set(version);
+    const entry = this.versions()?.find((v) => v.version === version);
+    if (!entry || entry.definition) return;
+    try {
+      const full = await this.wfApi.version(this.id(), version);
+      if (full.definition) this.versions.update((list) => (list ?? []).map((v) => (v.version === version ? { ...v, definition: full.definition } : v)));
+    } catch {
+      // Sin detalle disponible: la vista previa muestra solo los metadatos.
+    }
+  }
+
+  async restore(v: WorkflowVersionInfo) {
+    const lost = this.dirty() ? ' Se perderán los cambios sin guardar.' : '';
+    if (!confirm(`¿Restaurar la versión v${v.version}? Se creará una versión nueva con esa definición.${lost}`)) return;
+    this.restoring.set(v.version);
+    try {
+      const wf = await this.wfApi.restoreVersion(this.id(), v.version);
+      this.apply(wf);
+      this.select(null);
+      this.panel.set('versions');
+      this.execution.set(null);
+      this.previewVersion.set(null);
+      setTimeout(() => this.fitView());
+      this.toast.success(`Versión v${v.version} restaurada (ahora v${wf.version})`);
+      await this.loadVersions();
+    } catch (e) {
+      this.toast.error(errorMessage(e));
+    } finally {
+      this.restoring.set(null);
+    }
+  }
+
+  // ---------- Probar un nodo (datos fijados) ----------
+  /** Nodos previos (excepto el disparador) cuyas salidas pueden fijarse. */
+  readonly pinnable = computed(() => this.upstream().filter((n) => n.type !== 'trigger'));
+
+  openTest() {
+    const entries: Record<string, PinnedEntry> = {};
+    for (const u of this.pinnable()) {
+      const out = this.stepOf(u.id)?.output;
+      entries[u.id] = out !== undefined ? { on: true, value: structuredClone(out) } : { on: false, value: {} };
+    }
+    this.pinned.set(entries);
+    const ex = this.execution();
+    this.testInput = ex?.input !== undefined && ex?.input !== null ? structuredClone(ex.input) : structuredClone(this.runInput ?? {});
+    this.testResult.set(null);
+    this.testError.set(null);
+    this.testOpen.set(true);
+  }
+
+  closeTest() {
+    this.testOpen.set(false);
+    this.testResult.set(null);
+    this.testError.set(null);
+  }
+
+  pinOf(nodeId: string): PinnedEntry | undefined {
+    return this.pinned()[nodeId];
+  }
+
+  setPinned(nodeId: string, patch: Partial<PinnedEntry>) {
+    this.pinned.update((p) => ({ ...p, [nodeId]: { ...(p[nodeId] ?? { on: false, value: {} }), ...patch } }));
+  }
+
+  async testNode() {
+    const node = this.selectedNode();
+    if (!node) return;
+    if (this.dirty() && !(await this.save())) return;
+    const pinned: Record<string, unknown> = {};
+    for (const [id, entry] of Object.entries(this.pinned())) if (entry.on) pinned[id] = entry.value;
+    this.testing.set(true);
+    this.testError.set(null);
+    this.testResult.set(null);
+    try {
+      this.testResult.set(await this.wfApi.testNode(this.id(), node.id, { input: this.testInput, pinned }));
+    } catch (e) {
+      this.testError.set(errorMessage(e));
+    } finally {
+      this.testing.set(false);
+    }
   }
 
   webhookUrl() {

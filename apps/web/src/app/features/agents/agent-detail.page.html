@@ -1,95 +1,227 @@
+@if (loading() && !agent()) {
+  <div class="page"><div class="card empty"><p>Cargando agente…</p></div></div>
+} @else if (loadError() && !agent()) {
+  <div class="page">
+    <div class="card empty">
+      <nx-icon name="alert" [size]="28" /><h3>No se pudo cargar el agente</h3><p>{{ loadError() }}</p>
+      <div class="row" style="justify-content:center"><a class="btn" routerLink="/agents">Volver</a><button class="btn primary" (click)="load()">Reintentar</button></div>
+    </div>
+  </div>
+}
 @if (agent(); as a) {
   <div class="page" style="max-width:1440px">
     <div class="page-header">
-      <div class="row">
-        <a class="btn ghost icon" routerLink="/agents"><nx-icon name="arrowLeft" /></a>
+      <div class="row head-info">
+        <a class="btn ghost icon" routerLink="/agents" title="Volver a agentes" aria-label="Volver a agentes"><nx-icon name="arrowLeft" /></a>
         <div class="icon-tile"><nx-icon name="bot" /></div>
-        <div><h1>{{ a.name }}</h1><p>{{ a.provider }} · {{ a.model }} · {{ toolSelection().size }} herramientas</p></div>
+        <div class="who">
+          <h1>{{ a.name }}</h1>
+          <p>{{ a.provider }} · {{ a.model }} · {{ toolSelection().size }} herramientas · {{ skillSelection().size }} skills · {{ kbSelection().size }} bases</p>
+        </div>
       </div>
       @if (auth.canEdit()) {
         <div class="row">
-          <button class="btn danger icon" title="Eliminar" (click)="remove()"><nx-icon name="trash" /></button>
-          <button class="btn primary" [disabled]="saving()" (click)="save()"><nx-icon name="save" />{{ saving() ? 'Guardando…' : 'Guardar' }}</button>
+          @if (dirty()) { <span class="badge warning" role="status">Cambios sin guardar</span> }
+          <button class="btn danger icon" title="Eliminar agente" aria-label="Eliminar agente" (click)="remove()"><nx-icon name="trash" /></button>
+          <button class="btn primary" [disabled]="saving() || !dirty()" (click)="save()"><nx-icon name="save" />{{ saving() ? 'Guardando…' : 'Guardar' }}</button>
         </div>
       }
     </div>
 
     <div class="layout">
-      <div>
-        <div class="tabs">
-          <button class="tab" [class.active]="tab() === 'config'" (click)="tab.set('config')">Configuración</button>
-          <button class="tab" [class.active]="tab() === 'tools'" (click)="tab.set('tools')">Herramientas ({{ toolSelection().size }})</button>
+      <div class="studio">
+        <div class="tabs scroll" role="tablist" aria-label="Secciones del agente">
+          @for (t of tabs; track t.id) {
+            <button class="tab" role="tab" [id]="'tab-' + t.id" [attr.aria-selected]="tab() === t.id" [attr.aria-controls]="'panel-' + t.id"
+              [class.active]="tab() === t.id" (click)="tab.set(t.id)">
+              {{ t.label }}
+              @switch (t.id) {
+                @case ('tools') { <span class="count">{{ toolSelection().size + skillSelection().size }}</span> }
+                @case ('knowledge') { <span class="count">{{ kbSelection().size }}</span> }
+              }
+            </button>
+          }
         </div>
 
-        @if (tab() === 'config') {
-          <div class="card stack">
-            <div class="field"><label>Nombre</label><input class="input" [(ngModel)]="form.name" /></div>
-            <div class="field"><label>Descripción (visible para clientes MCP)</label><input class="input" [(ngModel)]="form.description" /></div>
-            <div class="grid grid-2">
-              <div class="field"><label for="agent-provider">Proveedor</label>
-                <select id="agent-provider" class="input" [ngModel]="form.provider" (ngModelChange)="onProviderChange($event)">
-                  @for (p of providers(); track p.id) { <option [value]="p.id" [disabled]="!p.configured">{{ p.label }}{{ p.configured ? '' : ' (no configurado)' }}</option> }
-                </select></div>
-              <div class="field"><label for="agent-model">Modelo</label>
-                <select id="agent-model" class="input" [(ngModel)]="form.model">
-                  @for (m of models(); track m.id) { <option [value]="m.id">{{ modelOption(m) }}</option> }
-                </select>
-                @if (selectedModel(); as m) {
-                  <span class="hint"><span class="badge">{{ tierLabels[m.tier] }}</span>&nbsp;{{ price(m.inputUsdPerMTok) }} entrada · {{ price(m.outputUsdPerMTok) }} salida por MTok{{ m.description ? ' · ' + m.description : '' }}</span>
-                }</div>
-            </div>
-            <div class="field"><label for="agent-cc">Centro de costo</label>
-              <select id="agent-cc" class="input" [(ngModel)]="form.costCenterId">
-                <option [ngValue]="null">Unidad del usuario / raíz</option>
-                @for (u of units(); track u.item.id) { <option [ngValue]="u.item.id">{{ pad(u.depth) }}{{ u.item.name }}</option> }
-              </select>
-              <span class="hint">El chat de un usuario se cobra a su unidad. Las ejecuciones sin usuario (flujos, webhooks, MCP) se cobran a este centro de costo; si no hay, a la raíz.</span></div>
-            <div class="grid grid-2">
-              <div class="field"><label>Nivel de esfuerzo</label>
-                <select class="input" [(ngModel)]="form.effort">
-                  @for (e of efforts; track e.id) { <option [value]="e.id">{{ e.label }}</option> }
-                </select></div>
-              <div class="field"><label>Máx. turnos de herramientas</label><input class="input" type="number" min="1" max="50" [(ngModel)]="form.maxTurns" /></div>
-            </div>
-            <div class="field"><label>Instrucciones del sistema</label>
-              <textarea class="input" rows="14" [(ngModel)]="form.systemPrompt" placeholder="Describa el rol, el tono, las reglas de negocio y cuándo usar cada herramienta…"></textarea></div>
-          </div>
-        }
-
-        @if (tab() === 'tools') {
-          <div class="stack">
-            @for (c of connectors(); track c.id) {
-              <div class="connector-group card">
-                <div class="card-title"><div class="icon-tile {{ c.type }}"><nx-icon name="plug" [size]="16" /></div><h3>{{ c.name }}</h3><span class="badge">{{ c.type }}</span></div>
-                @for (op of c.operations; track op.id) {
-                  <div class="op-row">
-                    <input type="checkbox" [checked]="toolSelection().has(op.id)" (change)="toggleTool(op.id, $any($event.target).checked)" />
-                    <div class="name"><strong>{{ op.name }}</strong><div class="muted small">{{ op.description || op.key }}</div></div>
-                    @if (toolSelection().has(op.id)) {
-                      <label class="checkbox small"><input type="checkbox" [checked]="toolSelection().get(op.id)" (change)="toggleApproval(op.id, $any($event.target).checked)" />Requiere aprobación</label>
-                    }
-                  </div>
-                } @empty { <p class="muted small">Este conector no tiene operaciones.</p> }
+        <div role="tabpanel" [id]="'panel-' + tab()" [attr.aria-labelledby]="'tab-' + tab()">
+          @switch (tab()) {
+            @case ('profile') {
+              <div class="stack">
+                <div class="card stack">
+                  <div class="field"><label for="agent-name">Nombre</label><input id="agent-name" class="input" [disabled]="!auth.canEdit()" [(ngModel)]="form.name" /></div>
+                  <div class="field"><label for="agent-desc">Descripción (visible para clientes MCP)</label><input id="agent-desc" class="input" [disabled]="!auth.canEdit()" [(ngModel)]="form.description" /></div>
+                </div>
+                <nx-agent-profile [(profile)]="profile" [(systemPrompt)]="systemPrompt" [disabled]="!auth.canEdit()" />
               </div>
-            } @empty {
-              <div class="card empty"><h3>No hay conectores</h3><p><a routerLink="/connectors">Cree un conector</a> para dar herramientas a este agente.</p></div>
             }
-          </div>
-        }
+
+            @case ('model') {
+              <div class="stack">
+                <div class="card stack">
+                  <div class="grid grid-2">
+                    <div class="field"><label for="agent-provider">Proveedor</label>
+                      <select id="agent-provider" class="input" [disabled]="!auth.canEdit()" [ngModel]="form.provider" (ngModelChange)="onProviderChange($event)">
+                        @for (p of providers(); track p.id) { <option [value]="p.id" [disabled]="!p.configured">{{ p.label }}{{ p.configured ? '' : ' (no configurado)' }}</option> }
+                      </select></div>
+                    <div class="field"><label for="agent-model">Modelo</label>
+                      <select id="agent-model" class="input" [disabled]="!auth.canEdit()" [(ngModel)]="form.model">
+                        @for (m of models(); track m.id) { <option [value]="m.id">{{ modelOption(m) }}</option> }
+                      </select>
+                      @if (selectedModel(); as m) {
+                        <span class="hint"><span class="badge">{{ tierLabels[m.tier] }}</span>&nbsp;{{ price(m.inputUsdPerMTok) }} entrada · {{ price(m.outputUsdPerMTok) }} salida por MTok{{ m.description ? ' · ' + m.description : '' }}</span>
+                      }</div>
+                  </div>
+                  <div class="grid grid-2">
+                    <div class="field"><label for="agent-effort">Nivel de esfuerzo</label>
+                      <select id="agent-effort" class="input" [disabled]="!auth.canEdit()" [(ngModel)]="form.effort">
+                        @for (e of efforts; track e.id) { <option [value]="e.id">{{ e.label }}</option> }
+                      </select></div>
+                    <div class="field"><label for="agent-turns">Máx. turnos de herramientas</label><input id="agent-turns" class="input" type="number" min="1" max="50" [disabled]="!auth.canEdit()" [(ngModel)]="form.maxTurns" /></div>
+                  </div>
+                  <div class="field"><label for="agent-cc">Centro de costo</label>
+                    <select id="agent-cc" class="input" [disabled]="!auth.canEdit()" [(ngModel)]="form.costCenterId">
+                      <option [ngValue]="null">Unidad del usuario / raíz</option>
+                      @for (u of units(); track u.item.id) { <option [ngValue]="u.item.id">{{ pad(u.depth) }}{{ u.item.name }}</option> }
+                    </select>
+                    <span class="hint">El chat de un usuario se cobra a su unidad. Las ejecuciones sin usuario (flujos, webhooks, MCP, rutinas) se cobran a este centro de costo; si no hay, a la raíz.</span></div>
+                </div>
+
+                <div class="card stack">
+                  <div class="row wrap"><nx-icon name="shuffle" [size]="16" /><strong>Modelos de respaldo</strong><span class="badge">{{ fallbacks().length }} / {{ maxFallbacks }}</span></div>
+                  <p class="muted small m0">Si el modelo principal falla por un error del proveedor, se reintenta en este orden. Cada intento respeta los presupuestos. No aplica a bloqueos por presupuesto o permisos.</p>
+                  <ol class="fallbacks">
+                    @for (key of fallbacks(); track key; let i = $index, first = $first, last = $last) {
+                      <li>
+                        <span class="pos">{{ i + 1 }}</span>
+                        @if (fallbackInfo(key); as o) {
+                          <div class="grow"><strong>{{ o.model.label }}</strong><span class="muted small"> · {{ o.providerLabel }}</span>
+                            <div class="muted small">{{ tierLabels[o.model.tier] }} · {{ price(o.model.inputUsdPerMTok) }} / {{ price(o.model.outputUsdPerMTok) }} por MTok</div></div>
+                        } @else {
+                          <div class="grow"><code>{{ key }}</code><span class="badge warning ml">No disponible en el catálogo</span></div>
+                        }
+                        @if (auth.canEdit()) {
+                          <button class="btn ghost icon sm" title="Subir" aria-label="Subir prioridad" [disabled]="first" (click)="moveFallback(i, -1)"><nx-icon name="chevronUp" [size]="15" /></button>
+                          <button class="btn ghost icon sm" title="Bajar" aria-label="Bajar prioridad" [disabled]="last" (click)="moveFallback(i, 1)"><nx-icon name="chevronDown" [size]="15" /></button>
+                          <button class="btn ghost icon sm danger" title="Quitar" aria-label="Quitar modelo de respaldo" (click)="removeFallback(i)"><nx-icon name="x" [size]="15" /></button>
+                        }
+                      </li>
+                    } @empty {
+                      <li class="muted small">Sin modelos de respaldo: si el principal falla, el turno termina con error.</li>
+                    }
+                  </ol>
+                  @if (auth.canEdit() && fallbacks().length < maxFallbacks) {
+                    <div class="row add-fallback">
+                      <label class="sr-only" for="fallback-add">Agregar modelo de respaldo</label>
+                      <select id="fallback-add" class="input" [(ngModel)]="fallbackDraft">
+                        <option value="">Elegir modelo de respaldo…</option>
+                        @for (g of fallbackCandidates(); track g.provider.id) {
+                          <optgroup [label]="g.provider.label">
+                            @for (m of g.models; track m.id) { <option [value]="g.provider.id + ':' + m.id">{{ modelOption(m) }}</option> }
+                          </optgroup>
+                        }
+                      </select>
+                      <button class="btn" [disabled]="!fallbackDraft" (click)="addFallback()"><nx-icon name="plus" [size]="15" />Agregar</button>
+                    </div>
+                  }
+                </div>
+              </div>
+            }
+
+            @case ('tools') {
+              <div class="stack">
+                <div class="section-title first"><nx-icon name="sparkles" [size]="16" /><h3>Skills</h3><span class="spacer"></span><a class="small" routerLink="/skills">Gestionar skills</a></div>
+                <div class="card">
+                  @if (skillsError()) {
+                    <div class="callout danger"><nx-icon name="alert" [size]="16" /><span>No se pudieron cargar las skills: {{ skillsError() }}</span>
+                      <button class="btn sm" (click)="loadSkills()">Reintentar</button></div>
+                  } @else if (skills() === null) {
+                    <p class="muted small">Cargando skills…</p>
+                  } @else {
+                    <p class="muted small m0 mb">El agente ve el nombre y la descripción de cada skill y carga sus instrucciones solo cuando las necesita.</p>
+                    <div class="checklist">
+                      @for (s of skills(); track s.id) {
+                        <label class="choice">
+                          <input type="checkbox" [disabled]="!auth.canEdit()" [checked]="skillSelection().has(s.id)" (change)="toggleSkill(s.id, $any($event.target).checked)" />
+                          <span><strong>{{ s.name }}</strong><span class="muted small block">{{ s.description }}</span>
+                            @if (s.operationIds.length) { <span class="badge">{{ s.operationIds.length }} operaciones</span> }</span>
+                        </label>
+                      } @empty {
+                        <p class="muted small">No hay skills. <a routerLink="/skills">Cree una skill</a> con instrucciones reutilizables.</p>
+                      }
+                    </div>
+                  }
+                </div>
+
+                <div class="section-title"><nx-icon name="plug" [size]="16" /><h3>Operaciones de conectores</h3></div>
+                @for (c of connectors(); track c.id) {
+                  <div class="connector-group card">
+                    <div class="card-title"><div class="icon-tile {{ c.type }}"><nx-icon name="plug" [size]="16" /></div><h3>{{ c.name }}</h3><span class="badge">{{ c.type }}</span></div>
+                    @for (op of c.operations; track op.id) {
+                      <div class="op-row">
+                        <input type="checkbox" [id]="'op-' + op.id" [disabled]="!auth.canEdit()" [checked]="toolSelection().has(op.id)" (change)="toggleTool(op.id, $any($event.target).checked)" />
+                        <label class="name" [for]="'op-' + op.id"><strong>{{ op.name }}</strong><span class="muted small block">{{ op.description || op.key }}</span></label>
+                        @if (toolSelection().has(op.id)) {
+                          <label class="checkbox small"><input type="checkbox" [disabled]="!auth.canEdit()" [checked]="toolSelection().get(op.id)" (change)="toggleApproval(op.id, $any($event.target).checked)" />Requiere aprobación</label>
+                        }
+                      </div>
+                    } @empty { <p class="muted small">Este conector no tiene operaciones.</p> }
+                  </div>
+                } @empty {
+                  <div class="card empty"><h3>No hay conectores</h3><p><a routerLink="/connectors">Cree un conector</a> para dar herramientas a este agente.</p></div>
+                }
+              </div>
+            }
+
+            @case ('knowledge') {
+              <div class="stack">
+                <div class="card stack">
+                  <div class="row wrap"><nx-icon name="book" [size]="16" /><strong>Bases de conocimiento</strong><span class="spacer"></span><a class="small" routerLink="/knowledge">Gestionar bases</a></div>
+                  <p class="muted small m0">Con bases asignadas el agente recibe la herramienta <code>search_knowledge</code> para buscar en ellas.</p>
+                  @if (kbError()) {
+                    <div class="callout danger"><nx-icon name="alert" [size]="16" /><span>No se pudieron cargar las bases: {{ kbError() }}</span>
+                      <button class="btn sm" (click)="loadKnowledgeBases()">Reintentar</button></div>
+                  } @else if (knowledgeBases() === null) {
+                    <p class="muted small">Cargando bases…</p>
+                  } @else {
+                    <div class="checklist">
+                      @for (k of knowledgeBases(); track k.id) {
+                        <label class="choice">
+                          <input type="checkbox" [disabled]="!auth.canEdit()" [checked]="kbSelection().has(k.id)" (change)="toggleKb(k.id, $any($event.target).checked)" />
+                          <span><strong>{{ k.name }}</strong><span class="muted small block">{{ k.documentCount | num }} documentos · {{ k.chunkCount | num }} fragmentos</span></span>
+                        </label>
+                      } @empty {
+                        <p class="muted small">No hay bases de conocimiento. <a routerLink="/knowledge">Cree una</a> y cargue documentos.</p>
+                      }
+                    </div>
+                  }
+                </div>
+                <nx-agent-examples [agentId]="a.id" [canEdit]="auth.canEdit()" />
+              </div>
+            }
+
+            @case ('routines') {
+              <nx-agent-routines [agentId]="a.id" [canEdit]="auth.canEdit()" />
+            }
+
+            @case ('preview') {
+              <nx-agent-prompt-preview [agentId]="a.id" [dirty]="dirty()" />
+            }
+          }
+        </div>
       </div>
 
       <div class="card chat">
         <div class="chat-head">
           <nx-icon name="sparkles" /><strong>Probar agente</strong><span class="spacer"></span>
-          <span class="muted small">Guarde los cambios antes de probar</span>
+          <span class="muted small hide-sm">Guarde los cambios antes de probar</span>
           <button class="btn sm" (click)="newConversation()"><nx-icon name="refresh" [size]="14" />Nueva</button>
         </div>
-        <div class="messages" #scroller>
+        <div class="messages" #scroller aria-live="polite">
           @for (item of chat(); track $index) {
             @switch (item.kind) {
               @case ('user') { <div class="msg user">{{ item.text }}</div> }
               @case ('assistant') { <div class="msg assistant">{{ item.text }}</div> }
-              @case ('notice') { <div class="msg notice">{{ item.text }}</div> }
+              @case ('notice') { <div class="callout warning notice" role="status"><nx-icon name="shuffle" [size]="15" /><span>{{ item.text }}</span></div> }
               @case ('usage') { <div class="msg usage" title="Costo estimado según precios configurados">{{ item.text }}</div> }
               @case ('error') { <div class="msg error" role="alert"><nx-icon name="alert" [size]="16" /><span>{{ item.text }}</span></div> }
               @case ('tool') {
@@ -112,12 +244,13 @@
           } @empty {
             <div class="empty"><nx-icon name="bot" [size]="32" /><h3>Converse con su agente</h3><p>Verá en vivo cada herramienta que use.</p></div>
           }
-          @if (streaming()) { <div class="typing"><span></span><span></span><span></span></div> }
+          @if (streaming()) { <div class="typing" aria-label="El agente está escribiendo"><span></span><span></span><span></span></div> }
         </div>
         <div class="composer">
-          <textarea class="input" rows="1" [(ngModel)]="message" placeholder="Escriba un mensaje… (Enter para enviar)" (keydown.enter)="onEnter($any($event))"></textarea>
-          @if (streaming()) { <button class="btn icon" title="Detener" (click)="stop()"><nx-icon name="stop" /></button> }
-          @else { <button class="btn primary icon" title="Enviar" [disabled]="!message.trim()" (click)="send()"><nx-icon name="send" /></button> }
+          <label class="sr-only" for="chat-input">Mensaje</label>
+          <textarea id="chat-input" class="input" rows="1" [(ngModel)]="message" placeholder="Escriba un mensaje… (Enter para enviar)" (keydown.enter)="onEnter($any($event))"></textarea>
+          @if (streaming()) { <button class="btn icon" title="Detener" aria-label="Detener" (click)="stop()"><nx-icon name="stop" /></button> }
+          @else { <button class="btn primary icon" title="Enviar" aria-label="Enviar" [disabled]="!message.trim()" (click)="send()"><nx-icon name="send" /></button> }
         </div>
       </div>
     </div>

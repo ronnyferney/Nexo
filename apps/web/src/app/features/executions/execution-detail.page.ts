@@ -1,5 +1,5 @@
 import { DatePipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, inject, input, OnDestroy, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, OnDestroy, OnInit, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
@@ -37,6 +37,12 @@ import { StatusBadgeComponent } from '../../shared/status-badge.component';
           <div class="card"><div class="muted small">Duración</div><strong>{{ e.startedAt | duration: e.finishedAt }}</strong></div>
           <div class="card"><div class="muted small">Pasos</div><strong>{{ e.steps?.length ?? 0 }}</strong></div>
         </div>
+        @if (errorSource(); as src) {
+          <div class="callout info" style="margin-bottom:16px" role="note"><nx-icon name="link" [size]="16" />
+            <span>Ejecución de un flujo de error, disparada por el fallo de
+              @if (src.workflowId) { <a [routerLink]="['/workflows', src.workflowId]">{{ src.workflowName || 'otro flujo' }}</a> } @else { <strong>{{ src.workflowName || 'otro flujo' }}</strong> }.
+              <a [routerLink]="['/executions', src.executionId]">Ver ejecución original</a></span></div>
+        }
         @if (e.error) { <div class="card" style="border-color:var(--danger); margin-bottom:16px"><strong class="error-text">{{ e.error }}</strong></div> }
 
         <div class="grid grid-2">
@@ -76,6 +82,19 @@ export class ExecutionDetailPage implements OnInit, OnDestroy {
   protected readonly auth = inject(AuthService);
   readonly id = input.required<string>();
   readonly ex = signal<Execution | null>(null);
+  /** Si la entrada proviene de un flujo de error (ADR 0003 D6.1), datos de la ejecución original. */
+  readonly errorSource = computed(() => {
+    const input = this.ex()?.input as Record<string, unknown> | null | undefined;
+    if (!input || typeof input !== 'object' || !('error' in input)) return null;
+    const execution = input['execution'] as { id?: unknown } | null | undefined;
+    const workflow = input['workflow'] as { id?: unknown; name?: unknown } | null | undefined;
+    if (!execution || typeof execution.id !== 'string' || !execution.id) return null;
+    return {
+      executionId: execution.id,
+      workflowId: typeof workflow?.id === 'string' ? workflow.id : null,
+      workflowName: typeof workflow?.name === 'string' ? workflow.name : null,
+    };
+  });
   private timer?: ReturnType<typeof setInterval>;
 
   async ngOnInit() {

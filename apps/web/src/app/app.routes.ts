@@ -20,6 +20,10 @@ export const routes: Routes = [
       { path: 'workflows/:id', loadComponent: () => import('./features/workflows/workflow-builder.page').then((m) => m.WorkflowBuilderPage) },
       { path: 'executions', loadComponent: () => import('./features/executions/executions-list.page').then((m) => m.ExecutionsListPage) },
       { path: 'executions/:id', loadComponent: () => import('./features/executions/execution-detail.page').then((m) => m.ExecutionDetailPage) },
+      { path: 'skills', loadComponent: () => import('./features/skills/skills.page').then((m) => m.SkillsPage) },
+      { path: 'knowledge', loadComponent: () => import('./features/knowledge/knowledge-list.page').then((m) => m.KnowledgeListPage) },
+      { path: 'knowledge/:id', loadComponent: () => import('./features/knowledge/knowledge-detail.page').then((m) => m.KnowledgeDetailPage) },
+      { path: 'routines', loadComponent: () => import('./features/routines/routines.page').then((m) => m.RoutinesPage) },
       { path: 'my-usage', loadComponent: () => import('./features/usage/my-usage.page').then((m) => m.MyUsagePage) },
       { path: 'settings', redirectTo: 'admin/security', pathMatch: 'full' },
 

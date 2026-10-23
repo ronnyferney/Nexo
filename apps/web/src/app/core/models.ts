@@ -58,7 +58,14 @@ export interface Agent {
   maxTurns: number;
   /** Unidad organizacional a la que se imputa el consumo cuando el agente corre sin usuario. */
   costCenterId: string | null;
+  /** Perfil estructurado (ADR 0003 D2); la API puede devolver campos ausentes. */
+  profile?: Partial<import('./studio.models').AgentProfile> | null;
+  /** Cadena de respaldo `"<providerId>:<modelId>"`, máx. 3 (ADR 0003 D1). */
+  fallbackModels?: string[];
   tools?: AgentToolBinding[];
+  skills?: import('./studio.models').AgentSkillRef[];
+  knowledgeBases?: import('./studio.models').AgentKnowledgeRef[];
+  examplesCount?: number;
   _count?: { tools: number; conversations: number };
   updatedAt: string;
 }
@@ -292,7 +299,16 @@ export interface TurnUsage {
   costUsd: number;
 }
 
-export type NodeType = 'trigger' | 'connector' | 'agent' | 'condition' | 'transform' | 'delay' | 'output';
+export type NodeType =
+  | 'trigger'
+  | 'connector'
+  | 'agent'
+  | 'condition'
+  | 'transform'
+  | 'delay'
+  | 'output'
+  | 'subworkflow'
+  | 'loop';
 
 export interface WorkflowNode {
   id: string;
@@ -317,6 +333,8 @@ export interface Workflow {
   schedule?: string | null;
   webhookToken?: string;
   version: number;
+  /** Flujo que se dispara si una ejecución de este falla (ADR 0003 D6.1). */
+  errorWorkflowId: string | null;
   definition?: { nodes: WorkflowNode[]; edges: WorkflowEdge[] };
   _count?: { executions: number };
   updatedAt: string;

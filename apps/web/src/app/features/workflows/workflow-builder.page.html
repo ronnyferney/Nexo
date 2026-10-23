@@ -9,7 +9,10 @@
       @if (auth.canEdit()) {
         <button class="btn" (click)="toggleActive()">{{ wf.active ? 'Desactivar' : 'Activar' }}</button>
         <button class="btn" (click)="panel.set('run')"><nx-icon name="play" />Ejecutar</button>
-        <button class="btn primary" [disabled]="saving() || !dirty()" (click)="save()"><nx-icon name="save" />Guardar</button>
+        @if (graphError(); as ge) {
+          <span class="wf-invalid small" role="status"><nx-icon name="alert" [size]="15" />{{ ge }}</span>
+        }
+        <button class="btn primary" [disabled]="saving() || !dirty() || !!graphError()" [title]="graphError() ?? 'Guardar (Ctrl+S)'" (click)="save()"><nx-icon name="save" />Guardar</button>
       }
     </header>
 
@@ -23,7 +26,7 @@
           </button>
         }
         <div class="muted small section" style="margin-top:16px">ATAJOS</div>
-        <p class="muted small help">Arrastre desde el punto derecho de un nodo hasta el izquierdo de otro para conectarlos.<br />Supr: eliminar · Ctrl+S: guardar · Rueda: zoom</p>
+        <p class="muted small help">Arrastre desde el punto derecho de un nodo hasta el izquierdo de otro para conectarlos.<br />Supr: eliminar · Ctrl+D: duplicar · Ctrl+S: guardar · Rueda: zoom</p>
       </aside>
 
       <div class="canvas" #canvas (pointerdown)="onCanvasDown($event)" (wheel)="onWheel($event)">
@@ -67,6 +70,7 @@
           <button class="tab" [class.active]="panel() === 'node'" [disabled]="!selectedNode()" (click)="panel.set('node')">Nodo</button>
           <button class="tab" [class.active]="panel() === 'run'" (click)="panel.set('run')">Ejecución</button>
           <button class="tab" [class.active]="panel() === 'settings'" (click)="panel.set('settings')">Flujo</button>
+          <button class="tab" [class.active]="panel() === 'versions'" (click)="openVersions()">Versiones</button>
         </div>
 
         @if (panel() === 'node' && selectedNode(); as n) {
@@ -132,6 +136,33 @@
                 <button class="btn sm" (click)="addRule()"><nx-icon name="plus" [size]="14" />Agregar regla</button>
                 <p class="muted small">Use el punto superior derecho (verde) para la rama <strong>sí</strong> y el inferior (rojo) para <strong>no</strong>.</p>
               }
+              @case ('subworkflow') {
+                <div class="field"><label for="sub-wf">Flujo a ejecutar</label>
+                  <select id="sub-wf" class="input" [ngModel]="n.config['workflowId']" (ngModelChange)="updateConfig({ workflowId: $event })">
+                    <option value="">— Seleccione —</option>
+                    @for (w of otherWorkflows(); track w.id) { <option [value]="w.id">{{ w.name }}</option> }
+                  </select>
+                  @if (n.config['workflowId']) { <a class="hint" [routerLink]="['/workflows', n.config['workflowId']]">Abrir sub-flujo</a> }
+                </div>
+                <div class="field"><label>Entrada del sub-flujo (mapeo con plantillas)</label>
+                  <nx-json-editor [value]="n.config['input']" (valueChange)="updateConfig({ input: $event })" [rows]="7" />
+                  <span class="hint">El sub-flujo la recibe como <code>{{ 'input' | tpl }}</code>. Su respuesta queda en <code>nodes.{{ n.id }}.output</code>. Profundidad máx. 5.</span></div>
+              }
+              @case ('loop') {
+                <div class="field"><label for="loop-items">Elementos (plantilla que resuelve a un arreglo)</label>
+                  <input id="loop-items" class="input mono" [placeholder]="'nodes.crm.output.data.items' | tpl" [ngModel]="n.config['items']" (ngModelChange)="updateConfig({ items: $event })" />
+                  <span class="hint">Ej.: <code>{{ 'nodes.crm.output.data.items' | tpl }}</code> · máx. 1.000 elementos.</span></div>
+                <div class="field"><label for="loop-wf">Sub-flujo por elemento</label>
+                  <select id="loop-wf" class="input" [ngModel]="n.config['workflowId']" (ngModelChange)="updateConfig({ workflowId: $event })">
+                    <option value="">— Seleccione —</option>
+                    @for (w of otherWorkflows(); track w.id) { <option [value]="w.id">{{ w.name }}</option> }
+                  </select></div>
+                <div class="field"><label for="loop-conc">Concurrencia (1–10)</label>
+                  <input id="loop-conc" class="input" type="number" min="1" max="10" [ngModel]="n.config['concurrency']" (ngModelChange)="setConcurrency($event)" /></div>
+                <div class="callout info small"><nx-icon name="info" [size]="16" />
+                  <span>Cada elemento ejecuta el sub-flujo con la entrada <code>{{ '{ item, index }' }}</code> (use <code>{{ 'input.item' | tpl }}</code>).
+                  La salida es <code>{{ '{ results, count }' }}</code>: <code>nodes.{{ n.id }}.output.results</code>.</span></div>
+              }
               @case ('delay') {
                 <div class="field"><label>Milisegundos (máx. 300000)</label><input class="input" type="number" [ngModel]="n.config['ms']" (ngModelChange)="updateConfig({ ms: +$event })" /></div>
               }
@@ -157,7 +188,48 @@
               @if (s.error) { <div class="error-text">{{ s.error }}</div> }
               @if (s.output !== undefined) { <pre class="code-block">{{ json(s.output) }}</pre> }
             }
-            @if (auth.canEdit()) { <button class="btn danger sm" (click)="deleteSelected()"><nx-icon name="trash" [size]="14" />Eliminar nodo</button> }
+            @if (auth.canEdit() && n.type !== 'trigger') {
+              <div class="divider"></div>
+              @if (!testOpen()) {
+                <button class="btn sm" style="align-self:flex-start" (click)="openTest()"><nx-icon name="beaker" [size]="14" />Probar este nodo</button>
+              } @else {
+                <section class="wf-test stack" aria-label="Probar este nodo">
+                  <div class="row"><strong class="small">Probar este nodo</strong><span class="spacer"></span>
+                    <button class="btn ghost icon sm" aria-label="Cerrar prueba" (click)="closeTest()"><nx-icon name="x" [size]="14" /></button></div>
+                  <div class="callout warning small"><nx-icon name="alert" [size]="16" />
+                    <span>Se ejecuta solo este nodo, pero de verdad: los conectores hacen la llamada real y los agentes consumen presupuesto.</span></div>
+                  <div class="field"><label>Entrada del flujo (<code>{{ 'input' | tpl }}</code>)</label>
+                    <nx-json-editor [(value)]="testInput" [rows]="4" /></div>
+                  @if (pinnable().length) {
+                    <div class="muted small">Datos fijados de nodos previos (simulan <code>nodes.&lt;id&gt;.output</code>)</div>
+                    @for (u of pinnable(); track u.id) {
+                      <div class="wf-pin">
+                        <label class="checkbox small"><input type="checkbox" [checked]="pinOf(u.id)?.on" (change)="setPinned(u.id, { on: $any($event.target).checked })" />
+                          <strong>{{ u.name }}</strong> <code class="muted">{{ u.id }}</code>
+                          @if (stepOf(u.id)?.output !== undefined) { <span class="badge info">última ejecución</span> }</label>
+                        @if (pinOf(u.id); as pe) { @if (pe.on) { <nx-json-editor [value]="pe.value" (valueChange)="setPinned(u.id, { value: $event })" [rows]="4" /> } }
+                      </div>
+                    }
+                  }
+                  <button class="btn primary sm" style="align-self:flex-start" [disabled]="testing()" (click)="testNode()">
+                    <nx-icon name="play" [size]="14" />{{ testing() ? 'Probando…' : (dirty() ? 'Guardar y probar' : 'Ejecutar prueba') }}</button>
+                  @if (testError(); as te) { <div class="error-text" role="alert">{{ te }}</div> }
+                  @if (testResult(); as r) {
+                    <div class="row small" role="status">
+                      @if (r.ok) { <span class="badge success"><span class="dot"></span>Correcto</span> } @else { <span class="badge danger"><span class="dot"></span>Falló</span> }
+                      <span class="muted">{{ r.durationMs }} ms</span></div>
+                    @if (r.error) { <div class="error-text">{{ r.error }}</div> }
+                    @if (r.output !== undefined && r.output !== null) { <div class="muted small">Salida</div><pre class="code-block">{{ json(r.output) }}</pre> }
+                  }
+                </section>
+              }
+            }
+            @if (auth.canEdit()) {
+              <div class="row">
+                @if (n.type !== 'trigger') { <button class="btn sm" title="Ctrl+D" (click)="duplicateSelected()"><nx-icon name="copy" [size]="14" />Duplicar</button> }
+                <button class="btn danger sm" (click)="deleteSelected()"><nx-icon name="trash" [size]="14" />Eliminar nodo</button>
+              </div>
+            }
           </div>
         }
 
@@ -183,6 +255,14 @@
             <div class="field"><label>Descripción (visible para clientes MCP)</label><textarea class="input" rows="3" [(ngModel)]="description" (ngModelChange)="dirty.set(true)"></textarea></div>
             <div class="field"><label>Programación (cron)</label><input class="input mono" [(ngModel)]="schedule" (ngModelChange)="dirty.set(true)" placeholder="0 8 * * 1-5" />
               <span class="hint">Se ejecuta automáticamente mientras el flujo esté activo. Ej: <code>*/15 * * * *</code> cada 15 min.</span></div>
+            <div class="field"><label for="err-wf">Flujo de error</label>
+              <select id="err-wf" class="input" [disabled]="!auth.canEdit()" [(ngModel)]="errorWorkflowId" (ngModelChange)="dirty.set(true)">
+                <option [ngValue]="null">— Ninguno —</option>
+                @for (w of otherWorkflows(); track w.id) { <option [ngValue]="w.id">{{ w.name }}</option> }
+              </select>
+              <span class="hint">Si una ejecución falla, se dispara este flujo con la entrada
+                <code>{{ '{ workflow: { id, name }, execution: { id }, error, failedNode }' }}</code>
+                (p. ej. <code>{{ 'input.error' | tpl }}</code>). Un flujo de error no dispara otro.</span></div>
             <div class="field"><label>Webhook</label>
               <div class="row"><input class="input mono small" readonly [value]="webhookUrl()" />
                 <button class="btn icon" title="Copiar" (click)="copyRef(webhookUrl())"><nx-icon name="copy" [size]="15" /></button></div>
@@ -191,6 +271,44 @@
             </div>
             <div class="divider"></div>
             @if (auth.canEdit()) { <button class="btn danger sm" style="align-self:flex-start" (click)="remove()"><nx-icon name="trash" [size]="14" />Eliminar flujo</button> }
+          </div>
+        }
+        @if (panel() === 'versions') {
+          <div class="stack">
+            <div class="row"><span class="muted small">Cada guardado conserva la definición anterior. Restaurar crea una versión nueva.</span>
+              <span class="spacer"></span>
+              <button class="btn ghost icon sm" aria-label="Actualizar versiones" [disabled]="versionsLoading()" (click)="loadVersions()"><nx-icon name="refresh" [size]="14" /></button></div>
+            <div class="wf-version current"><strong>v{{ wf.version }}</strong><span class="badge primary">actual</span>
+              <span class="muted small">{{ nodes().length }} nodos</span></div>
+            @if (versionsLoading() && !versions()) { <p class="muted small">Cargando…</p> }
+            @for (v of versions() ?? []; track v.version) {
+              <div class="wf-version-item">
+                <div class="wf-version">
+                  <strong>v{{ v.version }}</strong>
+                  <span class="muted small">{{ v.createdAt | date: 'short' }} · {{ v.nodeCount }} nodos</span>
+                  <span class="spacer"></span>
+                  <button class="btn ghost sm" [attr.aria-expanded]="previewVersion() === v.version" (click)="togglePreview(v.version)">Vista previa</button>
+                  @if (auth.canEdit() && v.version !== wf.version) {
+                    <button class="btn sm" [disabled]="restoring() !== null" (click)="restore(v)">
+                      <nx-icon name="history" [size]="14" />{{ restoring() === v.version ? 'Restaurando…' : 'Restaurar' }}</button>
+                  }
+                </div>
+                @if (previewVersion() === v.version) {
+                  @if (v.definition; as vd) {
+                    <ul class="wf-version-nodes small">
+                      @for (vnode of vd.nodes; track vnode.id) {
+                        <li><span class="wf-dot" [style.background]="metaOf(vnode.type)?.color ?? '#6b7189'"></span>{{ vnode.name }} <span class="muted">· {{ metaOf(vnode.type)?.label ?? vnode.type }}</span></li>
+                      }
+                    </ul>
+                    <span class="muted small">{{ vd.edges.length }} conexiones</span>
+                  } @else {
+                    <p class="muted small">Versión v{{ v.version }} guardada el {{ v.createdAt | date: 'medium' }} con {{ v.nodeCount }} nodos. El detalle de los nodos no está disponible en el historial.</p>
+                  }
+                }
+              </div>
+            } @empty {
+              @if (!versionsLoading()) { <p class="muted small">Aún no hay versiones anteriores.</p> }
+            }
           </div>
         }
       </aside>
