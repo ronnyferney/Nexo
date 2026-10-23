@@ -4,6 +4,16 @@ on:
   push:
     branches: [main, 'claude/**']
   pull_request:
+  # La publicación de versiones (release.yml) reutiliza estas mismas puertas de calidad.
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit o etiqueta a validar (por defecto, el del evento)
+        type: string
+        default: ''
+
+permissions:
+  contents: read
 
 jobs:
   api:
@@ -13,6 +23,8 @@ jobs:
         working-directory: apps/api
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -24,6 +36,70 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  api-e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nexo
+          POSTGRES_PASSWORD: nexo
+          POSTGRES_DB: nexo
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U nexo" --health-interval 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: --health-cmd "redis-cli ping" --health-interval 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://nexo:nexo@localhost:5432/nexo?schema=public
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/api/package-lock.json
+      - run: npm ci
+      # Las migraciones se aplican tal como en producción (incluye el SQL manual de búsqueda full-text).
+      - run: npx prisma migrate deploy
+      - run: npm run test:e2e
+
+  release-tooling:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test scripts/release.test.mjs
+      - run: node scripts/release.mjs current
+
+  infra:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: infra/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npx cdk synth --quiet -c imageTag=0.0.0-ci
+
   edge:
     runs-on: ubuntu-latest
     defaults:
@@ -31,6 +107,8 @@ jobs:
         working-directory: apps/edge
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -50,6 +128,8 @@ jobs:
         working-directory: apps/web
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22

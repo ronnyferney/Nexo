@@ -12,7 +12,10 @@
     "test": "npm --prefix apps/api test",
     "lint": "npm --prefix apps/api run lint",
     "infra:up": "docker compose up -d postgres redis",
-    "up": "docker compose up -d --build"
+    "up": "docker compose up -d --build",
+    "release": "node scripts/release.mjs prepare",
+    "release:dry": "node scripts/release.mjs prepare --dry-run",
+    "test:release": "node --test scripts/release.test.mjs"
   },
   "engines": { "node": ">=22" }
 }

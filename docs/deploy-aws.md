@@ -1,6 +1,8 @@
 # Despliegue del piloto de Nexo en AWS
 
-Infraestructura como código en `infra/` (AWS CDK, TypeScript). Un solo stack `NexoPilot` crea todo el entorno.
+Infraestructura como código en `infra/` (AWS CDK, TypeScript). El stack `NexoPilot` crea todo el entorno; `NexoRegistry`
+guarda las imágenes versionadas (ECR, etiquetas inmutables) y `NexoGithubOidc` el rol de despliegue. Solo se despliegan
+**versiones publicadas** (ver [publicación de versiones](release.md)).
 
 ## Arquitectura
 
@@ -24,6 +26,7 @@ las tareas usan IP pública, protegidas por security groups (solo el balanceador
 cd infra && npm ci
 npx cdk bootstrap aws://<CUENTA>/<REGION>
 npx cdk deploy NexoGithubOidc        # crea el rol de despliegue por OIDC para GitHub Actions
+npx cdk deploy NexoRegistry          # repositorios ECR nexo/api y nexo/web (el flujo de despliegue también lo asegura)
 ```
 
 En GitHub (repositorio → Settings):
@@ -31,16 +34,23 @@ En GitHub (repositorio → Settings):
 - **Variables:** `AWS_REGION` (p. ej. `us-east-1`). Para HTTPS con dominio propio: `DOMAIN_NAME` (p. ej. `nexo.phari.co`),
   `HOSTED_ZONE_ID` y `HOSTED_ZONE_NAME` de Route 53.
 - **Environments:** cree el entorno `piloto` (puede exigir aprobación de un revisor antes de desplegar).
+- Si actualiza desde una versión anterior de esta guía, vuelva a desplegar `NexoGithubOidc` (agrega permisos de ECR).
 
 > Recomendado: dominio con HTTPS. Los proveedores OAuth (Google, Microsoft, HubSpot, Salesforce) exigen URLs de
 > redirección HTTPS, y Nexo Edge debe conectarse por WSS.
 
-## Paso 2 — Desplegar
+## Paso 2 — Publicar una versión y desplegarla
 
-GitHub → Actions → **Desplegar piloto AWS** → *Run workflow* → escriba `desplegar`.
-Alternativa local (con credenciales de AWS en su máquina): `cd infra && npx cdk deploy NexoPilot -c domainName=... -c hostedZoneId=... -c hostedZoneName=...`
+1. Publique la versión (si aún no existe): Actions → **Preparar versión** (ver [release.md](release.md)).
+2. GitHub → Actions → **Desplegar piloto AWS** → *Run workflow* → versión (p. ej. `1.1.0`) y escriba `desplegar`.
+   El flujo copia las imágenes de esa versión de GHCR a ECR (mismo digest), despliega con CDK y verifica que
+   `/api/health/version` y `/version.json` respondan con la versión pedida.
 
-El primer despliegue tarda ~20–30 min (RDS y la construcción de imágenes).
+Alternativa local (con credenciales de AWS en su máquina):
+`cd infra && npx cdk deploy NexoPilot -c imageTag=1.1.0 -c domainName=... -c hostedZoneId=... -c hostedZoneName=...`
+(sin `imageTag` CDK construye las imágenes desde el código local: solo para pruebas, nunca para el piloto de clientes).
+
+El primer despliegue tarda ~20–30 min (sobre todo RDS).
 
 ## Paso 3 — Después del primer despliegue
 
@@ -55,7 +65,11 @@ El primer despliegue tarda ~20–30 min (RDS y la construcción de imágenes).
 
 - **Logs:** CloudWatch → grupos `NexoPilot-*` (api, worker, web) y logs de PostgreSQL.
 - **Consola en un contenedor:** `aws ecs execute-command --cluster <ClusterName> --task <id> --container api --interactive --command sh`.
-- **Actualizar:** volver a ejecutar el flujo de GitHub Actions (despliegue sin caída: `minHealthyPercent` 100 y rollback automático).
+- **Actualizar:** desplegar la nueva versión publicada (despliegue sin caída: `minHealthyPercent` 100 y rollback automático).
+- **Volver a una versión anterior:** desplegar esa versión. Las migraciones de base de datos son solo hacia adelante: si
+  la versión nueva aplicó una migración, la anterior debe ser compatible con ese esquema (regla: migraciones aditivas;
+  eliminar columnas en una versión posterior a la que deja de usarlas).
+- **¿Qué versión corre?** `curl https://<dominio>/api/health/version` y `https://<dominio>/version.json`.
 - **Eliminar el piloto:** `npx cdk destroy NexoPilot` (la base de datos deja un snapshot final).
 - **Nunca rotar `ENCRYPTION_KEY`:** cifra los secretos y tokens de los clientes; rotarla requiere un proceso de recifrado.
 

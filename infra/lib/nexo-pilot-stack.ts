@@ -2,6 +2,7 @@ import * as path from 'node:path';
 import * as cdk from 'aws-cdk-lib';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as ecr from 'aws-cdk-lib/aws-ecr';
 import { Platform } from 'aws-cdk-lib/aws-ecr-assets';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as elasticache from 'aws-cdk-lib/aws-elasticache';
@@ -12,12 +13,18 @@ import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as targets from 'aws-cdk-lib/aws-route53-targets';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import type { Construct } from 'constructs';
+import { ECR_REPOSITORIES } from './registry-stack';
 
 export interface NexoPilotStackProps extends cdk.StackProps {
   /** Dominio público (opcional). Sin dominio se publica por HTTP en el DNS del balanceador. */
   domainName?: string;
   hostedZoneId?: string;
   hostedZoneName?: string;
+  /**
+   * Versión publicada a desplegar (p. ej. 1.4.0): usa las imágenes inmutables de ECR con esa etiqueta.
+   * Sin versión se construyen las imágenes desde el código local (solo para pruebas).
+   */
+  imageTag?: string;
 }
 
 const ROOT = path.join(__dirname, '..', '..');
@@ -140,8 +147,16 @@ export class NexoPilotStack extends cdk.Stack {
     });
     const publicUrl = props.domainName ? `https://${props.domainName}` : `http://${alb.loadBalancerDnsName}`;
 
-    const apiImage = ecs.ContainerImage.fromAsset(path.join(ROOT, 'apps/api'), { platform: Platform.LINUX_AMD64 });
-    const webImage = ecs.ContainerImage.fromAsset(path.join(ROOT, 'apps/web'), { platform: Platform.LINUX_AMD64 });
+    const image = (app: keyof typeof ECR_REPOSITORIES) =>
+      props.imageTag
+        ? ecs.ContainerImage.fromEcrRepository(
+            ecr.Repository.fromRepositoryName(this, `${app}Repo`, ECR_REPOSITORIES[app]),
+            props.imageTag,
+          )
+        : ecs.ContainerImage.fromAsset(path.join(ROOT, 'apps', app), { platform: Platform.LINUX_AMD64 });
+    const apiImage = image('api');
+    const webImage = image('web');
+    if (props.imageTag) cdk.Tags.of(this).add('nexo:version', props.imageTag);
 
     const apiEnv: Record<string, string> = {
       NODE_ENV: 'production',
@@ -281,6 +296,7 @@ export class NexoPilotStack extends cdk.Stack {
 
     // ---------- Salidas ----------
     new cdk.CfnOutput(this, 'Url', { value: publicUrl, description: 'URL del piloto de Nexo' });
+    new cdk.CfnOutput(this, 'Version', { value: props.imageTag ?? 'local', description: 'Versión desplegada' });
     new cdk.CfnOutput(this, 'AppSecretArn', {
       value: appSecret.secretArn,
       description: 'Complete ANTHROPIC_API_KEY en este secreto y reinicie los servicios api y worker',

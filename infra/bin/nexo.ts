@@ -2,6 +2,7 @@
 import * as cdk from 'aws-cdk-lib';
 import { GithubOidcStack } from '../lib/github-oidc-stack';
 import { NexoPilotStack } from '../lib/nexo-pilot-stack';
+import { RegistryStack } from '../lib/registry-stack';
 
 /**
  * Parámetros (contexto CDK, `-c clave=valor`, o variables de entorno):
@@ -9,6 +10,7 @@ import { NexoPilotStack } from '../lib/nexo-pilot-stack';
  *   hostedZoneId    Zona de Route 53 del dominio (obligatoria si hay dominio y se quiere certificado automático).
  *   hostedZoneName  Nombre de la zona (p. ej. phari.co).
  *   githubRepo      Repositorio autorizado a desplegar por OIDC (por defecto ronnyferney/Nexo).
+ *   imageTag        Versión publicada a desplegar (p. ej. 1.4.0, imágenes de ECR). Sin ella se construye desde el código.
  */
 const app = new cdk.App();
 const env = {
@@ -22,7 +24,13 @@ new NexoPilotStack(app, 'NexoPilot', {
   domainName: ctx('domainName'),
   hostedZoneId: ctx('hostedZoneId'),
   hostedZoneName: ctx('hostedZoneName'),
+  imageTag: ctx('imageTag'),
   description: 'Nexo — piloto: API, workers y web en ECS Fargate, PostgreSQL (RDS) y Redis (ElastiCache)',
+});
+
+new RegistryStack(app, 'NexoRegistry', {
+  env,
+  description: 'Nexo — repositorios ECR de imágenes versionadas (etiquetas inmutables)',
 });
 
 new GithubOidcStack(app, 'NexoGithubOidc', {

@@ -1,6 +1,8 @@
 name: Desplegar piloto AWS
 
-# Despliegue manual del piloto (ECS Fargate + RDS + ElastiCache) con AWS CDK.
+# Despliega en el piloto (ECS Fargate + RDS + ElastiCache) una versión YA PUBLICADA por release.yml.
+# No reconstruye nada: copia las imágenes inmutables de GHCR a ECR (mismo digest) y despliega con CDK esa etiqueta;
+# al final verifica que la API responde con la versión pedida. Volver a una versión anterior = desplegarla de nuevo.
 # Autenticación por OIDC: sin llaves de AWS en GitHub. Requisitos (una sola vez, ver docs/deploy-aws.md):
 #   - cdk bootstrap en la cuenta/región
 #   - stack NexoGithubOidc desplegado y su salida guardada como secreto AWS_DEPLOY_ROLE_ARN
@@ -8,6 +10,9 @@ name: Desplegar piloto AWS
 on:
   workflow_dispatch:
     inputs:
+      version:
+        description: Versión publicada a desplegar (X.Y.Z, sin "v")
+        required: true
       confirm:
         description: 'Escriba "desplegar" para confirmar'
         required: true
@@ -15,6 +20,7 @@ on:
 permissions:
   id-token: write
   contents: read
+  packages: read
 
 concurrency:
   group: deploy-aws-pilot
@@ -24,12 +30,22 @@ jobs:
   deploy:
     if: ${{ github.event.inputs.confirm == 'desplegar' }}
     runs-on: ubuntu-latest
-    environment: piloto
-    defaults:
-      run:
-        working-directory: infra
+    environment:
+      name: piloto
+      url: ${{ steps.outputs.outputs.url }}
+    env:
+      VERSION: ${{ github.event.inputs.version }}
     steps:
+      - name: Validar versión
+        run: |
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Versión inválida: $VERSION (use X.Y.Z)"; exit 1; }
       - uses: actions/checkout@v4
+        with:
+          ref: v${{ github.event.inputs.version }}
+      - name: Confirmar que la versión fue publicada
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release view "v$VERSION" --json tagName > /dev/null
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -40,14 +56,55 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
       - run: npm ci
-      - run: npm run build
+        working-directory: infra
+      - name: Registro de imágenes (ECR)
+        working-directory: infra
+        run: npx cdk deploy NexoRegistry --require-approval never
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Copiar imágenes de la versión a ECR
+        env:
+          ECR: ${{ steps.ecr.outputs.registry }}
+        run: |
+          set -euo pipefail
+          SOURCE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}"
+          for app in api web; do
+            if aws ecr describe-images --repository-name "nexo/$app" --image-ids imageTag="$VERSION" > /dev/null 2>&1; then
+              echo "nexo/$app:$VERSION ya está en ECR (etiquetas inmutables)"
+            else
+              docker buildx imagetools create --tag "$ECR/nexo/$app:$VERSION" "$SOURCE/nexo-$app:$VERSION"
+            fi
+            echo "- nexo/$app:$VERSION → $(docker buildx imagetools inspect "$ECR/nexo/$app:$VERSION" --format '{{json .Manifest.Digest}}')" >> "$GITHUB_STEP_SUMMARY"
+          done
       - name: Desplegar
+        working-directory: infra
         env:
           DOMAIN_NAME: ${{ vars.DOMAIN_NAME }}
           HOSTED_ZONE_ID: ${{ vars.HOSTED_ZONE_ID }}
           HOSTED_ZONE_NAME: ${{ vars.HOSTED_ZONE_NAME }}
-        run: npx cdk deploy NexoPilot --require-approval never --outputs-file outputs.json
-      - name: Resumen
+        run: npx cdk deploy NexoPilot -c imageTag="$VERSION" --require-approval never --outputs-file outputs.json
+      - id: outputs
+        working-directory: infra
+        run: echo "url=$(node -p "require('./outputs.json').NexoPilot.Url")" >> "$GITHUB_OUTPUT"
+      - name: Verificar la versión en ejecución
+        env:
+          URL: ${{ steps.outputs.outputs.url }}
         run: |
-          echo "### Piloto de Nexo desplegado" >> $GITHUB_STEP_SUMMARY
-          node -e "const o=require('./outputs.json').NexoPilot; console.log('- URL: '+o.Url+'\n- Secreto de la app: '+o.AppSecretArn)" >> $GITHUB_STEP_SUMMARY
+          for i in $(seq 1 30); do
+            running=$(curl -fsS "$URL/api/health/version" | node -p "JSON.parse(require('fs').readFileSync(0)).version" || true)
+            web=$(curl -fsS "$URL/version.json" | node -p "JSON.parse(require('fs').readFileSync(0)).version" || true)
+            if [ "$running" = "$VERSION" ] && [ "$web" = "$VERSION" ]; then echo "API y web en $VERSION"; exit 0; fi
+            echo "Esperando... API=$running web=$web"; sleep 20
+          done
+          echo "::error::La versión en ejecución no es $VERSION"; exit 1
+      - name: Resumen
+        working-directory: infra
+        run: |
+          echo "### Nexo $VERSION desplegado en el piloto" >> "$GITHUB_STEP_SUMMARY"
+          node -e "const o=require('./outputs.json').NexoPilot; console.log('- URL: '+o.Url+'\n- Secreto de la app: '+o.AppSecretArn)" >> "$GITHUB_STEP_SUMMARY"

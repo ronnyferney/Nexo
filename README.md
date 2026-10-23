@@ -89,6 +89,16 @@ docker compose up -d --scale worker=3   # más capacidad de ejecución de flujos
 
 Web en `http://localhost:8080`. La API y los workers comparten imagen; `WORKER_ENABLED` decide el rol.
 
+## Publicación y despliegue
+
+Versiones semánticas con CHANGELOG generado desde los commits, imágenes inmutables en GHCR y despliegue en AWS de una
+versión publicada (sin reconstruir). Guía: [docs/release.md](docs/release.md) · AWS: [docs/deploy-aws.md](docs/deploy-aws.md).
+
+```bash
+npm run release:dry      # versión y notas calculadas
+npm run release && git push --follow-tags origin HEAD
+```
+
 ## Conectar un cliente MCP a Nexo
 
 Cree una API key en **Configuración** y agregue a su cliente MCP:

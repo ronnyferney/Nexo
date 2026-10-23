@@ -15,8 +15,17 @@ RUN npm run build && rm -f dist/*.test.* && npm prune --omit=dev
 
 # ---- runtime ----
 FROM node:22-bookworm-slim
+ARG APP_VERSION=0.0.0-dev
+ARG GIT_SHA=
+ARG BUILD_DATE=
+LABEL org.opencontainers.image.title="nexo-edge" \
+      org.opencontainers.image.source="https://github.com/ronnyferney/Nexo" \
+      org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.created="${BUILD_DATE}"
 WORKDIR /app
 ENV NODE_ENV=production \
+    APP_VERSION=${APP_VERSION} \
     EDGE_CONFIG=/app/edge.yaml
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist

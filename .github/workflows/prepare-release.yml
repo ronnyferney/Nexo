@@ -1,0 +1,57 @@
+name: Preparar versión
+
+# Corta una versión desde la rama por defecto: calcula el número a partir de los commits convencionales, actualiza
+# versiones y CHANGELOG, crea el commit chore(release) y la etiqueta, y luego publica (release.yml).
+# Requiere que la rama por defecto permita el push de GitHub Actions (o una regla de excepción para el bot).
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Incremento (auto lo deduce de los commits)
+        type: choice
+        options: [auto, patch, minor, major]
+        default: auto
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prepare-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: ${{ github.ref_name == github.event.repository.default_branch }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test scripts/release.test.mjs
+      - name: Preparar
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          node scripts/release.mjs prepare "$BUMP"
+      - id: tag
+        run: echo "tag=v$(node scripts/release.mjs current)" >> "$GITHUB_OUTPUT"
+      - run: git push --follow-tags origin HEAD
+
+  # Una etiqueta creada con GITHUB_TOKEN no dispara otros workflows: se invoca la publicación directamente.
+  release:
+    needs: prepare
+    permissions:
+      contents: write
+      packages: write
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.prepare.outputs.tag }}
