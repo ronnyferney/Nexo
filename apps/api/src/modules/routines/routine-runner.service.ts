@@ -3,6 +3,7 @@ import type { RunStatus } from '@prisma/client';
 import { HttpClientService } from '../../common/http/http-client.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AgentsService } from '../agents/agents.service';
+import { routineBlockReason } from './routines.service';
 
 const NOTIFY_TIMEOUT_MS = 10_000;
 
@@ -17,10 +18,21 @@ export class RoutineRunnerService {
     private readonly http: HttpClientService,
   ) {}
 
-  /** Disparo del cron: crea la corrida y la ejecuta. Si la rutina ya no existe o está deshabilitada, no hace nada. */
+  /**
+   * Disparo del cron: crea la corrida y la ejecuta. Si la rutina ya no existe, está deshabilitada o su agente no puede
+   * ejecutar rutinas (ver `routineBlockReason`), no hace nada.
+   */
   async runScheduled(routineId: string): Promise<string | null> {
-    const routine = await this.prisma.agentRoutine.findUnique({ where: { id: routineId }, select: { enabled: true } });
+    const routine = await this.prisma.agentRoutine.findUnique({
+      where: { id: routineId },
+      select: { enabled: true, agent: { select: { visibility: true, launchStatus: true, ownerId: true } } },
+    });
     if (!routine?.enabled) return null;
+    // Agente de equipo/empresa en borrador: el disparo se omite sin crear corrida (no ensucia el historial ni la salud).
+    if (routineBlockReason(routine.agent)) {
+      this.logger.debug(`Rutina ${routineId} omitida: agente no lanzado`);
+      return null;
+    }
     const run = await this.prisma.routineRun.create({ data: { routineId } });
     await this.execute(run.id);
     return run.id;
@@ -28,17 +40,27 @@ export class RoutineRunnerService {
 
   /** Idempotente: solo procesa corridas en estado RUNNING sin `finishedAt`. */
   async execute(runId: string): Promise<void> {
-    const run = await this.prisma.routineRun.findUnique({ where: { id: runId }, include: { routine: true } });
+    const run = await this.prisma.routineRun.findUnique({
+      where: { id: runId },
+      include: { routine: { include: { agent: { select: { visibility: true, launchStatus: true, ownerId: true } } } } },
+    });
     if (!run || run.status !== 'RUNNING' || run.finishedAt) return;
     const { routine } = run;
+    const { agent } = routine;
 
     let status: RunStatus = 'SUCCEEDED';
     let output: string | null = null;
     let error: string | null = null;
     let costUsd = 0;
     try {
+      const blocked = routineBlockReason(agent);
+      if (blocked) throw new Error(blocked);
+      // Agente PRIVATE: la rutina corre a nombre del dueño y se imputa a su centro de costo (ADR 0007 D5). En otro
+      // caso, sin usuario: centro de costo del agente o la raíz (ADR 0002 D3).
+      const userId = agent.visibility === 'PRIVATE' ? (agent.ownerId ?? undefined) : undefined;
       const result = await this.agents.runOnce(routine.workspaceId, routine.agentId, routine.prompt, {
         source: 'ROUTINE',
+        userId,
       });
       output = result.text;
       costUsd = Number(result.usage?.costUsd ?? 0) || 0;

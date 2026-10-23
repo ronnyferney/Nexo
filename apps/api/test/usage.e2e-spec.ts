@@ -4,6 +4,7 @@ import {
   addMember,
   chat,
   createAgent,
+  publishAgent,
   createUnit,
   records,
   registerOwner,
@@ -42,6 +43,7 @@ describe('Gobierno de IA · medición, centro de costo y modelos permitidos (E2E
       unitId = (await createUnit(owner, 'Ventas', root.id)).id;
       editor = await addMember(app, owner, { role: 'EDITOR', orgUnitId: unitId });
       agentId = (await createAgent(owner, { name: 'Asistente de ventas' })).id;
+      await publishAgent(owner, agentId); // el EDITOR conversa con un agente de la empresa (ADR 0007)
       results = [await chat(editor, agentId, 'Hola'), await chat(editor, agentId, 'Necesito una cotización')];
     });
 
@@ -241,6 +243,7 @@ describe('Gobierno de IA · medición, centro de costo y modelos permitidos (E2E
       owner = await registerOwner(app, 'modelos');
       rootId = (await rootUnit(owner)).id;
       agentId = (await createAgent(owner)).id;
+      await publishAgent(owner, agentId); // miembros de otras unidades conversan con él (ADR 0007)
     });
 
     afterEach(async () => {

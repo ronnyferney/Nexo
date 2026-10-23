@@ -84,7 +84,7 @@ export class GovernanceAdminController {
 
   @Delete('org/members/:id')
   removeMember(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
-    return this.org.removeMember(a.workspaceId, id);
+    return this.org.removeMember(a.workspaceId, id, a.userId);
   }
 
   // Presupuestos

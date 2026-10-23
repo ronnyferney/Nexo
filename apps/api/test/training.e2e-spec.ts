@@ -3,6 +3,7 @@ import { createTestApp } from './utils/app';
 import {
   addMember,
   createAgent,
+  publishAgent,
   createUnit,
   LONG_MESSAGE,
   records,
@@ -116,6 +117,7 @@ describe('Bucle de mejora supervisada · feedback, evaluaciones, versiones y sug
 
     beforeAll(async () => {
       agentId = (await createAgent(owner, { name: 'Agente feedback' })).id;
+      await publishAgent(owner, agentId); // el VIEWER usa (USE) un agente de la empresa (ADR 0007)
     });
 
     it('👍 sin corrección queda aprobado; 👎 con corrección entra a la bandeja', async () => {
@@ -232,6 +234,7 @@ describe('Bucle de mejora supervisada · feedback, evaluaciones, versiones y sug
 
     beforeAll(async () => {
       agentId = (await createAgent(owner, { name: `Agente evaluado ${Date.now()}`, systemPrompt: ORIGINAL_PROMPT })).id;
+      await publishAgent(owner, agentId);
     });
 
     it('CRUD de casos (EDITOR+) con validación', async () => {

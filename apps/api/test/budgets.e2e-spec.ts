@@ -4,6 +4,7 @@ import {
   addMember,
   chat,
   createAgent,
+  publishAgent,
   createUnit,
   LONG_MESSAGE,
   records,
@@ -86,6 +87,7 @@ describe('Gobierno de IA · presupuestos jerárquicos y políticas (E2E)', () =>
       teamId = (await createUnit(owner, 'Equipo', directionId)).id;
       editor = await addMember(app, owner, { role: 'EDITOR', orgUnitId: teamId });
       agentId = (await createAgent(owner)).id;
+      await publishAgent(owner, agentId); // el EDITOR conversa con un agente de la empresa (ADR 0007)
     });
 
     it('crea el presupuesto con umbrales por defecto y sin gasto', async () => {
@@ -249,6 +251,7 @@ describe('Gobierno de IA · presupuestos jerárquicos y políticas (E2E)', () =>
       unitId = (await createUnit(owner, 'Soporte', rootId)).id;
       editor = await addMember(app, owner, { role: 'EDITOR', orgUnitId: unitId });
       agentId = (await createAgent(owner, { name: 'Agente premium' })).id;
+      await publishAgent(owner, agentId);
       const conn = await owner.api
         .post('/admin/llm/connections', {
           name: 'Económico local',

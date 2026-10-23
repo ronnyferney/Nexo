@@ -5,6 +5,7 @@ import {
   adminUnits,
   chat,
   createAgent,
+  publishAgent,
   createUnit,
   records,
   registerOwner,
@@ -63,6 +64,7 @@ describe('Gobierno de IA · aislamiento multi-tenant (E2E)', () => {
     aModelId = (model.body as { id: string }).id;
 
     aAgentId = (await createAgent(a, { name: 'Agente de A', provider: aConnectionId, model: 'gpt-a' })).id;
+    await publishAgent(a, aAgentId); // el miembro de A conversa con un agente de la empresa (ADR 0007)
     aCost = (await chat(aMember, aAgentId, 'consumo de A')).usage.costUsd;
     expect(aCost).toBeGreaterThan(0);
   });

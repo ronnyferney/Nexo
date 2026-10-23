@@ -6,6 +6,7 @@ import {
   createAgent,
   createUnit,
   LONG_MESSAGE,
+  publishAgent,
   records,
   registerOwner,
   rootUnit,
@@ -110,8 +111,16 @@ describe('Rutinas de agentes y prácticas n8n en flujos (E2E)', () => {
 
     it('un VIEWER no puede crear rutinas', async () => {
       const viewer = await addMember(app, owner, { role: 'VIEWER' });
+      // Agente privado del OWNER: invisible para el VIEWER (ADR 0007).
       await viewer.api
         .post(`/agents/${agentId}/routines`, { name: 'Prohibida', prompt: 'x', schedule: '0 8 * * *' })
+        .expect(404);
+      // Agente de la empresa: el VIEWER lo usa, pero gestionar rutinas requiere EDIT.
+      const shared = (await createAgent(owner, { name: 'Agente de empresa' })).id;
+      await publishAgent(owner, shared);
+      await viewer.api.get(`/agents/${shared}/routines`).expect(200);
+      await viewer.api
+        .post(`/agents/${shared}/routines`, { name: 'Prohibida', prompt: 'x', schedule: '0 8 * * *' })
         .expect(403);
       await viewer.api.get('/routines').expect(200);
     });
@@ -199,6 +208,8 @@ describe('Rutinas de agentes y prácticas n8n en flujos (E2E)', () => {
         .put(`/admin/budgets/${unit.id}`, { period: 'MONTHLY', limitUsd: 0.0001, policy: 'BLOCK' })
         .expect(200);
       const agent = await createAgent(owner, { name: 'Agente con presupuesto', costCenterId: unit.id });
+      // Las rutinas de un agente PRIVATE se imputan al dueño (ADR 0007 D5); publicado, usan su centro de costo.
+      await publishAgent(owner, agent.id);
       const r = (
         await owner.api
           .post(`/agents/${agent.id}/routines`, {

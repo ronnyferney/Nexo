@@ -154,10 +154,48 @@ export class OrgService {
     return (await this.members(workspaceId)).find((x) => x.membershipId === membershipId);
   }
 
-  async removeMember(workspaceId: string, membershipId: string) {
+  /**
+   * Retira a un miembro. Sus agentes pasan al administrador que lo retira (`actorUserId`), sin cambiar su visibilidad,
+   * y sus shares directos se eliminan (ADR 0007 D3). Si no hay actor (tareas internas) o el miembro se retira a sí
+   * mismo, pasan al OWNER más antiguo. La respuesta informa qué agentes se transfirieron y a quién.
+   */
+  async removeMember(workspaceId: string, membershipId: string, actorUserId?: string) {
     const m = await this.membership(workspaceId, membershipId);
     if (m.role === 'OWNER') await this.assertAnotherOwner(workspaceId, membershipId);
-    await this.prisma.membership.delete({ where: { id: membershipId } });
+    // Si alguien se retira a sí mismo, sus agentes pasan al OWNER más antiguo.
+    const newOwnerId =
+      actorUserId && actorUserId !== m.userId ? actorUserId : await this.oldestOwner(workspaceId, m.userId);
+    const agents = await this.prisma.agent.findMany({
+      where: { workspaceId, ownerId: m.userId },
+      select: { id: true, name: true, visibility: true },
+      orderBy: { name: 'asc' },
+    });
+    await this.prisma.$transaction([
+      this.prisma.agent.updateMany({ where: { workspaceId, ownerId: m.userId }, data: { ownerId: newOwnerId } }),
+      this.prisma.agentShare.deleteMany({
+        where: { principalType: 'USER', principalId: m.userId, agent: { workspaceId } },
+      }),
+      // El nuevo dueño no necesita un share directo sobre los agentes que recibe.
+      this.prisma.agentShare.deleteMany({
+        where: { principalType: 'USER', principalId: newOwnerId ?? '', agentId: { in: agents.map((a) => a.id) } },
+      }),
+      this.prisma.membership.delete({ where: { id: membershipId } }),
+    ]);
+    return {
+      removed: true,
+      userId: m.userId,
+      transferredTo: agents.length ? newOwnerId : null,
+      transferredAgents: agents,
+    };
+  }
+
+  private async oldestOwner(workspaceId: string, exceptUserId: string): Promise<string | null> {
+    const owner = await this.prisma.membership.findFirst({
+      where: { workspaceId, role: 'OWNER', userId: { not: exceptUserId } },
+      orderBy: { createdAt: 'asc' },
+      select: { userId: true },
+    });
+    return owner?.userId ?? null;
   }
 
   async unit(workspaceId: string, id: string): Promise<OrgUnit> {

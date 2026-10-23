@@ -171,3 +171,24 @@ export async function records(s: Session): Promise<UsageRecordItem[]> {
 
 /** Mensaje largo para que una sola llamada al mock supere un presupuesto mínimo (≈ 0.0003 USD con mock-echo). */
 export const LONG_MESSAGE = 'Consumo de prueba para agotar el presupuesto. '.repeat(10);
+
+/**
+ * Publica el agente para toda la empresa (ADR 0007): lo lanza con override (requiere ADMIN/OWNER) y lo pasa a
+ * WORKSPACE. Reproduce el modelo anterior a ADR 0007 en pruebas que comparten un agente entre roles.
+ */
+export async function publishAgent(admin: Session, agentId: string): Promise<void> {
+  await admin.api.post(`/agents/${agentId}/launch`, { override: true, reason: 'Prueba E2E' }).expect(200);
+  await admin.api.patch(`/agents/${agentId}/visibility`, { visibility: 'WORKSPACE' }).expect(200);
+}
+
+export interface ShareBody {
+  principalType: 'USER' | 'UNIT';
+  principalId: string;
+  permission: 'USE' | 'EDIT';
+}
+
+/** Pasa el agente a TEAM y reemplaza sus shares. */
+export async function shareAgent(s: Session, agentId: string, shares: ShareBody[]): Promise<void> {
+  await s.api.patch(`/agents/${agentId}/visibility`, { visibility: 'TEAM' }).expect(200);
+  await s.api.put(`/agents/${agentId}/shares`, { shares }).expect(200);
+}

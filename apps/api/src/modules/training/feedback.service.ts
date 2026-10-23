@@ -1,5 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import type { MessageFeedback, Prisma, ReviewStatus } from '@prisma/client';
+import type { AuthContext } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AgentsService, MAX_EXAMPLES } from '../agents/agents.service';
 import { CreateFeedbackDto, ReviewFeedbackDto } from './dto/training.dto';
@@ -35,9 +36,12 @@ export class FeedbackService {
   ) {}
 
   /** Un 👍 sin corrección no requiere revisión (queda APPROVED); un 👎 o una corrección entran a la bandeja. */
-  async create(workspaceId: string, agentId: string, userId: string | undefined, dto: CreateFeedbackDto) {
+  async create(auth: AuthContext, agentId: string, dto: CreateFeedbackDto) {
+    const { workspaceId } = auth;
+    const userId = auth.via === 'jwt' ? auth.userId : undefined;
     await this.agents.get(workspaceId, agentId);
-    if (dto.conversationId) await this.agents.conversation(workspaceId, agentId, dto.conversationId);
+    // Solo se califica una conversación propia (ADR 0007 D4).
+    if (dto.conversationId) await this.agents.conversation(auth, agentId, dto.conversationId);
     const correction = dto.correction?.trim() || null;
     const status: ReviewStatus = dto.rating === 'UP' && !correction ? 'APPROVED' : 'PENDING';
     const created = await this.prisma.messageFeedback.create({
@@ -58,12 +62,14 @@ export class FeedbackService {
     return view(created);
   }
 
-  async list(workspaceId: string, filter: { agentId?: string; status?: ReviewStatus }) {
-    if (filter.agentId) await this.agents.get(workspaceId, filter.agentId);
+  /** `agentIds` acota a los agentes autorizados; `userId` (si se indica) deja solo la retroalimentación propia. */
+  async list(workspaceId: string, filter: { agentIds: string[]; status?: ReviewStatus; userId?: string | null }) {
     const where: Prisma.MessageFeedbackWhereInput = {
       workspaceId,
-      ...(filter.agentId ? { agentId: filter.agentId } : {}),
+      agentId: { in: filter.agentIds },
       ...(filter.status ? { status: filter.status } : {}),
+      // Sin identidad (API key) no hay retroalimentación "propia".
+      ...(filter.userId === null ? { id: { in: [] } } : filter.userId ? { userId: filter.userId } : {}),
     };
     const rows = await this.prisma.messageFeedback.findMany({
       where,

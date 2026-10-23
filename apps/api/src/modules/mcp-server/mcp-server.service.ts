@@ -17,7 +17,7 @@ const text = (value: unknown, isError = false) => ({
 });
 
 /**
- * Construye un servidor MCP por workspace: cada agente y cada flujo activo
+ * Construye un servidor MCP por workspace: cada agente de empresa lanzado (WORKSPACE + LAUNCHED) y cada flujo activo
  * se publica como una tool invocable por clientes MCP (Claude, IDEs, otros agentes).
  */
 @Injectable()
@@ -31,7 +31,11 @@ export class McpServerService {
   async build(workspaceId: string): Promise<McpServer> {
     const server = new McpServer({ name: 'nexo', version: '1.0.0' });
     const [agents, workflows] = await Promise.all([
-      this.prisma.agent.findMany({ where: { workspaceId }, select: { id: true, name: true, description: true } }),
+      // Solo agentes de empresa lanzados (ADR 0006 D4 + ADR 0007 D5): ni borradores ni agentes personales o de equipo.
+      this.prisma.agent.findMany({
+        where: { workspaceId, visibility: 'WORKSPACE', launchStatus: 'LAUNCHED' },
+        select: { id: true, name: true, description: true },
+      }),
       this.prisma.workflow.findMany({
         where: { workspaceId, active: true },
         select: { id: true, name: true, description: true },

@@ -32,13 +32,13 @@ export class WorkflowsController {
   @MinRole('EDITOR')
   @Post()
   create(@CurrentAuth() a: AuthContext, @Body() dto: CreateWorkflowDto) {
-    return this.workflows.create(a.workspaceId, dto);
+    return this.workflows.create(a, dto);
   }
 
   @MinRole('EDITOR')
   @Patch(':id')
   update(@CurrentAuth() a: AuthContext, @Param('id') id: string, @Body() dto: UpdateWorkflowDto) {
-    return this.workflows.update(a.workspaceId, id, dto);
+    return this.workflows.update(a, id, dto);
   }
 
   @MinRole('EDITOR')
@@ -83,7 +83,7 @@ export class WorkflowsController {
   @HttpCode(200)
   @Post(':id/versions/:version/restore')
   restore(@CurrentAuth() a: AuthContext, @Param('id') id: string, @Param('version', ParseIntPipe) version: number) {
-    return this.workflows.restoreVersion(a.workspaceId, id, version);
+    return this.workflows.restoreVersion(a, id, version);
   }
 
   /**

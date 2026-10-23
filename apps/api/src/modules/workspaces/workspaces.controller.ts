@@ -1,11 +1,11 @@
-import { Body, Controller, Delete, Get, Param, Post, Put } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { CurrentAuth, type AuthContext } from '../../common/decorators/current-user.decorator';
 import { MinRole } from '../../common/decorators/roles.decorator';
 import { API_KEY_PREFIX } from '../../common/guards/auth.guard';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { CreateApiKeyDto, UpsertSecretDto } from './dto/workspace.dto';
+import { CreateApiKeyDto, UpdateWorkspaceSettingsDto, UpsertSecretDto } from './dto/workspace.dto';
 import { SecretsService } from './secrets.service';
 
 @ApiTags('workspace')
@@ -28,6 +28,26 @@ export class WorkspacesController {
       this.prisma.execution.count({ where: { workspaceId, createdAt: { gte: since }, status: 'FAILED' } }),
     ]);
     return { connectors, agents, workflows, executionsLast7d: executions, failedLast7d: failed };
+  }
+
+  /** Ajustes visibles para cualquier miembro (la web decide si ofrece "agente personal"). */
+  @Get('settings')
+  settings(@CurrentAuth() { workspaceId }: AuthContext) {
+    return this.prisma.workspace.findUniqueOrThrow({
+      where: { id: workspaceId },
+      select: { allowPersonalAgents: true },
+    });
+  }
+
+  /** Desactivar agentes personales no afecta a los existentes: solo impide crear (o volver) PRIVATE. */
+  @MinRole('ADMIN')
+  @Patch('settings')
+  updateSettings(@CurrentAuth() { workspaceId }: AuthContext, @Body() dto: UpdateWorkspaceSettingsDto) {
+    return this.prisma.workspace.update({
+      where: { id: workspaceId },
+      data: { allowPersonalAgents: dto.allowPersonalAgents },
+      select: { allowPersonalAgents: true },
+    });
   }
 
   @Get('secrets')

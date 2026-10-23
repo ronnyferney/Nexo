@@ -1,6 +1,7 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -56,6 +57,21 @@ export const runView = (r: RoutineRun) => ({
 
 const WITH_AGENT = { agent: { select: { name: true } } } as const;
 
+/**
+ * ¿Puede ejecutarse una rutina del agente? (ADR 0006 D4 + ADR 0007 D5). Solo si el agente está LAUNCHED o es
+ * PRIVATE de un dueño (automatización personal: corre a nombre del dueño y se imputa a su unidad). Un agente de
+ * equipo/empresa en borrador no ejecuta rutinas. Devuelve el motivo del bloqueo o null.
+ */
+export function routineBlockReason(agent: {
+  visibility: 'PRIVATE' | 'TEAM' | 'WORKSPACE';
+  launchStatus: 'DRAFT' | 'LAUNCHED';
+  ownerId: string | null;
+}): string | null {
+  if (agent.launchStatus === 'LAUNCHED') return null;
+  if (agent.visibility === 'PRIVATE' && agent.ownerId) return null;
+  return 'El agente no está lanzado: las rutinas de agentes de equipo o empresa solo se ejecutan cuando el agente está lanzado';
+}
+
 /** Rutinas programadas por agente (ADR 0003 · D5): CRUD, programación cron en BullMQ e historial. */
 @Injectable()
 export class RoutinesService implements OnModuleInit, OnModuleDestroy {
@@ -75,10 +91,11 @@ export class RoutinesService implements OnModuleInit, OnModuleDestroy {
     await this.events?.close();
   }
 
-  async list(workspaceId: string, agentId?: string): Promise<RoutineView[]> {
+  /** `agentIds` (opcional) acota a los agentes autorizados para el usuario. */
+  async list(workspaceId: string, agentId?: string, agentIds?: string[]): Promise<RoutineView[]> {
     if (agentId) await this.assertAgent(workspaceId, agentId);
     const rows = await this.prisma.agentRoutine.findMany({
-      where: { workspaceId, ...(agentId ? { agentId } : {}) },
+      where: { workspaceId, ...(agentId ? { agentId } : agentIds ? { agentId: { in: agentIds } } : {}) },
       include: WITH_AGENT,
       orderBy: { createdAt: 'desc' },
     });
@@ -147,6 +164,12 @@ export class RoutinesService implements OnModuleInit, OnModuleDestroy {
   /** Ejecución inmediata: encola la corrida y espera su resultado hasta 60 s (si no, devuelve la corrida RUNNING). */
   async runNow(workspaceId: string, id: string) {
     const routine = await this.get(workspaceId, id);
+    const agent = await this.prisma.agent.findUniqueOrThrow({
+      where: { id: routine.agentId },
+      select: { visibility: true, launchStatus: true, ownerId: true },
+    });
+    const blocked = routineBlockReason(agent);
+    if (blocked) throw new ConflictException(blocked);
     const run = await this.prisma.routineRun.create({ data: { routineId: routine.id } });
     const job = await this.queue.add(JOB_ROUTINE_RUN, { runId: run.id } satisfies RoutineRunJobData, {
       jobId: run.id,

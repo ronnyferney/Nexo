@@ -4,6 +4,7 @@ import {
   addMember,
   adminUnits,
   createAgent,
+  publishAgent,
   createUnit,
   login,
   PASSWORD,
@@ -284,11 +285,16 @@ describe('Gobierno de IA · organización, miembros y roles (E2E)', () => {
       expect(usage.orgUnit.id).toBe(units[0].id);
     });
 
-    it('un VIEWER puede leer el catálogo y su consumo, pero no chatear', async () => {
+    // ADR 0007: chatear requiere USE sobre el agente (no un rol): un VIEWER no ve agentes privados ajenos (404) y
+    // conversa con los de la empresa, pero no los edita (403).
+    it('un VIEWER puede leer el catálogo y su consumo, y solo chatea con agentes que puede usar', async () => {
       await viewer.api.get('/llm/catalog').expect(200);
       await viewer.api.get('/me/usage').expect(200);
       const agent = await createAgent(owner);
-      await viewer.api.post(`/agents/${agent.id}/chat`, { message: 'hola' }).expect(403);
+      await viewer.api.post(`/agents/${agent.id}/chat`, { message: 'hola' }).expect(404);
+      await publishAgent(owner, agent.id);
+      await viewer.api.post(`/agents/${agent.id}/chat`, { message: 'hola' }).expect(200);
+      await viewer.api.patch(`/agents/${agent.id}`, { name: 'Renombrado' }).expect(403);
     });
 
     it('sin token o con token alterado responde 401', async () => {

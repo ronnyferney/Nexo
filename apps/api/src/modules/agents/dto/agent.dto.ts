@@ -1,4 +1,4 @@
-import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional, OmitType, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -81,9 +81,72 @@ export class CreateAgentDto {
   @Min(0)
   @Max(1)
   targetScore?: number;
+  @ApiPropertyOptional({
+    enum: ['PRIVATE', 'TEAM'],
+    default: 'PRIVATE',
+    description: 'Visibilidad inicial (ADR 0007). TEAM requiere EDITOR+; WORKSPACE exige lanzar el agente primero.',
+  })
+  @IsOptional()
+  @IsIn(['PRIVATE', 'TEAM'])
+  visibility?: 'PRIVATE' | 'TEAM';
 }
 
-export class UpdateAgentDto extends PartialType(CreateAgentDto) {}
+/** La visibilidad, el dueño y el lanzamiento tienen rutas propias: no se editan con PATCH /agents/:id. */
+export class UpdateAgentDto extends PartialType(OmitType(CreateAgentDto, ['visibility'] as const)) {}
+
+export const AGENT_SCOPES = ['mine', 'shared', 'workspace', 'all'] as const;
+
+export class ListAgentsQueryDto {
+  @ApiPropertyOptional({ enum: AGENT_SCOPES, description: 'Por defecto: todos los agentes que el usuario puede usar' })
+  @IsOptional()
+  @IsIn(AGENT_SCOPES)
+  scope?: (typeof AGENT_SCOPES)[number];
+}
+
+export class SetVisibilityDto {
+  @ApiProperty({ enum: ['PRIVATE', 'TEAM', 'WORKSPACE'] })
+  @IsIn(['PRIVATE', 'TEAM', 'WORKSPACE'])
+  visibility!: 'PRIVATE' | 'TEAM' | 'WORKSPACE';
+}
+
+export class AgentShareDto {
+  @ApiProperty({ enum: ['USER', 'UNIT'] }) @IsIn(['USER', 'UNIT']) principalType!: 'USER' | 'UNIT';
+  @ApiProperty() @IsString() @MinLength(1) @MaxLength(64) principalId!: string;
+  @ApiProperty({ enum: ['USE', 'EDIT'] }) @IsIn(['USE', 'EDIT']) permission!: 'USE' | 'EDIT';
+}
+
+export class SetSharesDto {
+  @ApiProperty({ type: [AgentShareDto] })
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => AgentShareDto)
+  shares!: AgentShareDto[];
+}
+
+export class TransferAgentDto {
+  @ApiProperty({ description: 'Usuario (miembro del workspace) que será el nuevo dueño' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(64)
+  userId!: string;
+}
+
+export class DuplicateAgentDto {
+  @ApiPropertyOptional() @IsOptional() @IsString() @MinLength(2) @MaxLength(80) name?: string;
+}
+
+export class LaunchAgentDto {
+  @ApiPropertyOptional({ description: 'Forzar el lanzamiento sin cumplir los requisitos (solo ADMIN/OWNER)' })
+  @IsOptional()
+  @IsBoolean()
+  override?: boolean;
+  @ApiPropertyOptional({ description: 'Razón del override (obligatoria si override = true)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
+}
 
 export class AgentToolBindingDto {
   @ApiProperty() @IsString() operationId!: string;

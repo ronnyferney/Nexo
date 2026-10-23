@@ -15,6 +15,7 @@ import {
   EvalRunsController,
   FeedbackController,
 } from './training.controller';
+import { TrainingRefsService } from './training-refs.service';
 import { VersionsService } from './versions.service';
 
 /** El worker se puede desactivar (WORKER_ENABLED=false) para separar API y workers en despliegue. */
@@ -35,6 +36,7 @@ const workers: Provider[] = process.env.WORKER_ENABLED === 'false' ? [] : [EvalP
     VersionsService,
     SuggestionsService,
     MeteredLlmService,
+    TrainingRefsService,
     ...workers,
   ],
 })

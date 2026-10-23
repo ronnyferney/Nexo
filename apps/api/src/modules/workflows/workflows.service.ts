@@ -2,6 +2,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -10,7 +11,9 @@ import {
 } from '@nestjs/common';
 import { Prisma, type TriggerType } from '@prisma/client';
 import { Queue, QueueEvents } from 'bullmq';
+import type { AuthContext } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { AgentAccessService } from '../agent-access/agent-access.service';
 import type { WorkflowDefinition } from './engine/workflow.types';
 import { validateDefinition } from './engine/workflow.validator';
 import { CreateWorkflowDto, UpdateWorkflowDto } from './dto/workflow.dto';
@@ -33,6 +36,15 @@ function canonical(v: unknown): string {
 }
 const MAX_WAIT_MS = 60_000;
 
+/** Agentes referenciados por nodos `agent` (ids literales; las plantillas se resuelven en ejecución). */
+export function agentRefs(def: WorkflowDefinition | null | undefined): { nodeId: string; agentId: string }[] {
+  const nodes = Array.isArray(def?.nodes) ? def.nodes : [];
+  return nodes
+    .filter((n) => n?.type === 'agent')
+    .map((n) => ({ nodeId: n.id, agentId: typeof n.config?.agentId === 'string' ? n.config.agentId.trim() : '' }))
+    .filter((r) => r.agentId && !r.agentId.includes('{{'));
+}
+
 @Injectable()
 export class WorkflowsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(WorkflowsService.name);
@@ -40,6 +52,7 @@ export class WorkflowsService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly access: AgentAccessService,
     @InjectQueue(WORKFLOW_QUEUE) private readonly queue: Queue,
   ) {}
 
@@ -75,18 +88,24 @@ export class WorkflowsService implements OnModuleInit, OnModuleDestroy {
     return wf;
   }
 
-  create(workspaceId: string, dto: CreateWorkflowDto) {
+  async create(auth: AuthContext, dto: CreateWorkflowDto) {
+    const { workspaceId } = auth;
     const definition = dto.definition ?? {
       nodes: [{ id: 'trigger', type: 'trigger', name: 'Inicio', position: { x: 80, y: 160 }, config: {} }],
       edges: [],
     };
     this.assertValid(definition);
+    await this.assertAgentRefs(auth, definition);
     return this.prisma.workflow.create({ data: { ...dto, workspaceId, definition: json(definition) } });
   }
 
-  async update(workspaceId: string, id: string, dto: UpdateWorkflowDto) {
+  async update(auth: AuthContext, id: string, dto: UpdateWorkflowDto) {
+    const { workspaceId } = auth;
     const current = await this.get(workspaceId, id);
-    if (dto.definition) this.assertValid(dto.definition);
+    if (dto.definition) {
+      this.assertValid(dto.definition);
+      await this.assertAgentRefs(auth, dto.definition, current.definition as unknown as WorkflowDefinition);
+    }
     if (dto.errorWorkflowId) await this.assertErrorWorkflow(workspaceId, id, dto.errorWorkflowId);
     const definitionChanged =
       dto.definition !== undefined && canonical(dto.definition) !== canonical(current.definition);
@@ -150,14 +169,14 @@ export class WorkflowsService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Restaurar no reescribe historia: la definición elegida se guarda como una versión nueva. */
-  async restoreVersion(workspaceId: string, id: string, version: number) {
-    const wf = await this.get(workspaceId, id);
+  async restoreVersion(auth: AuthContext, id: string, version: number) {
+    const wf = await this.get(auth.workspaceId, id);
     if (version === wf.version) throw new BadRequestException('Esa versión ya es la actual');
     const v = await this.prisma.workflowVersion.findUnique({
       where: { workflowId_version: { workflowId: id, version } },
     });
     if (!v) throw new NotFoundException('Versión no encontrada');
-    return this.update(workspaceId, id, { definition: v.definition as unknown as WorkflowDefinition });
+    return this.update(auth, id, { definition: v.definition as unknown as WorkflowDefinition });
   }
 
   async remove(workspaceId: string, id: string) {
@@ -244,6 +263,25 @@ export class WorkflowsService implements OnModuleInit, OnModuleDestroy {
       select: { id: true },
     });
     if (!target) throw new BadRequestException('El flujo de error no existe en este workspace');
+  }
+
+  /**
+   * ADR 0007 D5: un nodo `agent` solo puede referenciar agentes que quien guarda el flujo puede USAR. Se validan solo
+   * las referencias NUEVAS respecto de la definición guardada: un flujo existente no se rompe porque lo edite alguien
+   * sin acceso a un agente que ya estaba referenciado. El mensaje no distingue "no existe" de "sin permiso".
+   */
+  private async assertAgentRefs(auth: AuthContext, def: WorkflowDefinition, previous?: WorkflowDefinition) {
+    const before = new Set(agentRefs(previous).map((r) => r.agentId));
+    const errors: string[] = [];
+    for (const ref of agentRefs(def).filter((r) => !before.has(r.agentId))) {
+      try {
+        await this.access.assert(auth, ref.agentId, 'USE');
+      } catch (err) {
+        if (!(err instanceof NotFoundException || err instanceof ForbiddenException)) throw err;
+        errors.push(`El nodo "${ref.nodeId}" referencia un agente que no existe o que usted no puede usar`);
+      }
+    }
+    if (errors.length) throw new BadRequestException(errors);
   }
 
   private assertValid(def: WorkflowDefinition): void {
