@@ -17,6 +17,7 @@
     "local:stop": "bash scripts/dev-local.sh stop",
     "local:status": "bash scripts/dev-local.sh status",
     "local:logs": "bash scripts/dev-local.sh logs",
+    "local:demo": "node scripts/demo-local.mjs",
     "release": "node scripts/release.mjs prepare",
     "release:dry": "node scripts/release.mjs prepare --dry-run",
     "test:release": "node --test scripts/release.test.mjs"
