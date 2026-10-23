@@ -1,9 +1,11 @@
 import { Global, Module } from '@nestjs/common';
+import { AgentAccessService } from './agent-access.service';
+import { AgentHealthService } from './agent-health.service';
 
 /**
- * ADR 0006 (salud y lanzamiento) + ADR 0007 (visibilidad y permisos) — esqueleto del orquestador.
- * nexo-backend-platform implementa `AgentAccessService` y `AgentHealthService` y los exporta (módulo global).
+ * ADR 0006 (salud y lanzamiento) + ADR 0007 (visibilidad y permisos). Módulo global: cualquier módulo puede inyectar
+ * `AgentAccessService` y `AgentHealthService`. Implementación: nexo-backend-platform.
  */
 @Global()
-@Module({})
+@Module({ providers: [AgentAccessService, AgentHealthService], exports: [AgentAccessService, AgentHealthService] })
 export class AgentAccessModule {}
