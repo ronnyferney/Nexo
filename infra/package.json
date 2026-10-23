@@ -1,0 +1,24 @@
+{
+  "name": "@nexo/infra",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Infraestructura de Nexo en AWS (CDK): piloto en ECS Fargate, RDS PostgreSQL y ElastiCache Redis",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "synth": "cdk synth",
+    "diff": "cdk diff",
+    "deploy": "cdk deploy NexoPilot --require-approval never",
+    "deploy:github-oidc": "cdk deploy NexoGithubOidc",
+    "destroy": "cdk destroy NexoPilot"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "2.274.0",
+    "constructs": "10.8.1"
+  },
+  "devDependencies": {
+    "aws-cdk": "2.1146.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.3",
+    "@types/node": "^22.0.0"
+  }
+}
