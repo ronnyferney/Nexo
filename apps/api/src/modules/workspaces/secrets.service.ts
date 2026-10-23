@@ -32,6 +32,13 @@ export class SecretsService {
     await this.prisma.secret.deleteMany({ where: { id, workspaceId } });
   }
 
+  /** Valores en claro de los secretos existentes entre `names` (los que no existen no aparecen). */
+  async resolveMany(workspaceId: string, names: string[]): Promise<Record<string, string>> {
+    if (!names.length) return {};
+    const rows = await this.prisma.secret.findMany({ where: { workspaceId, name: { in: names } } });
+    return Object.fromEntries(rows.map((r) => [r.name, this.crypto.decrypt(r.ciphertext)]));
+  }
+
   /** Mapa NOMBRE -> valor en claro, para el contexto `secrets` de las plantillas. */
   async resolveAll(workspaceId: string): Promise<Record<string, string>> {
     const rows = await this.prisma.secret.findMany({ where: { workspaceId } });

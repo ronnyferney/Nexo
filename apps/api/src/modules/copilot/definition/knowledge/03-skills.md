@@ -18,3 +18,9 @@ mantiene el prompt corto.
 ## Skills comerciales incluidas
 El kit comercial del catálogo instala skills de prospección, calificación BANT, seguimiento de oportunidades y
 preparación de reuniones.
+
+## Quién puede crearlas
+Las skills son recursos del workspace: crearlas, editarlas o instalar el kit comercial exige rol EDITOR o superior.
+Un VIEWER puede vincular skills existentes a sus agentes personales; si aplica una propuesta del Copilot que incluye
+skills nuevas, el resto de la propuesta se aplica, las skills nuevas se omiten y se le indica que pida a un editor que
+las cree.

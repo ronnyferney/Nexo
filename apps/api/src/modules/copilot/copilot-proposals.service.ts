@@ -3,6 +3,7 @@ import type { CopilotProposal, Prisma } from '@prisma/client';
 import type { AuthContext } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AgentAccessService } from '../agent-access/agent-access.service';
+import { canShare } from '../agent-access/agent-permissions';
 import { AgentsService } from '../agents/agents.service';
 import { normalizeProfile } from '../agents/prompt-composer';
 import { slugify } from '../skills/skills.service';
@@ -96,7 +97,7 @@ export class CopilotProposalsService {
       warnings.push(`El modelo "${draft.provider}:${draft.model}" no está disponible ahora; revíselo en el agente.`);
     }
     const operations = await this.approvalAwareOperations(ws, draft.operations ?? [], refs, warnings);
-    const skills = this.filterSkills(draft.skills ?? [], refs, warnings);
+    const skills = this.filterSkills(auth, draft.skills ?? [], refs, warnings);
     const knowledgeBaseIds = this.filterIds(draft.knowledgeBaseIds ?? [], refs.knowledgeBaseIds, 'Base', warnings);
 
     return this.prisma.$transaction(async (tx) => {
@@ -159,7 +160,7 @@ export class CopilotProposalsService {
       warnings.push(`El modelo "${c.provider}:${c.model}" no está disponible ahora; revíselo en el agente.`);
     }
     const operations = await this.approvalAwareOperations(ws, c.addOperations ?? [], refs, warnings);
-    const skills = this.filterSkills(c.addSkills ?? [], refs, warnings);
+    const skills = this.filterSkills(auth, c.addSkills ?? [], refs, warnings);
     const knowledgeBaseIds = this.filterIds(c.addKnowledgeBaseIds ?? [], refs.knowledgeBaseIds, 'Base', warnings);
 
     return this.prisma.$transaction(async (tx) => {
@@ -384,12 +385,30 @@ export class CopilotProposalsService {
       });
   }
 
-  private filterSkills(skills: DraftSkill[], refs: WorkspaceRefs, warnings: string[]): DraftSkill[] {
-    return skills.filter((s) => {
-      if (isNewSkill(s) || refs.skillIds.has(s.skillId)) return true;
+  /**
+   * Skills existentes que siguen vigentes y skills nuevas. Las skills son recursos del workspace: crearlas exige el
+   * mismo rol que `POST /skills` (EDITOR+). Con un rol menor se omiten las nuevas (el resto de la propuesta se aplica)
+   * y se avisa; vincular skills existentes a un agente propio sí está permitido.
+   */
+  private filterSkills(auth: UserAuth, skills: DraftSkill[], refs: WorkspaceRefs, warnings: string[]): DraftSkill[] {
+    const mayCreate = canShare(auth);
+    const blocked: string[] = [];
+    const kept = skills.filter((s) => {
+      if (isNewSkill(s)) {
+        if (mayCreate) return true;
+        blocked.push(s.name.trim());
+        return false;
+      }
+      if (refs.skillIds.has(s.skillId)) return true;
       warnings.push(`Se omitió la skill ${s.skillId}: ya no existe.`);
       return false;
     });
+    if (blocked.length) {
+      warnings.push(
+        `Las skills nuevas requieren rol EDITOR; pídale a un editor que las cree: ${blocked.map((n) => `"${n}"`).join(', ')}.`,
+      );
+    }
+    return kept;
   }
 
   private filterIds(ids: string[], valid: Set<string>, label: string, warnings: string[]): string[] {

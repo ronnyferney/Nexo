@@ -4,6 +4,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { OAuthStateService } from '../src/modules/oauth/oauth-state.service';
+import { SecretsService } from '../src/modules/workspaces/secrets.service';
 import { Api, createTestApp, prismaOf } from './utils/app';
 import { addMember, registerOwner, type Session } from './utils/fixtures';
 
@@ -219,7 +220,7 @@ describe('Catálogo de conectores y OAuth2 de usuario (E2E, ADR 0005)', () => {
         body: { channel: '#ventas', text: 'Lead caliente' },
       });
 
-      // Reinstalar sobrescribe el secreto existente.
+      // Reinstalar como OWNER sobrescribe el secreto existente (un EDITOR recibiría 409: ver prueba M6).
       await owner.api
         .post('/connector-catalog/slack/install', { name: 'Slack ventas', credentials: { botToken: 'xoxb-nuevo' } })
         .expect(201);
@@ -257,6 +258,38 @@ describe('Catálogo de conectores y OAuth2 de usuario (E2E, ADR 0005)', () => {
     it('un VIEWER no puede instalar ni crear el kit comercial', async () => {
       await viewer.api.post('/connector-catalog/slack/install', { credentials: { botToken: 'x' } }).expect(403);
       await viewer.api.post('/connector-catalog/starter-kit/commercial').expect(403);
+    });
+
+    it('M6: un EDITOR no reemplaza credenciales existentes al reinstalar (409); un ADMIN sí', async () => {
+      const editor = await addMember(app, owner, { role: 'EDITOR', tag: 'catalog-editor' });
+      const admin = await addMember(app, owner, { role: 'ADMIN', tag: 'catalog-admin' });
+      const vault = app.get(SecretsService);
+      const lushaKey = async () => (await vault.resolveMany(owner.workspaceId, ['LUSHA_API_KEY'])).LUSHA_API_KEY;
+      const installed = async () => (await catalog(owner)).find((i) => i.id === 'lusha')!.installed;
+
+      await owner.api
+        .post('/connector-catalog/lusha/install', { credentials: { apiKey: 'lusha-original' } })
+        .expect(201);
+      // Mismo valor: no es reemplazo, el EDITOR puede crear otra instancia con la misma cuenta.
+      await editor.api
+        .post('/connector-catalog/lusha/install', { credentials: { apiKey: 'lusha-original' } })
+        .expect(201);
+      expect(await installed()).toBe(2);
+
+      const denied = await editor.api
+        .post('/connector-catalog/lusha/install', { credentials: { apiKey: 'lusha-ajena' } })
+        .expect(409);
+      expect(JSON.stringify(denied.body)).toContain(
+        'Ya existen credenciales de Lusha (API REST) en la bóveda; solo un administrador puede reemplazarlas',
+      );
+      expect(JSON.stringify(denied.body)).not.toContain('lusha-ajena');
+      // No escribe nada: ni el secreto ni el conector.
+      expect(await lushaKey()).toBe('lusha-original');
+      expect(await installed()).toBe(2);
+
+      await admin.api.post('/connector-catalog/lusha/install', { credentials: { apiKey: 'lusha-admin' } }).expect(201);
+      expect(await lushaKey()).toBe('lusha-admin');
+      expect(await installed()).toBe(3);
     });
 
     it('el kit comercial crea 4 skills una sola vez (idempotente por slug)', async () => {

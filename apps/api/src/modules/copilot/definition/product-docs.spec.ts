@@ -1,3 +1,4 @@
+import { CATALOG } from '../../connectors/catalog/catalog.index';
 import { loadProductDocs, ProductDocsIndex, splitSections, tokenize } from './product-docs';
 import { buildCopilotSystem, COPILOT_INSTRUCTIONS, COPILOT_MARKER, COPILOT_VERSION } from './copilot.definition';
 
@@ -41,6 +42,31 @@ describe('base de conocimiento del producto', () => {
   it('consulta vacía o sin términos útiles no devuelve resultados', () => {
     expect(index.search('')).toEqual([]);
     expect(index.search('de la que')).toEqual([]);
+  });
+});
+
+describe('documento del catálogo de integraciones (05-conectores-y-catalogo)', () => {
+  const doc = loadProductDocs().find((d) => d.id === '05-conectores-y-catalogo');
+
+  it('menciona cada integración del CATALOG por su nombre (no se desactualiza al agregar una)', () => {
+    expect(doc).toBeDefined();
+    const missing = CATALOG.map((e) => e.name).filter((name) => !doc!.content.includes(name));
+    expect(missing).toEqual([]);
+  });
+
+  it('lista en la sección OAuth2 a todas las integraciones que admiten oauth2_code', () => {
+    const oauth = splitSections(doc!).find((s) => s.heading.startsWith('OAuth2'))!;
+    expect(oauth).toBeDefined();
+    // Nombre corto (sin el prefijo de la familia ni el paréntesis): "Gmail (envío)" → "Gmail", "Microsoft To Do" → "To Do".
+    const short = (name: string) =>
+      name
+        .replace(/\s*\(.*\)$/, '')
+        .replace(/^(Google|Microsoft 365|Microsoft)\s+/, '')
+        .replace(/\s+CRM$/, '');
+    const missing = CATALOG.filter((e) => e.auth.oauth2_code)
+      .map((e) => short(e.name))
+      .filter((n) => !oauth.text.includes(n));
+    expect(missing).toEqual([]);
   });
 });
 

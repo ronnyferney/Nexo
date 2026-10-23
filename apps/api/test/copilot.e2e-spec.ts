@@ -1,6 +1,7 @@
 import type { INestApplication } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { COPILOT_INSTRUCTIONS } from '../src/modules/copilot/definition/copilot.definition';
+import { mockCopilotDraft } from '../src/modules/llm/drivers/mock.driver';
 import { Api, createTestApp, prismaOf, type SseEvent } from './utils/app';
 import { addMember, PASSWORD, registerOwner, rootUnit, shareAgent, type Session } from './utils/fixtures';
 
@@ -205,6 +206,79 @@ describe('Nexo Copilot (e2e)', () => {
         expect(r.proposals).toHaveLength(1);
         await member.api.post(`/copilot/proposals/${r.proposals[0].id}/apply`).expect(403);
       });
+    });
+  });
+
+  describe('skills nuevas y rol del workspace (M5)', () => {
+    const NEW_SKILL = {
+      name: 'Skill nueva del viewer',
+      description: 'Úsala para probar el rol.',
+      instructions: '1. Paso uno.',
+    };
+
+    it('un VIEWER aplica la propuesta sin crear skills nuevas (aviso) y vincula las existentes', async () => {
+      const existing = (
+        await owner.api
+          .post('/skills', { name: 'Skill existente M5', description: 'Existente.', instructions: 'Hacer algo.' })
+          .expect(201)
+      ).body as { id: string };
+      const viewer = await addMember(app, owner, { role: 'VIEWER', tag: 'copilot-viewer-skills' });
+      const s = await session(viewer, { mode: 'CREATE' });
+      const draft = { ...mockCopilotDraft('Agente M5'), skills: [{ skillId: existing.id }, NEW_SKILL] };
+      const r = await send(viewer, s.id, `/tool propose_agent ${JSON.stringify(draft)}`);
+      expect(r.proposals).toHaveLength(1);
+
+      const res = (await viewer.api.post(`/copilot/proposals/${r.proposals[0].id}/apply`).expect(200)).body as {
+        agentId: string;
+        created: { skills: number; examples: number; evalCases: number; routines: number };
+        linked: { skills: number };
+        warnings: string[];
+      };
+      expect(res.created).toEqual({ skills: 0, examples: 1, evalCases: 5, routines: 1 });
+      expect(res.linked.skills).toBe(1);
+      expect(res.warnings).toContain(
+        'Las skills nuevas requieren rol EDITOR; pídale a un editor que las cree: "Skill nueva del viewer".',
+      );
+      const prisma = prismaOf(app);
+      expect(await prisma.skill.count({ where: { workspaceId: owner.workspaceId, name: NEW_SKILL.name } })).toBe(0);
+      const agent = await prisma.agent.findUniqueOrThrow({
+        where: { id: res.agentId },
+        include: { skills: true },
+      });
+      expect(agent).toMatchObject({ ownerId: viewer.userId, visibility: 'PRIVATE' });
+      expect(agent.skills.map((x) => x.skillId)).toEqual([existing.id]);
+
+      // Lo mismo al aplicar cambios sobre su agente (UPDATE_AGENT).
+      const imp = await session(viewer, { mode: 'IMPROVE', agentId: res.agentId });
+      const change = { agentId: res.agentId, summary: 'Agregar skill', changes: { addSkills: [NEW_SKILL] } };
+      const r2 = await send(viewer, imp.id, `/tool propose_changes ${JSON.stringify(change)}`);
+      const res2 = (await viewer.api.post(`/copilot/proposals/${r2.proposals[0].id}/apply`).expect(200)).body as {
+        created: { skills: number };
+        warnings: string[];
+      };
+      expect(res2.created.skills).toBe(0);
+      expect(res2.warnings.join(' ')).toContain('Las skills nuevas requieren rol EDITOR');
+      expect(await prisma.skill.count({ where: { workspaceId: owner.workspaceId, name: NEW_SKILL.name } })).toBe(0);
+    });
+
+    it('un EDITOR sí crea las skills nuevas de la propuesta', async () => {
+      const editor = await addMember(app, owner, { role: 'EDITOR', tag: 'copilot-editor-skills' });
+      const s = await session(editor, { mode: 'CREATE' });
+      const draft = {
+        ...mockCopilotDraft('Agente M5 editor'),
+        skills: [{ ...NEW_SKILL, name: 'Skill nueva del editor' }],
+      };
+      const r = await send(editor, s.id, `/tool propose_agent ${JSON.stringify(draft)}`);
+      const res = (await editor.api.post(`/copilot/proposals/${r.proposals[0].id}/apply`).expect(200)).body as {
+        created: { skills: number };
+        warnings: string[];
+      };
+      expect(res.created.skills).toBe(1);
+      expect(res.warnings.join(' ')).not.toContain('requieren rol EDITOR');
+      const prisma = prismaOf(app);
+      expect(
+        await prisma.skill.count({ where: { workspaceId: owner.workspaceId, name: 'Skill nueva del editor' } }),
+      ).toBe(1);
     });
   });
 

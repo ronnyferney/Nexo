@@ -1,6 +1,7 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import type { AuthContext } from '../../../common/decorators/current-user.decorator';
+import { ROLE_RANK } from '../../../common/decorators/roles.decorator';
 import { render } from '../../../common/template/template.engine';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 import { OAuthService } from '../../oauth/oauth.service';
@@ -62,6 +63,7 @@ export class CatalogService {
     // OAuth: se valida que exista una app (propia o de la plataforma) antes de guardar nada.
     if (auth.type === 'oauth2_code') this.oauth.resolveApp(render(auth, { secrets: secretValues }));
 
+    await this.assertCanWriteSecrets(a, entry, secretValues);
     for (const [name, value] of Object.entries(secretValues)) await this.secrets.upsert(a.workspaceId, name, value);
 
     const created = await this.prisma.connector.create({
@@ -125,6 +127,22 @@ export class CatalogService {
   }
 
   // ---------- Internos ----------
+  /**
+   * `PUT /workspace/secrets` es ADMIN: instalar (EDITOR) no puede usarse para reemplazar credenciales ya guardadas.
+   * Si algún `<SLUG>_*` existe con otro valor y el usuario no es ADMIN/OWNER → 409 sin escribir nada. Reutilizar el
+   * mismo valor (p. ej. otra instancia del conector con la misma cuenta) no es conflicto.
+   */
+  private async assertCanWriteSecrets(a: AuthContext, entry: CatalogEntry, secretValues: Record<string, string>) {
+    if (ROLE_RANK[a.role] >= ROLE_RANK.ADMIN) return;
+    const current = await this.secrets.resolveMany(a.workspaceId, Object.keys(secretValues));
+    const changed = Object.keys(current).some((name) => current[name] !== secretValues[name]);
+    if (changed) {
+      throw new ConflictException(
+        `Ya existen credenciales de ${entry.name} en la bóveda; solo un administrador puede reemplazarlas`,
+      );
+    }
+  }
+
   private credentialValues(
     entry: CatalogEntry,
     method: CatalogAuthMethod,
