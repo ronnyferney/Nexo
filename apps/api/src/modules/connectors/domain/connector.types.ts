@@ -35,6 +35,8 @@ export interface OAuth2CodeAuth {
   revokeUrl?: string;
   /** PKCE S256 (por defecto true). Solo se desactiva para proveedores que no lo admiten en su flujo web (LinkedIn). */
   pkce?: boolean;
+  /** Separador de `scopes` en la URL de autorización (por defecto espacio, RFC 6749 §3.3). Slack usa coma. */
+  scopeSeparator?: string;
 }
 
 export interface RestConfig {

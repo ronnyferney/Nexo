@@ -199,7 +199,10 @@ describe('Catálogo de conectores y OAuth2 de usuario (E2E, ADR 0005)', () => {
       expect(body.catalogId).toBe('slack');
       expect(body.secrets).toEqual(['SLACK_BOT_TOKEN']);
       expect(body.auth).toEqual({ type: 'bearer', token: '{{ secrets.SLACK_BOT_TOKEN }}' });
-      expect(body.operations.map((o) => o.key)).toEqual(['post_message']);
+      expect(body.operations.map((o) => o.key)).toEqual(
+        expect.arrayContaining(['post_message', 'reply_in_thread', 'post_blocks_message', 'lookup_user_by_email']),
+      );
+      const postMessage = body.operations.find((o) => o.key === 'post_message')!;
 
       const secrets = (await owner.api.get('/workspace/secrets').expect(200)).body as { name: string }[];
       expect(secrets.map((s) => s.name)).toContain('SLACK_BOT_TOKEN');
@@ -209,7 +212,7 @@ describe('Catálogo de conectores y OAuth2 de usuario (E2E, ADR 0005)', () => {
 
       // La operación usa el secreto de la bóveda (base apuntada al simulador).
       await owner.api.patch(`/connectors/${body.id}`, { config: { baseUrl: provider.origin } }).expect(200);
-      const inv = await invoke(owner, body.id, body.operations[0].id, { channel: '#ventas', text: 'Lead caliente' });
+      const inv = await invoke(owner, body.id, postMessage.id, { channel: '#ventas', text: 'Lead caliente' });
       expect(inv.status).toBe(200);
       expect(provider.slackCalls.at(-1)).toEqual({
         auth: `Bearer ${token}`,

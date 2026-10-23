@@ -41,6 +41,11 @@ export const OAUTH_PROVIDERS: Record<string, PlatformOAuthProvider> = {
     revokeUrl: 'https://login.salesforce.com/services/oauth2/revoke',
     docsUrl: 'https://help.salesforce.com/s/articleView?id=remoteaccess_oauth_web_server_flow.htm&type=5',
   },
+  slack: {
+    authorizeUrl: 'https://slack.com/oauth/v2/authorize',
+    tokenUrl: 'https://slack.com/api/oauth.v2.access',
+    docsUrl: 'https://docs.slack.dev/authentication/installing-with-oauth',
+  },
 };
 
 /** Nombre de la variable de entorno de la app de la plataforma: `OAUTH_<PROVEEDOR>_CLIENT_ID`. */

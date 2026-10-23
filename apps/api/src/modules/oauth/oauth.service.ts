@@ -42,6 +42,10 @@ class TokenEndpointError extends Error {
 
 const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
 
+/** Separador de scopes del proveedor: espacio (RFC 6749) salvo que el conector indique otro (Slack: coma). */
+export const scopeSeparator = (auth: Pick<OAuth2CodeAuth, 'scopeSeparator'>): string =>
+  typeof auth.scopeSeparator === 'string' && auth.scopeSeparator.length > 0 ? auth.scopeSeparator : ' ';
+
 /**
  * OAuth2 de usuario (ADR 0005, D3): authorization code + PKCE S256, `state` firmado, tokens cifrados en
  * `OAuthCredential` y renovación serializada por conector con `refresh_token`.
@@ -81,7 +85,7 @@ export class OAuthService {
     url.searchParams.set('response_type', 'code');
     url.searchParams.set('client_id', app.clientId);
     url.searchParams.set('redirect_uri', this.redirectUri);
-    if (auth.scopes?.length) url.searchParams.set('scope', auth.scopes.join(' '));
+    if (auth.scopes?.length) url.searchParams.set('scope', auth.scopes.join(scopeSeparator(auth)));
     url.searchParams.set('state', state);
     if (auth.pkce !== false) {
       url.searchParams.set('code_challenge', codeChallenge);
@@ -291,7 +295,10 @@ export class OAuthService {
       accessTokenCipher: this.crypto.encrypt(token.access_token),
       refreshTokenCipher,
       expiresAt,
-      scope: typeof token.scope === 'string' ? token.scope : (previous?.scope ?? (auth.scopes ?? []).join(' ')),
+      scope:
+        typeof token.scope === 'string'
+          ? token.scope
+          : (previous?.scope ?? (auth.scopes ?? []).join(scopeSeparator(auth))),
       accountLabel,
     };
     await this.prisma.oAuthCredential.upsert({
