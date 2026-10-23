@@ -58,6 +58,24 @@ configurado. `GET /agents/health` → resumen de todos los agentes del workspace
 - **Primeros pasos** para workspaces nuevos: plantillas por industria (logística/TMS, comercial, soporte) que arrancan
   la entrevista con contexto.
 
+### D6. El Copilot es propiedad de Nexo (no de los clientes)
+- **No es un agente del workspace**: no aparece en la lista de agentes del cliente, no se puede editar, duplicar,
+  exportar ni publicar por MCP, y su configuración interna (instrucciones, skills, criterios) **no se expone**
+  (sin `prompt-preview`; las respuestas no revelan sus instrucciones). Es propiedad intelectual de Nexo.
+- **Configuración versionada en el código** (`apps/api/src/modules/copilot/definition/`): perfil, instrucciones, skills
+  internas y **base de conocimiento del producto** (guías de uso de Nexo, buenas prácticas de diseño de agentes, preguntas
+  frecuentes) en Markdown, revisadas por pull request. Cada despliegue publica una versión identificable (`copilotVersion`).
+- **Rol de plataforma**: administradores de Nexo definidos por `PLATFORM_ADMIN_EMAILS` (no son roles de workspace).
+  Solo ellos acceden a la **consola de plataforma** del Copilot.
+- **Calidad del Copilot gestionada por Nexo**: conjunto de evaluación propio (en código, ejecutable en CI con MockDriver y
+  con el modelo real bajo demanda), calificación 👍/👎 de cada respuesta del Copilot por los usuarios, y métricas
+  agregadas de éxito por workspace — sin contenido de conversaciones de los clientes salvo el que el usuario adjunte
+  explícitamente a una calificación.
+- **Métricas de éxito del cliente** (consola de plataforma): workspaces activos, tiempo hasta el primer agente lanzado,
+  agentes lanzados vs. borradores, distribución del puntaje de salud, puntaje de evaluación promedio, satisfacción con el
+  Copilot y consumo del cupo. Sirven para detectar clientes en riesgo y actuar antes de que abandonen.
+- Las propuestas que aplica el usuario sí crean recursos **del cliente** (agentes, skills, casos): lo creado le pertenece.
+
 ## Contrato de API (rutas bajo `/api`)
 - `POST /copilot/sessions` `{ mode: 'CREATE'|'IMPROVE'|'DIAGNOSE', agentId?, context?: string }` → `{ id, mode, agentId }`
 - `POST /copilot/sessions/:id/messages` `{ message, stream?: boolean }` → SSE con los eventos del chat de agentes
@@ -69,9 +87,15 @@ configurado. `GET /agents/health` → resumen de todos los agentes del workspace
 - `GET /copilot/quota` → `{ limitUsd, usedUsd, remainingUsd, period }`
 - `GET /agents/:id/health`, `GET /agents/health`, `POST /agents/:id/launch` `{ override?, reason? }`, `POST /agents/:id/unlaunch`
 - `Agent` agrega `launchStatus`, `launchedAt`, `launchOverrideReason`.
+- `POST /copilot/messages/:messageId/feedback` `{ rating: 'UP'|'DOWN', comment?, shareConversation?: boolean }`
+- Consola de plataforma (solo `PLATFORM_ADMIN_EMAILS`): `GET /platform/copilot/metrics?from&to` →
+  `{ workspaces; activeWorkspaces; agentsCreated; agentsLaunched; medianMinutesToFirstLaunch; healthDistribution: Record<level, number>; avgEvalScore; copilotSatisfaction: { up; down }; quotaUsageUsd; atRiskWorkspaces: { id; name; reason }[] }`
+  · `GET /platform/copilot/feedback` (calificaciones y comentarios; conversación solo si el usuario la compartió)
+  · `GET /platform/me` → `{ isPlatformAdmin }`.
 
 ## Consecuencias
-- Migración: `CopilotSession`, `CopilotProposal`, `Agent.launchStatus/launchedAt/launchOverrideReason`, `UsageSource.COPILOT`.
+- Migración: `CopilotSession`, `CopilotProposal`, `CopilotFeedback`, `Agent.launchStatus/launchedAt/launchOverrideReason`,
+  `UsageSource.COPILOT`.
 - Riesgo de costo para Nexo acotado por el cupo; el puntaje de salud no consume IA.
 - El Copilot reutiliza el runtime de agentes (herramientas internas) en vez de un motor aparte.
 
@@ -82,4 +106,6 @@ configurado. `GET /agents/health` → resumen de todos los agentes del workspace
 | Copilot (sesiones, herramientas, propuestas, aplicar, cupo) | nexo-backend-ai |
 | Salud del agente, lanzamiento y efectos en MCP/rutinas | nexo-backend-platform |
 | Panel del Copilot, entrevista al crear, tarjeta de salud, lanzamiento, primeros pasos | nexo-frontend-ui |
+| Consola de plataforma (métricas de éxito y calidad del Copilot) | nexo-frontend-core + nexo-backend-platform |
+| Base de conocimiento del producto y conjunto de evaluación del Copilot | nexo-architect + nexo-backend-ai |
 | E2E del ciclo con MockDriver | nexo-qa-api |
