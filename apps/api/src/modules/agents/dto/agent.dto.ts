@@ -8,6 +8,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -16,6 +17,38 @@ import {
 } from 'class-validator';
 
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+
+/** Perfil estructurado (ADR 0003, D2). Todos los campos son opcionales. */
+export class AgentProfileDto {
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(1000) role?: string;
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  @MaxLength(500, { each: true })
+  goals?: string[];
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(30)
+  @IsString({ each: true })
+  @MaxLength(500, { each: true })
+  responsibilities?: string[];
+  @ApiPropertyOptional({ type: [String], description: 'Lo que el agente NO debe hacer' })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(30)
+  @IsString({ each: true })
+  @MaxLength(500, { each: true })
+  boundaries?: string[];
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(300) tone?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(1000) outputFormat?: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(50) language?: string;
+}
+
+/** `"<providerId>:<modelId>"`; el modelo puede contener ":" (p. ej. `ollama:llama3:8b`). */
+export const MODEL_REF = /^[A-Za-z0-9_-]{1,64}:\S{1,128}$/;
 
 export class CreateAgentDto {
   @ApiProperty() @IsString() @MinLength(2) @MaxLength(80) name!: string;
@@ -29,6 +62,18 @@ export class CreateAgentDto {
   @IsOptional()
   @IsString()
   costCenterId?: string | null;
+  @ApiPropertyOptional({ type: AgentProfileDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AgentProfileDto)
+  profile?: AgentProfileDto;
+  @ApiPropertyOptional({ type: [String], description: 'Cadena de respaldo "<providerId>:<modelId>" (máx. 3)' })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(3)
+  @IsString({ each: true })
+  @Matches(MODEL_REF, { each: true, message: 'Cada respaldo debe tener el formato "<providerId>:<modelId>"' })
+  fallbackModels?: string[];
 }
 
 export class UpdateAgentDto extends PartialType(CreateAgentDto) {}
@@ -59,4 +104,21 @@ export class ChatDto {
   @IsOptional()
   @IsBoolean()
   stream?: boolean;
+}
+
+export class SetAgentSkillsDto {
+  @ApiProperty({ type: [String] }) @IsArray() @ArrayMaxSize(50) @IsString({ each: true }) skillIds!: string[];
+}
+
+export class SetAgentKnowledgeDto {
+  @ApiProperty({ type: [String] })
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  knowledgeBaseIds!: string[];
+}
+
+export class CreateAgentExampleDto {
+  @ApiProperty() @IsString() @MinLength(1) @MaxLength(10_000) input!: string;
+  @ApiProperty() @IsString() @MinLength(1) @MaxLength(10_000) output!: string;
 }

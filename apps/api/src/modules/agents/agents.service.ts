@@ -1,12 +1,37 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import type { AgentEvent } from '../llm/llm-provider';
 import { OrgService } from '../governance/org.service';
 import { AgentRuntimeService, toolName, type AgentWithTools, type RunContext } from './agent-runtime.service';
-import { CreateAgentDto, SetAgentToolsDto, UpdateAgentDto } from './dto/agent.dto';
+import {
+  CreateAgentDto,
+  CreateAgentExampleDto,
+  SetAgentKnowledgeDto,
+  SetAgentSkillsDto,
+  SetAgentToolsDto,
+  UpdateAgentDto,
+} from './dto/agent.dto';
+import { normalizeProfile } from './prompt-composer';
 
-const WITH_TOOLS = { tools: { include: { operation: { include: { connector: true } } } } } as const;
+export const MAX_EXAMPLES = 20;
+
+const WITH_TOOLS = {
+  tools: { include: { operation: { include: { connector: true } } } },
+  skills: { include: { skill: true } },
+  knowledge: { include: { knowledgeBase: { select: { id: true, name: true, description: true } } } },
+  examples: { orderBy: { createdAt: 'asc' }, take: MAX_EXAMPLES, select: { input: true, output: true } },
+} as const satisfies Prisma.AgentInclude;
+
+/** Perfil y cadena de respaldo normalizados para persistir (el perfil se reemplaza completo). */
+function agentData<T extends CreateAgentDto | UpdateAgentDto>(dto: T) {
+  const { profile, fallbackModels, ...rest } = dto;
+  return {
+    ...rest,
+    ...(profile !== undefined ? { profile: normalizeProfile(profile) as Prisma.InputJsonValue } : {}),
+    ...(fallbackModels !== undefined ? { fallbackModels: [...new Set(fallbackModels.map((f) => f.trim()))] } : {}),
+  };
+}
 
 @Injectable()
 export class AgentsService {
@@ -32,8 +57,19 @@ export class AgentsService {
 
   async describe(workspaceId: string, id: string) {
     const agent = await this.get(workspaceId, id);
+    const examplesCount = await this.prisma.agentExample.count({ where: { agentId: id } });
+    const { knowledge, examples, ...rest } = agent;
+    void examples;
     return {
-      ...agent,
+      ...rest,
+      profile: normalizeProfile(agent.profile),
+      skills: (agent.skills ?? [])
+        .map((s) => ({ id: s.skill.id, name: s.skill.name, slug: s.skill.slug }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+      knowledgeBases: (knowledge ?? [])
+        .map((k) => ({ id: k.knowledgeBase.id, name: k.knowledgeBase.name }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+      examplesCount,
       tools: agent.tools.map((t) => ({
         operationId: t.operationId,
         requiresApproval: t.requiresApproval,
@@ -46,13 +82,13 @@ export class AgentsService {
 
   async create(workspaceId: string, dto: CreateAgentDto) {
     if (dto.costCenterId) await this.org.unit(workspaceId, dto.costCenterId);
-    return this.prisma.agent.create({ data: { ...dto, workspaceId } });
+    return this.prisma.agent.create({ data: { ...agentData(dto), workspaceId } });
   }
 
   async update(workspaceId: string, id: string, dto: UpdateAgentDto) {
     await this.get(workspaceId, id);
     if (dto.costCenterId) await this.org.unit(workspaceId, dto.costCenterId);
-    return this.prisma.agent.update({ where: { id }, data: dto });
+    return this.prisma.agent.update({ where: { id }, data: agentData(dto) });
   }
 
   async remove(workspaceId: string, id: string) {
@@ -78,6 +114,74 @@ export class AgentsService {
       }),
     ]);
     return this.describe(workspaceId, id);
+  }
+
+  /** Reemplaza las skills del agente; todas deben pertenecer al workspace. */
+  async setSkills(workspaceId: string, id: string, dto: SetAgentSkillsDto) {
+    await this.get(workspaceId, id);
+    const ids = [...new Set(dto.skillIds)];
+    const found = await this.prisma.skill.findMany({ where: { id: { in: ids }, workspaceId }, select: { id: true } });
+    if (found.length !== ids.length) throw new BadRequestException('Alguna habilidad no existe en el workspace');
+    await this.prisma.$transaction([
+      this.prisma.agentSkill.deleteMany({ where: { agentId: id } }),
+      this.prisma.agentSkill.createMany({ data: ids.map((skillId) => ({ agentId: id, skillId })) }),
+      this.prisma.agent.update({ where: { id }, data: { updatedAt: new Date() } }),
+    ]);
+    return this.describe(workspaceId, id);
+  }
+
+  /** Reemplaza las bases de conocimiento del agente; todas deben pertenecer al workspace. */
+  async setKnowledge(workspaceId: string, id: string, dto: SetAgentKnowledgeDto) {
+    await this.get(workspaceId, id);
+    const ids = [...new Set(dto.knowledgeBaseIds)];
+    const found = await this.prisma.knowledgeBase.findMany({
+      where: { id: { in: ids }, workspaceId },
+      select: { id: true },
+    });
+    if (found.length !== ids.length) {
+      throw new BadRequestException('Alguna base de conocimiento no existe en el workspace');
+    }
+    await this.prisma.$transaction([
+      this.prisma.agentKnowledge.deleteMany({ where: { agentId: id } }),
+      this.prisma.agentKnowledge.createMany({ data: ids.map((knowledgeBaseId) => ({ agentId: id, knowledgeBaseId })) }),
+      this.prisma.agent.update({ where: { id }, data: { updatedAt: new Date() } }),
+    ]);
+    return this.describe(workspaceId, id);
+  }
+
+  async examples(workspaceId: string, agentId: string) {
+    await this.get(workspaceId, agentId);
+    return this.prisma.agentExample.findMany({
+      where: { agentId },
+      select: { id: true, input: true, output: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async addExample(workspaceId: string, agentId: string, dto: CreateAgentExampleDto) {
+    await this.get(workspaceId, agentId);
+    const count = await this.prisma.agentExample.count({ where: { agentId } });
+    if (count >= MAX_EXAMPLES) throw new BadRequestException(`Máximo ${MAX_EXAMPLES} ejemplos por agente`);
+    return this.prisma.agentExample.create({
+      data: { agentId, input: dto.input, output: dto.output },
+      select: { id: true, input: true, output: true, createdAt: true },
+    });
+  }
+
+  async removeExample(workspaceId: string, agentId: string, exampleId: string) {
+    await this.get(workspaceId, agentId);
+    const deleted = await this.prisma.agentExample.deleteMany({ where: { id: exampleId, agentId } });
+    if (!deleted.count) throw new NotFoundException('Ejemplo no encontrado');
+  }
+
+  /** Lo que recibe el modelo: system prompt compuesto y herramientas (conectores, skills e internas). */
+  async promptPreview(workspaceId: string, id: string) {
+    const agent = await this.get(workspaceId, id);
+    const prepared = await this.runtime.prepare(agent);
+    return {
+      system: prepared.system,
+      tools: prepared.tools.map((t) => ({ name: t.name, description: t.description })),
+    };
   }
 
   conversations(workspaceId: string, agentId: string) {

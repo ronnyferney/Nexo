@@ -1,7 +1,7 @@
 {
   "name": "@nexo/api",
   "version": "1.0.0",
-  "description": "Nexo API \u2014 agentes de IA, conectores y flujos",
+  "description": "Nexo API — agentes de IA, conectores y flujos",
   "author": "",
   "private": true,
   "license": "UNLICENSED",
@@ -64,6 +64,7 @@
     "@types/bcryptjs": "^2.4.6",
     "@types/express": "^5.0.0",
     "@types/jest": "^30.0.0",
+    "@types/multer": "^2.3.0",
     "@types/node": "^24.0.0",
     "@types/passport-jwt": "^4.0.1",
     "@types/supertest": "^7.0.0",

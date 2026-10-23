@@ -23,6 +23,13 @@ export interface EngineResult {
   steps: StepLog[];
 }
 
+export interface SingleNodeResult {
+  ok: boolean;
+  output: unknown;
+  error: string | null;
+  durationMs: number;
+}
+
 type NodeState = 'pending' | 'done' | 'skipped' | 'failed';
 
 /**
@@ -42,6 +49,7 @@ export class WorkflowEngine {
     if (errors.length) return { status: 'FAILED', output: null, error: errors.join('; '), steps: [] };
 
     const sleep = hooks.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+    if (hooks.signal && !ctx.signal) ctx.signal = hooks.signal;
     const incoming = new Map<string, WorkflowEdge[]>();
     for (const n of def.nodes) incoming.set(n.id, []);
     for (const e of def.edges) incoming.get(e.target)!.push(e);
@@ -106,6 +114,22 @@ export class WorkflowEngine {
 
     if (failure) return { status: 'FAILED', output: null, error: failure, steps };
     return { status: 'SUCCEEDED', output: explicitOutput ? explicitOutput.value : lastOutput, steps };
+  }
+
+  /**
+   * Ejecuta un único nodo (sin reintentos ni aristas) con el contexto dado: base de "probar nodo" con datos fijados.
+   * Los efectos del ejecutor son reales (un conector o agente sí se invoca).
+   */
+  async runSingle(node: WorkflowNode, ctx: ExecutionContext): Promise<SingleNodeResult> {
+    const started = Date.now();
+    const executor = this.executors.get(node.type);
+    if (!executor) return { ok: false, output: null, error: `Sin ejecutor para "${node.type}"`, durationMs: 0 };
+    try {
+      const result = await executor.execute(node, ctx);
+      return { ok: true, output: result.output, error: null, durationMs: Date.now() - started };
+    } catch (err) {
+      return { ok: false, output: null, error: (err as Error).message, durationMs: Date.now() - started };
+    }
   }
 
   private async runNode(

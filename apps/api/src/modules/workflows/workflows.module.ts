@@ -4,6 +4,7 @@ import { AgentsModule } from '../agents/agents.module';
 import { ConnectorsModule } from '../connectors/connectors.module';
 import { WorkflowProcessor } from './queue/workflow.processor';
 import { WORKFLOW_QUEUE } from './queue/workflow-queue.constants';
+import { RetentionService } from './retention.service';
 import { WorkflowRunnerService } from './workflow-runner.service';
 import { ExecutionsController, WebhooksController, WorkflowsController } from './workflows.controller';
 import { WorkflowsService } from './workflows.service';
@@ -14,7 +15,7 @@ const workers: Provider[] = process.env.WORKER_ENABLED === 'false' ? [] : [Workf
 @Module({
   imports: [BullModule.registerQueue({ name: WORKFLOW_QUEUE }), ConnectorsModule, AgentsModule],
   controllers: [WorkflowsController, ExecutionsController, WebhooksController],
-  providers: [WorkflowsService, WorkflowRunnerService, ...workers],
-  exports: [WorkflowsService],
+  providers: [WorkflowsService, WorkflowRunnerService, RetentionService, ...workers],
+  exports: [WorkflowsService, RetentionService],
 })
 export class WorkflowsModule {}

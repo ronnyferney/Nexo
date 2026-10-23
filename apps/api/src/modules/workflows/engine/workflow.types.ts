@@ -1,4 +1,5 @@
-export type NodeType = 'trigger' | 'connector' | 'agent' | 'condition' | 'transform' | 'delay' | 'output';
+export type NodeType =
+  'trigger' | 'connector' | 'agent' | 'condition' | 'transform' | 'delay' | 'output' | 'subworkflow' | 'loop';
 
 export interface WorkflowNode {
   id: string;
@@ -47,6 +48,10 @@ export interface ExecutionContext {
   workflowId?: string;
   input: Record<string, unknown>;
   nodes: Record<string, { output: unknown }>;
+  /** Nivel de anidamiento de sub-flujos (0 = ejecución raíz). */
+  depth?: number;
+  /** Señal de cancelación de la ejecución raíz (se propaga a sub-flujos). */
+  signal?: AbortSignal;
 }
 
 export interface NodeResult {
@@ -61,3 +66,14 @@ export interface NodeExecutor {
   readonly type: NodeType;
   execute(node: WorkflowNode, ctx: ExecutionContext): Promise<NodeResult>;
 }
+
+/**
+ * Ejecuta otro flujo del mismo workspace en línea (sin cola) y devuelve su salida; lanza error si falla.
+ * Lo inyecta la capa de aplicación: el motor no conoce Prisma ni la cola.
+ */
+export type SubworkflowRunner = (
+  workflowId: string,
+  input: Record<string, unknown>,
+  depth: number,
+  parent: ExecutionContext,
+) => Promise<unknown>;

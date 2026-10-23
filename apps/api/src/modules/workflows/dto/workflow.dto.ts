@@ -13,7 +13,27 @@ export class CreateWorkflowDto {
   schedule?: string | null;
 }
 
-export class UpdateWorkflowDto extends PartialType(CreateWorkflowDto) {}
+export class UpdateWorkflowDto extends PartialType(CreateWorkflowDto) {
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    description: 'Flujo del mismo workspace que se dispara cuando una ejecución falla (null para quitarlo)',
+  })
+  @IsOptional()
+  @IsString()
+  errorWorkflowId?: string | null;
+}
+
+export class TestNodeDto {
+  @ApiPropertyOptional({ type: Object, description: 'Entrada del flujo ({{ input }})' })
+  @IsOptional()
+  @IsObject()
+  input?: Record<string, unknown>;
+  @ApiPropertyOptional({ type: Object, description: 'Salidas fijadas por nodo: { nodeId: salida }' })
+  @IsOptional()
+  @IsObject()
+  pinned?: Record<string, unknown>;
+}
 
 export class SetActiveDto {
   @ApiProperty() @IsBoolean() active!: boolean;

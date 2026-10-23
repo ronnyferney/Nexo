@@ -1,6 +1,16 @@
 import type { NodeType, WorkflowDefinition } from './workflow.types';
 
-export const NODE_TYPES: NodeType[] = ['trigger', 'connector', 'agent', 'condition', 'transform', 'delay', 'output'];
+export const NODE_TYPES: NodeType[] = [
+  'trigger',
+  'connector',
+  'agent',
+  'condition',
+  'transform',
+  'delay',
+  'output',
+  'subworkflow',
+  'loop',
+];
 export const MAX_NODES = 200;
 
 /** Valida estructura del grafo: tipos, referencias, un disparador y ausencia de ciclos. */

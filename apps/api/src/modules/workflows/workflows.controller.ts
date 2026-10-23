@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { ExecutionStatus } from '@prisma/client';
@@ -6,14 +6,18 @@ import { CurrentAuth, type AuthContext } from '../../common/decorators/current-u
 import { Public } from '../../common/decorators/public.decorator';
 import { MinRole } from '../../common/decorators/roles.decorator';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { CreateWorkflowDto, RunWorkflowDto, SetActiveDto, UpdateWorkflowDto } from './dto/workflow.dto';
+import { CreateWorkflowDto, RunWorkflowDto, SetActiveDto, TestNodeDto, UpdateWorkflowDto } from './dto/workflow.dto';
+import { WorkflowRunnerService } from './workflow-runner.service';
 import { WorkflowsService } from './workflows.service';
 
 @ApiTags('workflows')
 @ApiBearerAuth()
 @Controller('workflows')
 export class WorkflowsController {
-  constructor(private readonly workflows: WorkflowsService) {}
+  constructor(
+    private readonly workflows: WorkflowsService,
+    private readonly runner: WorkflowRunnerService,
+  ) {}
 
   @Get()
   list(@CurrentAuth() a: AuthContext) {
@@ -62,6 +66,40 @@ export class WorkflowsController {
   @Post(':id/run')
   run(@CurrentAuth() a: AuthContext, @Param('id') id: string, @Body() dto: RunWorkflowDto) {
     return this.workflows.run(a.workspaceId, id, dto.input ?? {}, 'MANUAL', dto.wait);
+  }
+
+  /** Historial de versiones: la actual primero (`current: true`), luego las anteriores. */
+  @Get(':id/versions')
+  versions(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
+    return this.workflows.listVersions(a.workspaceId, id);
+  }
+
+  @Get(':id/versions/:version')
+  version(@CurrentAuth() a: AuthContext, @Param('id') id: string, @Param('version', ParseIntPipe) version: number) {
+    return this.workflows.getVersion(a.workspaceId, id, version);
+  }
+
+  @MinRole('EDITOR')
+  @HttpCode(200)
+  @Post(':id/versions/:version/restore')
+  restore(@CurrentAuth() a: AuthContext, @Param('id') id: string, @Param('version', ParseIntPipe) version: number) {
+    return this.workflows.restoreVersion(a.workspaceId, id, version);
+  }
+
+  /**
+   * Prueba un nodo de la definición guardada con `input` y salidas fijadas (`pinned`). Los nodos conector,
+   * agente, sub-flujo y bucle se ejecutan de verdad (llamadas y costos reales); no se crea una Execution.
+   */
+  @MinRole('EDITOR')
+  @HttpCode(200)
+  @Post(':id/nodes/:nodeId/test')
+  testNode(
+    @CurrentAuth() a: AuthContext,
+    @Param('id') id: string,
+    @Param('nodeId') nodeId: string,
+    @Body() dto: TestNodeDto,
+  ) {
+    return this.runner.testNode(a.workspaceId, id, nodeId, dto.input ?? {}, dto.pinned ?? {});
   }
 }
 

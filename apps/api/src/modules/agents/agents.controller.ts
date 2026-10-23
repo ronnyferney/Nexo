@@ -5,7 +5,15 @@ import { CurrentAuth, type AuthContext } from '../../common/decorators/current-u
 import { MinRole } from '../../common/decorators/roles.decorator';
 import { LlmGatewayService } from '../llm/llm-gateway.service';
 import { AgentsService } from './agents.service';
-import { ChatDto, CreateAgentDto, SetAgentToolsDto, UpdateAgentDto } from './dto/agent.dto';
+import {
+  ChatDto,
+  CreateAgentDto,
+  CreateAgentExampleDto,
+  SetAgentKnowledgeDto,
+  SetAgentSkillsDto,
+  SetAgentToolsDto,
+  UpdateAgentDto,
+} from './dto/agent.dto';
 
 @ApiTags('agents')
 @ApiBearerAuth()
@@ -54,6 +62,41 @@ export class AgentsController {
   @Put(':id/tools')
   setTools(@CurrentAuth() a: AuthContext, @Param('id') id: string, @Body() dto: SetAgentToolsDto) {
     return this.agents.setTools(a.workspaceId, id, dto);
+  }
+
+  @MinRole('EDITOR')
+  @Put(':id/skills')
+  setSkills(@CurrentAuth() a: AuthContext, @Param('id') id: string, @Body() dto: SetAgentSkillsDto) {
+    return this.agents.setSkills(a.workspaceId, id, dto);
+  }
+
+  @MinRole('EDITOR')
+  @Put(':id/knowledge')
+  setKnowledge(@CurrentAuth() a: AuthContext, @Param('id') id: string, @Body() dto: SetAgentKnowledgeDto) {
+    return this.agents.setKnowledge(a.workspaceId, id, dto);
+  }
+
+  @Get(':id/examples')
+  examples(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
+    return this.agents.examples(a.workspaceId, id);
+  }
+
+  @MinRole('EDITOR')
+  @Post(':id/examples')
+  addExample(@CurrentAuth() a: AuthContext, @Param('id') id: string, @Body() dto: CreateAgentExampleDto) {
+    return this.agents.addExample(a.workspaceId, id, dto);
+  }
+
+  @MinRole('EDITOR')
+  @Delete(':id/examples/:exampleId')
+  removeExample(@CurrentAuth() a: AuthContext, @Param('id') id: string, @Param('exampleId') exampleId: string) {
+    return this.agents.removeExample(a.workspaceId, id, exampleId);
+  }
+
+  /** System prompt compuesto y herramientas que recibiría el modelo (transparencia, ADR 0003 D2). */
+  @Get(':id/prompt-preview')
+  promptPreview(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
+    return this.agents.promptPreview(a.workspaceId, id);
   }
 
   @Get(':id/conversations')

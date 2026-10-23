@@ -2,8 +2,15 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { RetentionService } from '../retention.service';
 import { WorkflowRunnerService } from '../workflow-runner.service';
-import { JOB_RUN, JOB_SCHEDULED, type RunJobData, type ScheduledJobData } from './workflow-queue.constants';
+import {
+  JOB_RETENTION,
+  JOB_RUN,
+  JOB_SCHEDULED,
+  type RunJobData,
+  type ScheduledJobData,
+} from './workflow-queue.constants';
 import { WORKFLOW_QUEUE } from './workflow-queue.constants';
 
 /** Worker de BullMQ: escala horizontalmente levantando más instancias con WORKER_ENABLED=true. */
@@ -14,6 +21,7 @@ export class WorkflowProcessor extends WorkerHost {
   constructor(
     private readonly runner: WorkflowRunnerService,
     private readonly prisma: PrismaService,
+    private readonly retention: RetentionService,
   ) {
     super();
   }
@@ -36,6 +44,10 @@ export class WorkflowProcessor extends WorkerHost {
         },
       });
       await this.runner.execute(ex.id);
+      return;
+    }
+    if (job.name === JOB_RETENTION) {
+      await this.retention.purge();
       return;
     }
     this.logger.warn(`Job desconocido: ${job.name}`);

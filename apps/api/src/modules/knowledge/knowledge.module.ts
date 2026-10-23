@@ -1,5 +1,11 @@
 import { Module } from '@nestjs/common';
+import { KnowledgeController } from './knowledge.controller';
+import { KnowledgeService } from './knowledge.service';
 
-/** ADR 0003 — esqueleto creado por el orquestador; el dueño del módulo completa controladores y servicios. */
-@Module({})
+/** ADR 0003 (D4): bases de conocimiento, ingesta y búsqueda full-text. */
+@Module({
+  controllers: [KnowledgeController],
+  providers: [KnowledgeService],
+  exports: [KnowledgeService],
+})
 export class KnowledgeModule {}

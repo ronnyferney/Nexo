@@ -9,6 +9,7 @@ const schema = z.object({
   PORT: z.coerce.number().optional(),
   REDIS_HOST: z.string().optional(),
   REDIS_PORT: z.coerce.number().optional(),
+  EXECUTIONS_RETENTION_DAYS: z.coerce.number().int().min(1, 'EXECUTIONS_RETENTION_DAYS debe ser al menos 1').optional(),
 });
 
 export function validateEnv(env: Record<string, unknown>): Record<string, unknown> {

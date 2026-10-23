@@ -6,6 +6,7 @@ export interface AppConfig {
   redis: { host: string; port: number; password?: string };
   llm: { anthropicApiKey?: string; defaultModel: string };
   http: { timeoutMs: number; allowPrivateNetworks: boolean };
+  executions: { retentionDays: number };
 }
 
 export default (): AppConfig => ({
@@ -28,5 +29,9 @@ export default (): AppConfig => ({
   http: {
     timeoutMs: parseInt(process.env.CONNECTOR_TIMEOUT_MS ?? '30000', 10),
     allowPrivateNetworks: process.env.CONNECTOR_ALLOW_PRIVATE_NETWORKS === 'true',
+  },
+  executions: {
+    /** Días que se conservan ejecuciones terminadas e historial de rutinas (limpieza diaria). */
+    retentionDays: Math.max(parseInt(process.env.EXECUTIONS_RETENTION_DAYS ?? '30', 10) || 30, 1),
   },
 });

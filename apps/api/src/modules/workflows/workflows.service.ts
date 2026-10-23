@@ -1,13 +1,14 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
-import type { Prisma, TriggerType } from '@prisma/client';
+import { Prisma, type TriggerType } from '@prisma/client';
 import { Queue, QueueEvents } from 'bullmq';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import type { WorkflowDefinition } from './engine/workflow.types';
@@ -16,6 +17,20 @@ import { CreateWorkflowDto, UpdateWorkflowDto } from './dto/workflow.dto';
 import { JOB_RUN, JOB_SCHEDULED, schedulerId, WORKFLOW_QUEUE, type RunJobData } from './queue/workflow-queue.constants';
 
 const json = (v: unknown) => v as Prisma.InputJsonValue;
+
+/** Serialización con claves ordenadas: JSONB de Postgres no conserva el orden de las claves. */
+function canonical(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`;
+  if (v && typeof v === 'object') {
+    const obj = v as Record<string, unknown>;
+    return `{${Object.keys(obj)
+      .filter((k) => obj[k] !== undefined)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${canonical(obj[k])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(v) ?? 'null';
+}
 const MAX_WAIT_MS = 60_000;
 
 @Injectable()
@@ -46,6 +61,7 @@ export class WorkflowsService implements OnModuleInit, OnModuleDestroy {
         active: true,
         schedule: true,
         version: true,
+        errorWorkflowId: true,
         updatedAt: true,
         _count: { select: { executions: true } },
       },
@@ -71,22 +87,86 @@ export class WorkflowsService implements OnModuleInit, OnModuleDestroy {
   async update(workspaceId: string, id: string, dto: UpdateWorkflowDto) {
     const current = await this.get(workspaceId, id);
     if (dto.definition) this.assertValid(dto.definition);
-    const wf = await this.prisma.workflow.update({
-      where: { id },
-      data: {
-        ...dto,
-        definition: dto.definition ? json(dto.definition) : undefined,
-        version: dto.definition ? { increment: 1 } : undefined,
-      },
-    });
+    if (dto.errorWorkflowId) await this.assertErrorWorkflow(workspaceId, id, dto.errorWorkflowId);
+    const definitionChanged =
+      dto.definition !== undefined && canonical(dto.definition) !== canonical(current.definition);
+    const { definition, ...rest } = dto;
+    let wf;
+    try {
+      wf = await this.prisma.$transaction(async (tx) => {
+        if (definitionChanged) {
+          // Historial inmutable: se guarda la definición ANTERIOR con su número de versión.
+          await tx.workflowVersion.create({
+            data: { workflowId: id, version: current.version, definition: json(current.definition) },
+          });
+        }
+        return tx.workflow.update({
+          where: definitionChanged ? { id, version: current.version } : { id },
+          data: {
+            ...rest,
+            definition: definitionChanged ? json(definition) : undefined,
+            version: definitionChanged ? { increment: 1 } : undefined,
+          },
+        });
+      });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && ['P2002', 'P2025'].includes(err.code)) {
+        throw new ConflictException('El flujo fue modificado por otra petición; recárguelo e intente de nuevo');
+      }
+      throw err;
+    }
     if (current.active && dto.schedule !== undefined) await this.syncSchedule(wf.id, wf.active, wf.schedule);
     return wf;
+  }
+
+  /** Historial: la versión actual (current: true) primero y luego las anteriores, de la más reciente a la más antigua. */
+  async listVersions(workspaceId: string, id: string) {
+    const wf = await this.get(workspaceId, id);
+    const history = await this.prisma.workflowVersion.findMany({
+      where: { workflowId: id },
+      orderBy: { version: 'desc' },
+      select: { version: true, createdAt: true, definition: true },
+    });
+    const nodeCount = (d: unknown) => (d as WorkflowDefinition)?.nodes?.length ?? 0;
+    return [
+      { version: wf.version, createdAt: wf.updatedAt, nodeCount: nodeCount(wf.definition), current: true },
+      ...history.map((v) => ({
+        version: v.version,
+        createdAt: v.createdAt,
+        nodeCount: nodeCount(v.definition),
+        current: false,
+      })),
+    ];
+  }
+
+  async getVersion(workspaceId: string, id: string, version: number) {
+    const wf = await this.get(workspaceId, id);
+    if (version === wf.version) return { version, createdAt: wf.updatedAt, current: true, definition: wf.definition };
+    const v = await this.prisma.workflowVersion.findUnique({
+      where: { workflowId_version: { workflowId: id, version } },
+    });
+    if (!v) throw new NotFoundException('Versión no encontrada');
+    return { version: v.version, createdAt: v.createdAt, current: false, definition: v.definition };
+  }
+
+  /** Restaurar no reescribe historia: la definición elegida se guarda como una versión nueva. */
+  async restoreVersion(workspaceId: string, id: string, version: number) {
+    const wf = await this.get(workspaceId, id);
+    if (version === wf.version) throw new BadRequestException('Esa versión ya es la actual');
+    const v = await this.prisma.workflowVersion.findUnique({
+      where: { workflowId_version: { workflowId: id, version } },
+    });
+    if (!v) throw new NotFoundException('Versión no encontrada');
+    return this.update(workspaceId, id, { definition: v.definition as unknown as WorkflowDefinition });
   }
 
   async remove(workspaceId: string, id: string) {
     await this.get(workspaceId, id);
     await this.syncSchedule(id, false, null);
-    await this.prisma.workflow.delete({ where: { id } });
+    await this.prisma.$transaction([
+      this.prisma.workflow.updateMany({ where: { workspaceId, errorWorkflowId: id }, data: { errorWorkflowId: null } }),
+      this.prisma.workflow.delete({ where: { id } }),
+    ]);
   }
 
   async setActive(workspaceId: string, id: string, active: boolean) {
@@ -155,6 +235,15 @@ export class WorkflowsService implements OnModuleInit, OnModuleDestroy {
     const ex = await this.prisma.execution.findFirst({ where: { id: executionId, workspaceId } });
     if (!ex) throw new NotFoundException('Ejecución no encontrada');
     return this.run(workspaceId, ex.workflowId, ex.input as Record<string, unknown>, ex.trigger);
+  }
+
+  private async assertErrorWorkflow(workspaceId: string, id: string, errorWorkflowId: string): Promise<void> {
+    if (errorWorkflowId === id) throw new BadRequestException('Un flujo no puede ser su propio flujo de error');
+    const target = await this.prisma.workflow.findFirst({
+      where: { id: errorWorkflowId, workspaceId },
+      select: { id: true },
+    });
+    if (!target) throw new BadRequestException('El flujo de error no existe en este workspace');
   }
 
   private assertValid(def: WorkflowDefinition): void {
