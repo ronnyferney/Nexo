@@ -5,7 +5,9 @@
  *   "{{ nodes.http.output.items }}"      -> si la cadena es una sola expresión, conserva el tipo original
  *   "{{ input.city | default:'Bogotá' | upper }}"
  *
- * Filtros: json, upper, lower, trim, default:'x', length, first, last.
+ * Filtros: json, upper, lower, trim, default:'x', omit:'x', length, first, last.
+ *   omit:'x' -> vacío (undefined) si el valor es exactamente 'x'; permite que un valor de un enum signifique "no enviar"
+ *   (p. ej. "{{ input.filter | default:'isRead eq false' | omit:'todos' }}": el adaptador REST omite el parámetro).
  */
 const EXPR = /\{\{\s*([^}]+?)\s*\}\}/g;
 const SINGLE_EXPR = /^\{\{\s*([^}]+?)\s*\}\}$/;
@@ -49,6 +51,8 @@ function applyFilter(value: unknown, filter: string): unknown {
       return String(value ?? '').trim();
     case 'default':
       return value === undefined || value === null || value === '' ? arg : value;
+    case 'omit':
+      return value === arg ? undefined : value;
     case 'length':
       return Array.isArray(value) || typeof value === 'string' ? value.length : 0;
     case 'first':

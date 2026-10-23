@@ -8,6 +8,7 @@ import { linkedin } from './integrations/linkedin';
 import { lushaRest } from './integrations/lusha';
 import { lushaMcp } from './integrations/lusha-mcp';
 import { microsoftCalendar } from './integrations/microsoft-calendar';
+import { microsoftMail } from './integrations/microsoft-mail';
 import { microsoftOutlook } from './integrations/microsoft-outlook';
 import { microsoftPlanner } from './integrations/microsoft-planner';
 import { microsoftTeams } from './integrations/microsoft-teams';
@@ -34,6 +35,7 @@ export const CATALOG: readonly CatalogEntry[] = [
   googleCalendar,
   googleMeet,
   microsoftOutlook,
+  microsoftMail,
   microsoftCalendar,
   microsoftTodo,
   microsoftPlanner,

@@ -19,6 +19,14 @@ describe('template engine', () => {
     expect(render('{{ input.tags | length }}', ctx)).toBe(2);
   });
 
+  it('omit vacía el valor solo si coincide exactamente con el argumento', () => {
+    const tpl = "{{ input.f | default:'isRead eq false' | omit:'todos' }}";
+    expect(render(tpl, { input: {} })).toBe('isRead eq false');
+    expect(render(tpl, { input: { f: 'todos' } })).toBeUndefined();
+    expect(render(tpl, { input: { f: 'todos ' } })).toBe('todos ');
+    expect(render('x={{ input.f | omit:"a" }}', { input: { f: 'a' } })).toBe('x=');
+  });
+
   it('renderiza objetos recursivamente', () => {
     expect(render({ a: ['{{ input.name }}'], b: { c: '{{ input.n }}' } }, ctx)).toEqual({ a: ['Ana'], b: { c: 3 } });
   });
