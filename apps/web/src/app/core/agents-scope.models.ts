@@ -2,7 +2,8 @@ import type { AgentPermission, AgentVisibility, LaunchStatus } from './access.mo
 import type { Agent } from './models';
 
 /** Ámbito de la lista de agentes (`GET /agents?scope=`, ADR 0007). `all` solo ADMIN/OWNER. */
-export type AgentScope = 'mine' | 'shared' | 'workspace' | 'all';
+/** `available` = todos los que el usuario puede usar (GET /agents sin `scope`): propios, compartidos y de la empresa. */
+export type AgentScope = 'available' | 'mine' | 'shared' | 'workspace' | 'all';
 
 /** Agente de la lista por ámbito: `Agent` ya incluye visibilidad, dueño, permiso y lanzamiento (opcionales). */
 export type ScopedAgent = Agent;

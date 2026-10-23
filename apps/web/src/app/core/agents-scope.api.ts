@@ -14,7 +14,9 @@ export class AgentsScopeApi {
   private readonly base = environment.apiUrl;
 
   agents = (scope?: AgentScope) =>
-    firstValueFrom(this.http.get<ScopedAgent[]>(`${this.base}/agents`, { params: scope ? { scope } : {} }));
+    firstValueFrom(
+      this.http.get<ScopedAgent[]>(`${this.base}/agents`, { params: scope && scope !== 'available' ? { scope } : {} }),
+    );
   explore = () => firstValueFrom(this.http.get<ExploreAgent[]>(`${this.base}/agents/explore`));
 
   workspaceSettings = () => firstValueFrom(this.http.get<WorkspaceSettings>(`${this.base}/workspace/settings`));

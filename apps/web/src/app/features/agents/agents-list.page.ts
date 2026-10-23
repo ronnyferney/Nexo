@@ -18,8 +18,13 @@ interface ScopeTab {
 }
 
 const TABS: ScopeTab[] = [
+  {
+    id: 'available',
+    label: 'Disponibles para mí',
+    empty: 'Todavía no hay agentes para usted: cree uno o pida que le compartan uno (a usted, a su unidad o a su grupo).',
+  },
   { id: 'mine', label: 'Mis agentes', empty: 'Aún no tiene agentes propios. Cree uno o duplique un agente desde Explorar.' },
-  { id: 'shared', label: 'Compartidos conmigo', empty: 'Nadie ha compartido agentes con usted o con sus unidades.' },
+  { id: 'shared', label: 'Compartidos conmigo', empty: 'Nadie ha compartido agentes con usted, sus unidades o sus grupos.' },
   { id: 'workspace', label: 'De la empresa', empty: 'La empresa todavía no tiene agentes publicados para todos.' },
 ];
 const GOVERNANCE_TAB: ScopeTab = {
@@ -96,7 +101,7 @@ const GOVERNANCE_TAB: ScopeTab = {
         <div class="card empty"><nx-icon name="search" [size]="36" /><h3>Sin resultados</h3><p>Ningún agente coincide con «{{ query }}».</p></div>
       } @else {
         <div class="card empty"><nx-icon name="bot" [size]="36" /><h3>Sin agentes</h3><p>{{ currentTab().empty }}</p>
-          @if (activeScope() === 'mine' && canCreate()) {
+          @if ((activeScope() === 'mine' || activeScope() === 'available') && canCreate()) {
             <a class="btn primary" routerLink="/agents/new"><nx-icon name="plus" />Crear agente</a>
           }
         </div>
@@ -125,7 +130,7 @@ export class AgentsListPage implements OnInit {
   readonly tabs = computed(() => (this.auth.isAdmin() ? [...TABS, GOVERNANCE_TAB] : TABS));
   readonly activeScope = computed<AgentScope>(() => {
     const s = this.scope();
-    return this.tabs().some((t) => t.id === s) ? (s as AgentScope) : 'mine';
+    return this.tabs().some((t) => t.id === s) ? (s as AgentScope) : 'available';
   });
   readonly currentTab = computed(() => this.tabs().find((t) => t.id === this.activeScope()) ?? TABS[0]);
   /** EDITOR+ siempre; VIEWER solo si el workspace permite agentes personales (ADR 0007 D3). */
@@ -154,7 +159,7 @@ export class AgentsListPage implements OnInit {
   }
 
   select(scope: AgentScope) {
-    void this.router.navigate([], { queryParams: { scope: scope === 'mine' ? null : scope }, queryParamsHandling: 'merge', replaceUrl: true });
+    void this.router.navigate([], { queryParams: { scope: scope === 'available' ? null : scope }, queryParamsHandling: 'merge', replaceUrl: true });
   }
 
   reload() {
