@@ -2,7 +2,17 @@ import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
-import type { AgentHealth, AgentHealthSummary, AgentShareInput, AgentVisibility, LaunchInput } from './access.models';
+import type {
+  AgentHealth,
+  AgentHealthSummary,
+  AgentShareInput,
+  AgentVisibility,
+  LaunchInput,
+  UserGroup,
+  UserGroupCreateInput,
+  UserGroupSummary,
+  UserGroupUpdateInput,
+} from './access.models';
 import { normalizeHealthSummary } from './access.models';
 import type { Agent } from './models';
 
@@ -24,6 +34,9 @@ export class AccessApi {
   private put<T>(path: string, body: unknown) {
     return firstValueFrom(this.http.put<T>(`${this.base}${path}`, body));
   }
+  private delete<T>(path: string) {
+    return firstValueFrom(this.http.delete<T>(`${this.base}${path}`));
+  }
 
   // Visibilidad y compartir (ADR 0007)
   setVisibility = (agentId: string, visibility: AgentVisibility) =>
@@ -32,6 +45,18 @@ export class AccessApi {
   transfer = (agentId: string, userId: string) => this.post<Agent>(`/agents/${agentId}/transfer`, { userId });
   duplicate = (agentId: string, name?: string) =>
     this.post<Agent>(`/agents/${agentId}/duplicate`, name?.trim() ? { name: name.trim() } : {});
+
+  // Grupos de usuarios (ADR 0007 D6)
+  /** Grupos del workspace para compartir (EDITOR+). */
+  groups = () => this.get<UserGroupSummary[]>('/groups');
+  /** Administración de grupos con miembros (ADMIN+). */
+  adminGroups = () => this.get<UserGroup[]>('/admin/groups');
+  createGroup = (data: UserGroupCreateInput) => this.post<UserGroup>('/admin/groups', data);
+  updateGroup = (id: string, data: UserGroupUpdateInput) => this.patch<UserGroup>(`/admin/groups/${id}`, data);
+  /** Elimina el grupo y sus shares: sus miembros pierden el acceso que tenían por él. */
+  deleteGroup = (id: string) => this.delete<void>(`/admin/groups/${id}`);
+  /** Reemplaza la lista completa de miembros. */
+  setGroupMembers = (id: string, userIds: string[]) => this.put<UserGroup>(`/admin/groups/${id}/members`, { userIds });
 
   // Salud y lanzamiento (ADR 0006 D3/D4)
   health = (agentId: string) => this.get<AgentHealth>(`/agents/${agentId}/health`);

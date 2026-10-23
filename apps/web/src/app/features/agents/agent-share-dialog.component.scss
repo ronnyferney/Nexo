@@ -18,4 +18,11 @@
 .hint { display: flex; gap: 6px; align-items: flex-start; margin: 0; color: var(--muted); }
 .hint nx-icon { margin-top: 1px; color: var(--info); }
 .more summary { cursor: pointer; font-weight: 600; color: var(--primary); margin-bottom: 10px; }
+
+.publish { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border: 1px solid var(--primary); border-radius: 10px; background: var(--primary-50); }
+.publish-head { display: flex; gap: 10px; align-items: flex-start; }
+.publish-head > nx-icon { color: var(--primary); margin-top: 2px; }
+.publish h3 { margin: 0 0 2px; font-size: 14px; }
+.hint.warn nx-icon { color: var(--warning); }
+.shares nx-icon.group { color: var(--primary); }
 @media (max-width: 480px) { .add-row { flex-wrap: wrap; } .add-row > .input:first-of-type { flex-basis: 100%; } }

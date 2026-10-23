@@ -40,6 +40,7 @@ export const routes: Routes = [
           { path: '', loadComponent: () => import('./features/admin/costs.page').then((m) => m.CostsPage) },
           { path: 'providers', loadComponent: () => import('./features/admin/providers.page').then((m) => m.ProvidersPage) },
           { path: 'organization', loadComponent: () => import('./features/admin/organization.page').then((m) => m.OrganizationPage) },
+          { path: 'groups', loadComponent: () => import('./features/admin/groups.page').then((m) => m.GroupsPage) },
           { path: 'budgets', loadComponent: () => import('./features/admin/budgets.page').then((m) => m.BudgetsPage) },
           { path: 'alerts', loadComponent: () => import('./features/admin/alerts.page').then((m) => m.AlertsPage) },
           { path: 'edges', loadComponent: () => import('./features/admin/edges.page').then((m) => m.EdgesPage) },

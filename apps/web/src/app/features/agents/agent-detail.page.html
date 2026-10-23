@@ -20,6 +20,7 @@
             @if (a.visibility; as v) {
               <span class="badge" [title]="visibilityMeta[v].description"><nx-icon [name]="visibilityMeta[v].icon" [size]="12" />{{ visibilityMeta[v].label }}</span>
             }
+            @if (a.visibility !== 'PRIVATE' && a.shares?.length) { <nx-share-audience [shares]="a.shares" /> }
             @if (a.launchStatus === 'LAUNCHED') {
               <span class="badge success" [title]="a.launchOverrideReason ? 'Lanzado por un administrador: ' + a.launchOverrideReason : 'Cumple los requisitos de calidad'"><nx-icon name="rocket" [size]="12" />Lanzado</span>
             } @else if (a.launchStatus === 'DRAFT') {

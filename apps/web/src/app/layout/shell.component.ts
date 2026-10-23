@@ -126,6 +126,7 @@ export class ShellComponent implements OnInit {
     { path: '/admin', label: 'Costos', icon: 'chart', exact: true },
     { path: '/admin/providers', label: 'Proveedores IA', icon: 'cpu', exact: false },
     { path: '/admin/organization', label: 'Organización', icon: 'building', exact: false },
+    { path: '/admin/groups', label: 'Grupos', icon: 'users', exact: false },
     { path: '/admin/budgets', label: 'Presupuestos', icon: 'wallet', exact: false },
     { path: '/admin/alerts', label: 'Alertas', icon: 'bell', exact: false },
     { path: '/admin/edges', label: 'Nexo Edge', icon: 'server', exact: false },

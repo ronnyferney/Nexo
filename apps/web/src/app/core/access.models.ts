@@ -2,7 +2,7 @@
 
 export type AgentVisibility = 'PRIVATE' | 'TEAM' | 'WORKSPACE';
 export type AgentPermission = 'OWNER' | 'EDIT' | 'USE' | 'ADMIN_VIEW';
-export type SharePrincipal = 'USER' | 'UNIT';
+export type SharePrincipal = 'USER' | 'UNIT' | 'GROUP';
 export type SharePermission = 'USE' | 'EDIT';
 export type LaunchStatus = 'DRAFT' | 'LAUNCHED';
 
@@ -20,6 +20,48 @@ export interface AgentShareInput {
   principalType: SharePrincipal;
   principalId: string;
   permission: SharePermission;
+}
+
+/** Etiqueta e ícono por tipo de destino de un share (persona, unidad o grupo). */
+export const PRINCIPAL_META: Record<SharePrincipal, { label: string; detail: string; icon: string }> = {
+  USER: { label: 'Persona', detail: 'Persona', icon: 'user' },
+  UNIT: { label: 'Unidad', detail: 'Unidad y subunidades', icon: 'building' },
+  GROUP: { label: 'Grupo', detail: 'Grupo de usuarios', icon: 'users' },
+};
+
+// ----- Grupos de usuarios (ADR 0007 D6) -----
+
+/** Fila de `GET /groups` (EDITOR+), usada para compartir agentes con un grupo. */
+export interface UserGroupSummary {
+  id: string;
+  name: string;
+  description: string | null;
+  memberCount: number;
+}
+
+export interface UserGroupMember {
+  userId: string;
+  name: string;
+  email: string;
+}
+
+/** Grupo con miembros de `GET /admin/groups` y respuesta de las mutaciones de administración (ADMIN+). */
+export interface UserGroup extends UserGroupSummary {
+  createdAt: string;
+  members: UserGroupMember[];
+}
+
+/** Cuerpo de `POST /admin/groups`. */
+export interface UserGroupCreateInput {
+  name: string;
+  description?: string;
+  userIds?: string[];
+}
+
+/** Cuerpo de `PATCH /admin/groups/:id`. */
+export interface UserGroupUpdateInput {
+  name?: string;
+  description?: string;
 }
 
 // ----- Salud (ADR 0006 D3) -----
@@ -69,7 +111,7 @@ export const LAUNCH_MIN_HEALTH = 70;
 
 export const VISIBILITY_META: Record<AgentVisibility, { label: string; icon: string; description: string }> = {
   PRIVATE: { label: 'Personal', icon: 'lock', description: 'Solo usted (y la administración del workspace por gobierno).' },
-  TEAM: { label: 'Equipo', icon: 'users', description: 'Las personas y unidades (con sus subunidades) con las que lo comparta.' },
+  TEAM: { label: 'Equipo', icon: 'users', description: 'Las personas, unidades (con sus subunidades) y grupos con los que lo comparta.' },
   WORKSPACE: { label: 'Empresa', icon: 'building', description: 'Todos los miembros del workspace pueden usarlo.' },
 };
 

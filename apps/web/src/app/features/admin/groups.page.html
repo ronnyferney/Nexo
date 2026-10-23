@@ -1,0 +1,129 @@
+<div class="page">
+  <div class="page-header">
+    <div><h1>Grupos</h1><p>Audiencias de personas de distintas unidades a las que se publican agentes</p></div>
+    <div class="row wrap">
+      <button class="btn" (click)="load()" [disabled]="loading()"><nx-icon name="refresh" [size]="15" />Actualizar</button>
+      <button class="btn primary" (click)="openCreate()" [disabled]="loading() || !!error()"><nx-icon name="plus" [size]="15" />Nuevo grupo</button>
+    </div>
+  </div>
+
+  <div class="callout info" style="margin-bottom:16px">
+    <nx-icon name="info" [size]="16" />
+    <span>Un grupo reúne personas que necesitan los mismos agentes aunque pertenezcan a unidades diferentes. Por ejemplo,
+      cree el grupo <strong>«Gerentes de línea»</strong> y publique en él el agente <strong>«Resultados financieros»</strong>:
+      todos sus miembros podrán usarlo (incluidos los de rol Lector). Los cambios de membresía aplican de inmediato.
+      Para publicar, abra el agente y use <strong>Compartir → Publicar a un grupo</strong>.</span>
+  </div>
+
+  @if (loading()) {
+    <div class="card empty" role="status"><p>Cargando grupos…</p></div>
+  } @else if (error()) {
+    <div class="card empty" role="alert"><nx-icon name="alert" [size]="28" /><h3>No se pudieron cargar los grupos</h3><p>{{ error() }}</p>
+      <button class="btn" (click)="load()">Reintentar</button></div>
+  } @else if (!groups().length) {
+    <div class="card empty">
+      <nx-icon name="users" [size]="28" /><h3>Aún no hay grupos</h3>
+      <p>Cree el primero para publicar agentes a una audiencia transversal, como «Gerentes de línea».</p>
+      <button class="btn primary" (click)="openCreate()"><nx-icon name="plus" [size]="15" />Nuevo grupo</button>
+    </div>
+  } @else {
+    @if (membersError()) {
+      <div class="callout warning" role="alert" style="margin-bottom:16px"><nx-icon name="alert" [size]="16" />
+        <span>No se pudo cargar la lista de personas del workspace: {{ membersError() }}. Podrá editar nombres, pero no elegir miembros nuevos.</span></div>
+    }
+    <ul class="groups" role="list" style="list-style:none;margin:0;padding:0">
+      @for (g of sorted(); track g.id) {
+        <li class="card stack">
+          <div class="g-head">
+            <div class="icon-tile sm"><nx-icon name="users" [size]="16" /></div>
+            <div class="grow">
+              <h2>{{ g.name }}</h2>
+              <p class="small muted">{{ g.description || 'Sin descripción' }}</p>
+            </div>
+            <span class="badge primary nowrap">{{ g.memberCount }} {{ g.memberCount === 1 ? 'miembro' : 'miembros' }}</span>
+          </div>
+          @if (g.members.length) {
+            <ul class="chips" role="list" style="list-style:none;margin:0;padding:0" [attr.aria-label]="'Miembros de ' + g.name">
+              @for (m of g.members.slice(0, preview); track m.userId) {
+                <li class="badge person" [title]="m.email"><nx-icon name="user" [size]="12" />{{ m.name }}</li>
+              }
+              @if (g.members.length > preview) {
+                <li class="badge" [title]="restNames(g)">+{{ g.members.length - preview }} más</li>
+              }
+            </ul>
+          } @else {
+            <p class="small muted" style="margin:0">Sin miembros. Agregue personas para que puedan usar los agentes publicados al grupo.</p>
+          }
+          <div class="row wrap">
+            <button class="btn sm" (click)="openEdit(g)" [attr.aria-label]="'Editar grupo ' + g.name"><nx-icon name="pencil" [size]="14" />Editar y miembros</button>
+            <span class="spacer"></span>
+            <button class="btn ghost icon sm danger" [disabled]="deletingId() === g.id" [title]="'Eliminar grupo ' + g.name"
+              [attr.aria-label]="'Eliminar grupo ' + g.name" (click)="remove(g)"><nx-icon name="trash" [size]="14" /></button>
+          </div>
+        </li>
+      }
+    </ul>
+  }
+</div>
+
+<dialog #dlg class="modal group-dlg" aria-labelledby="group-dlg-title" (cancel)="onCancel($event)" (close)="draft.set(null)">
+  @if (draft(); as d) {
+    <div class="modal-head">
+      <div class="icon-tile"><nx-icon name="users" /></div>
+      <h2 id="group-dlg-title" class="grow" style="margin:0;font-size:17px">{{ d.id ? 'Editar grupo' : 'Nuevo grupo' }}</h2>
+      <button type="button" class="btn ghost icon sm" title="Cerrar" aria-label="Cerrar" (click)="close()"><nx-icon name="x" [size]="16" /></button>
+    </div>
+    <form class="modal-body" id="group-form" (ngSubmit)="save()">
+      <div class="field">
+        <label for="g-name">Nombre</label>
+        <input id="g-name" name="name" class="input" autofocus maxlength="80" required autocomplete="off" placeholder="Ej. Gerentes de línea"
+          [ngModel]="d.name" (ngModelChange)="setName($event)" [disabled]="busy()" aria-describedby="g-name-hint" />
+        <span class="hint" id="g-name-hint">Mínimo 2 caracteres. Debe ser único en el workspace.</span>
+      </div>
+      <div class="field">
+        <label for="g-desc">Descripción (opcional)</label>
+        <textarea id="g-desc" name="description" class="input" rows="2" maxlength="300"
+          placeholder="Ej. Responsables de cada línea de negocio que revisan los resultados financieros mensuales"
+          [ngModel]="d.description" (ngModelChange)="setDescription($event)" [disabled]="busy()"></textarea>
+      </div>
+
+      <fieldset class="members-fs">
+        <legend style="font-weight:600;font-size:12.5px;color:var(--muted);padding:0;margin-bottom:6px">Miembros ({{ d.userIds.size }})</legend>
+        @if (selectedPeople().length) {
+          <ul class="chips picked" role="list" style="list-style:none;margin:0 0 6px;padding:0" aria-label="Personas seleccionadas">
+            @for (p of selectedPeople(); track p.userId) {
+              <li class="badge primary">{{ p.name }}
+                <button type="button" class="btn ghost icon" [title]="'Quitar a ' + p.name" [attr.aria-label]="'Quitar a ' + p.name"
+                  [disabled]="busy()" (click)="toggle(p.userId, false)"><nx-icon name="x" [size]="12" /></button></li>
+            }
+          </ul>
+        }
+        @if (membersError()) {
+          <p class="error-text" style="margin:0">No se pudo cargar la lista de personas: {{ membersError() }}</p>
+        } @else {
+          <label class="sr-only" for="g-search">Buscar personas por nombre o correo</label>
+          <input id="g-search" name="search" type="search" class="input" placeholder="Buscar por nombre o correo…" autocomplete="off"
+            [ngModel]="search()" (ngModelChange)="search.set($event)" aria-controls="g-people" />
+          <ul class="people" id="g-people" aria-label="Personas del workspace">
+            @for (m of filteredPeople(); track m.userId) {
+              <li><label>
+                <input type="checkbox" [checked]="d.userIds.has(m.userId)" [disabled]="busy()" (change)="toggle(m.userId, $any($event.target).checked)" />
+                <span class="who"><strong>{{ m.name }}</strong><span class="small muted"> · {{ m.email }}</span></span>
+              </label></li>
+            } @empty {
+              <li class="small muted" style="padding:10px">{{ members().length ? 'Ninguna persona coincide con la búsqueda.' : 'No hay personas en el workspace.' }}</li>
+            }
+          </ul>
+          <span class="hint">Pueden ser de cualquier unidad. Al guardar, la lista de miembros se reemplaza por la selección.</span>
+        }
+      </fieldset>
+
+      @if (formError()) { <div class="callout danger" role="alert"><nx-icon name="alert" [size]="16" /><span>{{ formError() }}</span></div> }
+    </form>
+    <div class="modal-foot">
+      <button type="button" class="btn" (click)="close()" [disabled]="busy()">Cancelar</button>
+      <button type="submit" form="group-form" class="btn primary" [disabled]="busy() || !validName(d)">
+        <nx-icon name="save" [size]="16" />{{ busy() ? 'Guardando…' : d.id ? 'Guardar cambios' : 'Crear grupo' }}</button>
+    </div>
+  }
+</dialog>

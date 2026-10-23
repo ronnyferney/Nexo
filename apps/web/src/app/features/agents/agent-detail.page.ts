@@ -11,6 +11,7 @@ import { StudioApi } from '../../core/studio.api';
 import { type AgentProfile, EMPTY_PROFILE, type KnowledgeBase, normalizeProfile, type Skill } from '../../core/studio.models';
 import { ToastService } from '../../core/toast.service';
 import { TIER_LABELS, treeOrder } from '../../shared/budget';
+import { ShareAudienceComponent } from '../../shared/agent-badges.component';
 import { IconComponent } from '../../shared/icon.component';
 import { formatUsd, NumberPipe } from '../../shared/usd.pipe';
 import { DEFAULT_TARGET_SCORE } from '../../core/training.models';
@@ -67,6 +68,7 @@ const MAX_FALLBACKS = 3;
     AgentHealthCardComponent,
     AgentLaunchDialogComponent,
     AgentShareDialogComponent,
+    ShareAudienceComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './agent-detail.page.html',

@@ -7,6 +7,48 @@
   </div>
 
   <div class="modal-body">
+    @if (canUseGroups()) {
+      <section class="publish" aria-labelledby="publish-title">
+        <div class="publish-head">
+          <nx-icon name="users" [size]="18" />
+          <div class="grow">
+            <h3 id="publish-title">Publicar a un grupo</h3>
+            <p class="small muted m0" id="publish-desc">Todos los miembros del grupo podrán usar el agente, aunque estén en distintas
+              unidades. La visibilidad queda en <strong>Equipo</strong> y el grupo se agrega con permiso <strong>Usar</strong>.</p>
+          </div>
+        </div>
+        @if (groups(); as list) {
+          @if (list.length) {
+            <div class="add-row">
+              <label class="sr-only" for="publish-group">Grupo al que publicar</label>
+              <select id="publish-group" class="input" [ngModel]="publishGroupId()" (ngModelChange)="publishGroupId.set($event)"
+                [disabled]="busy()" aria-describedby="publish-desc">
+                <option value="">Elegir grupo…</option>
+                @for (g of list; track g.id) {
+                  <option [value]="g.id">{{ g.name }} ({{ g.memberCount }} {{ g.memberCount === 1 ? 'miembro' : 'miembros' }})</option>
+                }
+              </select>
+              <button type="button" class="btn primary" [disabled]="!publishGroupId() || busy()" (click)="publishToGroup()">
+                <nx-icon name="rocket" [size]="15" />{{ busy() ? 'Publicando…' : 'Publicar' }}</button>
+            </div>
+            @if (publishGroup(); as pg) {
+              @if (pg.description) { <p class="small muted m0">{{ pg.description }}</p> }
+              @if (publishAlreadyShared()) { <p class="hint small"><nx-icon name="info" [size]="14" />Ya está compartido con este grupo; se conservará su permiso.</p> }
+              @if (visibility() === 'WORKSPACE') {
+                <p class="hint small warn"><nx-icon name="alert" [size]="14" />Hoy toda la empresa lo puede usar. Al publicarlo al grupo, la visibilidad pasa a Equipo y solo lo usarán el grupo y los demás destinatarios de la lista.</p>
+              }
+            }
+          } @else {
+            <p class="hint small"><nx-icon name="info" [size]="14" />Aún no hay grupos en el workspace. {{ auth.isAdmin() ? 'Créelos en Administración → Grupos.' : 'Pida a un administrador que cree uno (p. ej. «Gerentes de línea»).' }}</p>
+          }
+        } @else if (groupsError()) {
+          <p class="error-text m0">No se pudieron cargar los grupos: {{ groupsError() }}</p>
+        } @else {
+          <p class="small muted m0" role="status">Cargando grupos…</p>
+        }
+      </section>
+    }
+
     <fieldset class="vis">
       <legend>Visibilidad</legend>
       @for (v of visibilities; track v) {
@@ -22,16 +64,16 @@
     </fieldset>
 
     <section aria-labelledby="share-people">
-      <h3 id="share-people" class="sec">Personas y unidades</h3>
+      <h3 id="share-people" class="sec">{{ canUseGroups() ? 'Personas, unidades y grupos' : 'Personas y unidades' }}</h3>
       @if (!sharingEnabled()) {
-        <p class="muted small m0">Con visibilidad Personal nadie más lo ve. Elija <strong>Equipo</strong> para compartirlo con personas o unidades.</p>
+        <p class="muted small m0">Con visibilidad Personal nadie más lo ve. Elija <strong>Equipo</strong> para compartirlo con {{ canUseGroups() ? 'personas, unidades o grupos' : 'personas o unidades' }}.</p>
       } @else {
         @if (visibility() === 'WORKSPACE') { <p class="muted small m0">Toda la empresa puede usarlo. Agregue permisos de edición para quien deba mantenerlo.</p> }
         <ul class="shares">
           @for (s of shares(); track s.principalType + s.principalId; let i = $index) {
             <li>
-              <nx-icon [name]="s.principalType === 'USER' ? 'user' : 'building'" [size]="16" />
-              <span class="grow name">{{ s.principalName }}<span class="small muted"> · {{ s.principalType === 'USER' ? 'Persona' : 'Unidad y subunidades' }}</span></span>
+              <nx-icon [name]="principal[s.principalType].icon" [size]="16" [class.group]="s.principalType === 'GROUP'" />
+              <span class="grow name">{{ s.principalName }}<span class="small muted"> · {{ shareDetail(s) }}</span></span>
               <label class="sr-only" [for]="'perm-' + i">Permiso de {{ s.principalName }}</label>
               <select class="input perm" [id]="'perm-' + i" [ngModel]="s.permission" (ngModelChange)="setPermission(i, $event)" [disabled]="busy()">
                 <option value="USE">Usar</option><option value="EDIT">Editar</option>
@@ -44,16 +86,17 @@
         </ul>
 
         <div class="add">
-          @if (members()) {
+          @if (principalTypes().length > 1) {
             <div class="segmented" role="radiogroup" aria-label="Compartir con">
-              <button type="button" role="radio" [attr.aria-checked]="addType === 'USER'" [class.active]="addType === 'USER'" (click)="setType('USER')"><nx-icon name="user" [size]="14" />Persona</button>
-              <button type="button" role="radio" [attr.aria-checked]="addType === 'UNIT'" [class.active]="addType === 'UNIT'" (click)="setType('UNIT')"><nx-icon name="building" [size]="14" />Unidad</button>
+              @for (t of principalTypes(); track t) {
+                <button type="button" role="radio" [attr.aria-checked]="addType === t" [class.active]="addType === t" (click)="setType(t)"><nx-icon [name]="principal[t].icon" [size]="14" />{{ principal[t].label }}</button>
+              }
             </div>
           }
           <div class="add-row">
-            <label class="sr-only" for="share-add">{{ addType === 'USER' ? 'Persona' : 'Unidad' }} a agregar</label>
+            <label class="sr-only" for="share-add">{{ principal[addType].label }} a agregar</label>
             <select id="share-add" class="input" [(ngModel)]="addId" [disabled]="busy()">
-              <option value="">{{ addType === 'USER' ? 'Elegir persona…' : 'Elegir unidad…' }}</option>
+              <option value="">Elegir {{ principal[addType].label.toLowerCase() }}…</option>
               @for (o of options(); track o.id) { <option [value]="o.id">{{ o.name }}</option> }
             </select>
             <label class="sr-only" for="share-perm">Permiso</label>
@@ -61,7 +104,10 @@
             <button type="button" class="btn" [disabled]="!addId || busy()" (click)="add()"><nx-icon name="plus" [size]="15" />Agregar</button>
           </div>
           @if (!members()) {
-            <p class="hint small"><nx-icon name="info" [size]="14" />Solo la administración puede ver la lista de personas del workspace. Puede compartir con unidades; para una persona concreta, pida a un administrador que la agregue.</p>
+            <p class="hint small"><nx-icon name="info" [size]="14" />Solo la administración puede ver la lista de personas del workspace. Puede compartir con unidades{{ groups() ? ' o grupos' : '' }}; para una persona concreta, pida a un administrador que la agregue.</p>
+          }
+          @if (addType === 'GROUP') {
+            <p class="hint small"><nx-icon name="info" [size]="14" />Los miembros del grupo obtienen el permiso elegido, incluso si pertenecen a distintas unidades o tienen rol Lector (solo uso).</p>
           }
           @if (unitsError()) { <p class="error-text m0">No se pudieron cargar las unidades: {{ unitsError() }}</p> }
           <p class="hint small"><strong>Usar</strong>: conversar y usarlo en flujos. <strong>Editar</strong>: cambiar su configuración, entrenamiento y rutinas.</p>
