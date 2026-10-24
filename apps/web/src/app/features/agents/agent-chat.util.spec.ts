@@ -1,4 +1,4 @@
-import { isSecurityNotice, toolSlug } from './agent-chat.util';
+import { isActiveTurnState, isSecurityNotice, toolSlug, turnStateLabel } from './agent-chat.util';
 
 describe('agent-chat.util', () => {
   describe('isSecurityNotice', () => {
@@ -28,6 +28,29 @@ describe('agent-chat.util', () => {
 
     it('acota el total a 64 caracteres', () => {
       expect(toolSlug('x'.repeat(40), 'y'.repeat(40)).length).toBe(64);
+    });
+  });
+
+  describe('turnStateLabel', () => {
+    it('da un texto de progreso para los estados activos', () => {
+      expect(turnStateLabel('thinking')).toBe('Preparando respuesta…');
+      expect(turnStateLabel('tool', 'Correo · Listar')).toBe('Consultando: Correo · Listar…');
+      expect(turnStateLabel('tool')).toBe('Consultando una herramienta…');
+      expect(turnStateLabel('awaiting_approval')).toBe('Esperando su autorización');
+      expect(turnStateLabel('streaming')).toBe('Generando respuesta…');
+    });
+
+    it('no da indicador para estados terminales ni idle', () => {
+      for (const s of ['idle', 'completed', 'partial', 'failed', 'cancelled'] as const) {
+        expect(turnStateLabel(s)).toBeNull();
+      }
+    });
+  });
+
+  describe('isActiveTurnState', () => {
+    it('solo son activos thinking, tool, awaiting_approval y streaming', () => {
+      expect((['thinking', 'tool', 'awaiting_approval', 'streaming'] as const).every(isActiveTurnState)).toBe(true);
+      expect((['idle', 'completed', 'partial', 'failed', 'cancelled'] as const).some(isActiveTurnState)).toBe(false);
     });
   });
 });

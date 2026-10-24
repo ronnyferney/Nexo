@@ -16,7 +16,7 @@ import { canManageAgentOwnership, canWriteAgent } from '../../shared/agent-permi
 import { IconComponent } from '../../shared/icon.component';
 import { formatUsd, NumberPipe } from '../../shared/usd.pipe';
 import { MarkdownPipe } from '../../shared/markdown.pipe';
-import { isSecurityNotice, toolSlug } from './agent-chat.util';
+import { type ChatTurnState, isActiveTurnState, isSecurityNotice, toolSlug, turnStateLabel } from './agent-chat.util';
 import { DEFAULT_TARGET_SCORE } from '../../core/training.models';
 import { AgentChatFeedbackComponent } from './agent-chat-feedback.component';
 import { AgentExamplesComponent } from './agent-examples.component';
@@ -265,6 +265,13 @@ export class AgentDetailPage implements OnInit {
   /** Nº de elementos para el badge de la pestaña Actividad: eventos + un grupo de seguridad si lo hay. */
   readonly activityBadge = computed(() => this.activityItems().length + (this.securityItems().length ? 1 : 0));
   readonly streaming = signal(false);
+  /** Estado del turno en curso (máquina de estados de interfaz ligada a eventos reales del backend). */
+  readonly turnState = signal<ChatTurnState>('idle');
+  /** Herramienta que el agente está consultando (para el indicador «Consultando: …»). */
+  readonly currentTool = signal<string | undefined>(undefined);
+  /** Texto del indicador de progreso; `null` cuando no hay actividad que mostrar. */
+  readonly turnStatus = computed(() => turnStateLabel(this.turnState(), this.currentTool()));
+  readonly turnActive = computed(() => isActiveTurnState(this.turnState()));
   conversationId?: string;
   message = '';
   private lastMessage = '';
@@ -689,6 +696,8 @@ export class AgentDetailPage implements OnInit {
     this.conversationId = undefined;
     this.chat.set([]);
     this.chatView.set('conversation');
+    this.turnState.set('idle');
+    this.currentTool.set(undefined);
   }
 
   /** Nombre legible de una herramienta a partir de su identificador técnico (conector__operación o tool interna). */
@@ -723,9 +732,12 @@ export class AgentDetailPage implements OnInit {
     this.lastMessage = text;
     this.push({ kind: 'user', text: approvedTools ? `✅ Aprobado: ${approvedTools.join(', ')} — ${text}` : text });
     this.streaming.set(true);
+    this.turnState.set('thinking');
+    this.currentTool.set(undefined);
     this.abort = new AbortController();
     const turn = ++this.turnSeq;
     let current: ChatItem | null = null;
+    let truncated = false; // una respuesta parcial (límite de tokens o de turnos) termina en estado 'partial'
 
     try {
       await this.api.chatStream(
@@ -739,37 +751,50 @@ export class AgentDetailPage implements OnInit {
                 this.push(current);
               }
               current.text += e.text;
+              this.turnState.set('streaming');
+              this.currentTool.set(undefined);
               this.chat.update((c) => [...c]);
               break;
             case 'tool_call':
               current = null;
+              this.turnState.set('tool');
+              this.currentTool.set(this.friendlyTool(e.name));
               this.push({ kind: 'tool', tool: { id: e.id, name: e.name, input: e.input, startedAt: Date.now() } });
               break;
-            case 'tool_result':
+            case 'tool_result': {
+              const needsApproval = e.output.startsWith('APROBACIÓN REQUERIDA');
+              this.turnState.set(needsApproval ? 'awaiting_approval' : 'thinking');
+              this.currentTool.set(undefined);
               this.chat.update((items) =>
                 items.map((i) =>
                   i.tool?.id === e.id
                     ? {
                         ...i,
                         tool: { ...i.tool, output: e.output, isError: e.isError, finishedAt: Date.now() },
-                        needsApproval: e.output.startsWith('APROBACIÓN REQUERIDA'),
+                        needsApproval,
                       }
                     : i,
                 ),
               );
               break;
+            }
             case 'notice':
               // Avisos del servidor, p. ej. cambio a un modelo de respaldo (ADR 0003 D1).
               current = null;
+              if (/truncad|máximo de .* turnos/i.test(e.message)) truncated = true;
               this.push({ kind: 'notice', text: e.message });
               break;
             case 'done':
               this.conversationId = e.conversationId;
               current = null;
+              this.turnState.set(truncated ? 'partial' : 'completed');
+              this.currentTool.set(undefined);
               if (e.usage || e.model) this.push({ kind: 'usage', text: this.usageLine(e.model, e.providerId, e.usage) });
               break;
             case 'error':
               current = null;
+              this.turnState.set('failed');
+              this.currentTool.set(undefined);
               this.push({ kind: 'error', text: e.message });
               break;
           }
@@ -778,8 +803,14 @@ export class AgentDetailPage implements OnInit {
         this.abort.signal,
       );
     } catch (e) {
-      if ((e as Error).name !== 'AbortError') this.push({ kind: 'error', text: errorMessage(e) });
+      if ((e as Error).name === 'AbortError') {
+        this.turnState.set('cancelled');
+      } else {
+        this.turnState.set('failed');
+        this.push({ kind: 'error', text: errorMessage(e) });
+      }
     } finally {
+      this.currentTool.set(undefined);
       this.markFinal(turn, text);
       this.streaming.set(false);
     }

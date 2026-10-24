@@ -372,7 +372,14 @@
               } @empty {
                 <div class="empty"><nx-icon name="bot" [size]="32" /><h3>Converse con su agente</h3><p>Escriba un mensaje para empezar.</p></div>
               }
-              @if (streaming()) { <div class="typing" aria-label="El agente está trabajando"><span></span><span></span><span></span></div> }
+              @if (turnActive()) {
+                <div class="turn-status" role="status">
+                  <span class="dots" aria-hidden="true"><span></span><span></span><span></span></span>
+                  <span>{{ turnStatus() }}</span>
+                </div>
+              } @else if (turnState() === 'cancelled') {
+                <div class="turn-status muted" role="status"><nx-icon name="stop" [size]="13" />Generación detenida</div>
+              }
             }
             @case ('activity') {
               @if (securityItems().length) {

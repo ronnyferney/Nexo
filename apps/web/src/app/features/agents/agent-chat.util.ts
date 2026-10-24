@@ -1,5 +1,41 @@
 /** Utilidades puras del panel de prueba del agente (clasificación de eventos y nombres legibles). */
 
+/**
+ * Estado de interfaz del turno en curso, ligado a eventos reales del backend (no a animaciones que simulen progreso):
+ * idle (sin actividad), thinking (preparando), tool (consultando una herramienta), awaiting_approval (requiere
+ * autorización), streaming (generando texto), y los terminales completed / partial / failed / cancelled.
+ */
+export type ChatTurnState =
+  | 'idle'
+  | 'thinking'
+  | 'tool'
+  | 'awaiting_approval'
+  | 'streaming'
+  | 'completed'
+  | 'partial'
+  | 'failed'
+  | 'cancelled';
+
+/** Estados en los que el agente está trabajando activamente (se muestra el indicador de progreso). */
+export const isActiveTurnState = (s: ChatTurnState): boolean =>
+  s === 'thinking' || s === 'tool' || s === 'awaiting_approval' || s === 'streaming';
+
+/** Texto del indicador discreto según el estado del turno; `null` cuando no hay nada activo que mostrar. */
+export function turnStateLabel(state: ChatTurnState, toolName?: string): string | null {
+  switch (state) {
+    case 'thinking':
+      return 'Preparando respuesta…';
+    case 'tool':
+      return toolName ? `Consultando: ${toolName}…` : 'Consultando una herramienta…';
+    case 'awaiting_approval':
+      return 'Esperando su autorización';
+    case 'streaming':
+      return 'Generando respuesta…';
+    default:
+      return null;
+  }
+}
+
 /** Un aviso del backend es de seguridad (DataGuard) si empieza con este prefijo; el resto son informativos. */
 export const SECURITY_NOTICE_PREFIX = 'Protección de datos';
 
