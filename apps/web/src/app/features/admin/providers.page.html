@@ -187,7 +187,7 @@
 </div>
 
 @if (channelsOpen()) {
-  <nx-claude-channels [channels]="claudeChannels()" [highlight]="channelsHighlight()" [platformConfigured]="platformConfigured()"
+  <nx-claude-channels [channels]="claudeChannels()" [highlight]="channelsHighlight()" [highlightLabel]="query().trim() ? 'Coincide con su búsqueda' : 'Coincide con el filtro'" [platformConfigured]="platformConfigured()"
     (chosen)="onChannelChosen($event)" (closed)="channelsClosed()" />
 }
 

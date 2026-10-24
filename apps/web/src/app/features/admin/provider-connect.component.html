@@ -44,6 +44,8 @@
               Indique la dirección de su servidor {{ p.name }}. Nexo se conecta directamente y no necesita clave.
             } @else if (p.category === 'ENTERPRISE_CLOUD') {
               Complete los datos de su recurso de {{ p.name }}. Guardamos las credenciales cifradas en la bóveda y las usamos para sus agentes.
+            } @else if (channel()) {
+              Pegue una clave de API de la Consola de Claude. La guardamos cifrada en la bóveda y la usamos para sus agentes.
             } @else {
               Pegue su clave de API de {{ p.name }}. La guardamos cifrada en la bóveda y la usamos para sus agentes.
             }
@@ -52,7 +54,12 @@
         }
       </p>
 
-      @if (personalPlan(); as plan) {
+      @if (channel()) {
+        @if (personalPlan()) {
+          <div class="callout info"><nx-icon name="info" [size]="16" />
+            <span>Nexo no usa suscripciones personales como Claude Pro o Max: los términos de Anthropic no permiten usarlas en aplicaciones de terceros.</span></div>
+        }
+      } @else if (personalPlan(); as plan) {
         <div class="callout info"><nx-icon name="info" [size]="16" />
           <span>Nexo se conecta con la <strong>cuenta empresarial o de API</strong>, no con suscripciones personales como {{ plan }}.
             Los términos de {{ p.name }} reservan esos planes para uso individual, y la cuenta de API permite asignar y controlar el gasto por unidad.</span></div>

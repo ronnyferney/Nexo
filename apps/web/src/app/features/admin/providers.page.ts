@@ -461,12 +461,10 @@ export class ProvidersPage implements OnInit {
     this.connecting.set(p);
   }
 
-  /** «Otros canales» en el diálogo de conexión: vuelve a la comparación resaltando el canal que estaba abierto. */
+  /** «Otros canales» en el diálogo de conexión: vuelve a la comparación de canales. */
   connectBack() {
-    const p = this.connecting();
     this.connecting.set(null);
     this.connectFromChannels.set(false);
-    this.channelsHighlight.set(p ? [p.id] : []);
     this.channelsOpen.set(true);
   }
 

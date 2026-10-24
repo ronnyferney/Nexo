@@ -70,7 +70,7 @@ export interface ClaudeCard {
     .spin { width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--primary); animation: spin 0.7s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
     @media (max-width: 560px) {
-      .claude-card { flex-wrap: wrap; padding: 14px; gap: 12px; }
+      .claude-card { flex-wrap: wrap; align-items: flex-start; padding: 14px; gap: 12px; }
       .cl-body { flex-basis: calc(100% - 64px); }
       .pill { width: 100%; justify-content: center; }
     }

@@ -33,7 +33,8 @@ interface ChannelOption {
 
 /**
  * Diálogo «Conectar Claude»: los modelos son los mismos en todos los canales oficiales; el usuario elige por cuál
- * accede su organización (quién opera el servicio, cómo se conecta y quién factura). Al elegir, la página abre el
+ * accede su organización (quién opera el servicio, cómo se conecta y quién factura). Al elegir (también uno no
+ * disponible, para ver sus requisitos y el motivo), la página abre el
  * diálogo de conexión de esa entrada.
  */
 @Component({
@@ -57,12 +58,12 @@ interface ChannelOption {
           @for (o of options(); track o.p.id) {
             <li>
               <button type="button" class="opt" [class.hl]="o.highlighted" [class.off]="!o.available" [attr.data-channel]="o.p.id"
-                [attr.aria-disabled]="!o.available" [attr.aria-describedby]="'ch-st-' + o.p.id" (click)="pick(o)">
+                [attr.aria-describedby]="'ch-st-' + o.p.id" (click)="chosen.emit(o.p)">
                 <span class="o-head">
                   <strong>{{ o.info.short }}</strong>
                   @if (o.recommended) { <span class="badge primary">Recomendado</span> }
                   @if (o.connected) { <span class="badge success">{{ o.connected === 1 ? 'Conectado' : o.connected + ' conexiones' }}</span> }
-                  @if (o.highlighted) { <span class="badge info">Coincide con su búsqueda</span> }
+                  @if (o.highlighted) { <span class="badge info">{{ highlightLabel() }}</span> }
                 </span>
                 <dl class="facts">
                   <div><dt>Operado por</dt><dd>{{ o.info.operator }}</dd></div>
@@ -73,10 +74,10 @@ interface ChannelOption {
                   @if (o.available) {
                     <span class="ok"><nx-icon name="checkCircle" [size]="14" />Disponible</span><span class="muted"> · {{ o.info.note }}</span>
                   } @else {
-                    <span class="na"><nx-icon name="lock" [size]="14" />{{ o.reason }}</span>
+                    <span class="na"><nx-icon name="lock" [size]="14" /><span><strong>No disponible por ahora.</strong> {{ o.reason }}</span></span>
                   }
                 </span>
-                @if (o.available) { <span class="go" aria-hidden="true"><nx-icon name="chevronDown" [size]="16" /></span> }
+                <span class="go" aria-hidden="true"><nx-icon name="chevronDown" [size]="16" /></span>
               </button>
             </li>
           } @empty {
@@ -108,10 +109,10 @@ interface ChannelOption {
     .opts li { display: flex; min-width: 0; }
     .opt { position: relative; width: 100%; display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border: 1px solid var(--border);
       border-radius: 14px; background: var(--surface); color: inherit; font: inherit; text-align: left; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
-    .opt:hover:not(.off) { border-color: var(--primary); background: var(--primary-50); }
+    .opt:hover { border-color: var(--primary); background: var(--primary-50); }
     .opt:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
     .opt.hl { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
-    .opt.off { cursor: not-allowed; background: var(--surface-2); }
+    .opt.off { background: var(--surface-2); }
     .o-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding-right: 22px; }
     .o-head strong { font-size: 15px; margin-right: 2px; }
     .facts { margin: 0; display: grid; gap: 4px; font-size: 13px; }
@@ -122,6 +123,7 @@ interface ChannelOption {
     .ok, .na { display: inline-flex; gap: 5px; align-items: flex-start; font-weight: 600; }
     .ok { color: var(--success); }
     .na { color: var(--muted); font-weight: 500; }
+    .na strong { color: var(--text); font-weight: 600; }
     .ok nx-icon, .na nx-icon { margin-top: 1px; flex-shrink: 0; }
     .go { position: absolute; top: 14px; right: 14px; color: var(--muted); transform: rotate(-90deg); }
     .opt:hover .go, .opt:focus-visible .go { color: var(--primary); }
@@ -143,6 +145,8 @@ export class ClaudeChannelsComponent {
   readonly channels = input.required<ProviderView[]>();
   /** Ids de los canales que coinciden con la búsqueda o el filtro de la galería (se resaltan). */
   readonly highlight = input<readonly string[]>([]);
+  /** Texto del distintivo de los canales resaltados. */
+  readonly highlightLabel = input('Coincide con su búsqueda');
   /** Estado de la conexión «Incluido por Nexo» (`null` si el servidor no la informa). */
   readonly platformConfigured = input<boolean | null>(null);
   readonly closed = output<void>();
@@ -170,7 +174,7 @@ export class ClaudeChannelsComponent {
           info: CLAUDE_CHANNELS[ch],
           recommended: ch === 'anthropic',
           available: m.available,
-          reason: m.available ? null : m.unavailableReason || 'No disponible por ahora.',
+          reason: m.available ? null : m.unavailableReason || '',
           connected: p.connected?.length ?? 0,
           highlighted: hl.has(p.id),
         };
@@ -185,11 +189,6 @@ export class ClaudeChannelsComponent {
         dlg.querySelector<HTMLElement>('.opt.hl:not(.off)') ?? dlg.querySelector<HTMLElement>('.opt:not(.off)') ?? dlg.querySelector<HTMLElement>('.opt');
       first?.focus();
     });
-  }
-
-  pick(o: ChannelOption) {
-    if (!o.available) return;
-    this.chosen.emit(o.p);
   }
 
   close() {
