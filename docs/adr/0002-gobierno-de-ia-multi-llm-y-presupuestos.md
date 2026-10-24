@@ -110,7 +110,7 @@ Diseño:
   `reasoning_content` si la conexión lo exige (Kimi K3).
 - `LLM_PROVIDER_URL_OVERRIDES` (JSON `{ "<providerId>": "<url>" }`) sustituye la URL base de un proveedor (gateways
   corporativos de salida y pruebas); `OPENROUTER_AUTH_URL` sustituye la pantalla de consentimiento.
-- **OAuth de OpenRouter:** `state` firmado de un solo uso con el `code_verifier` cifrado (reutiliza `OAuthStateService`
+- **OAuth de OpenRouter:** `state` firmado de un solo uso (en Redis entre réplicas, D9 addendum B2) con el `code_verifier` cifrado (reutiliza `OAuthStateService`
   del ADR 0005 con `connectorId = 'llm-provider:openrouter'`). El `state` viaja en la query del `callback_url`: el SDK
   oficial `@openrouter/sdk` 1.5.7 no documenta un parámetro `state` propio en `openrouter.ai/auth` (el anuncio del blog de
   OpenRouter queda en `pendingVerification` hasta leerlo en la documentación) y `usage_limit_type` solo existe en
@@ -172,14 +172,16 @@ los agrupa bajo «Claude» (`ProviderCatalogEntry.family = 'CLAUDE'`, `claudeCha
 
 | Canal (`providerId`) | Operado por | Conexión | Cliente oficial | Facturación |
 |---|---|---|---|---|
-| API de Anthropic (`anthropic`) | Anthropic | Clave de API (cuenta de servicio); próximo: WIF | `@anthropic-ai/sdk` | Tarifas de Anthropic |
+| API de Anthropic (`anthropic`) | Anthropic | Clave de API (cuenta de servicio) o Workload Identity Federation sin claves (D9, addendum L2) | `@anthropic-ai/sdk` (`credentials: oidcFederationProvider(...)` en WIF) | Tarifas de Anthropic |
 | Claude en Google Cloud (`claude-google-cloud`) | Anthropic | «Iniciar sesión con Google» (token de Google, rol `roles/claude.user`), proyecto y workspace `wrkspc_` | `@anthropic-ai/google-cloud-sdk` (`bearerTokenProvider`) | Google Cloud Marketplace |
 | Claude en Vertex AI (`claude-vertex`) | Google | «Iniciar sesión con Google», proyecto y región | `@anthropic-ai/vertex-sdk` (`authClient` OAuth2 con el token vigente, uno por solicitud) | Tarifas de Google |
 | Claude en Microsoft Foundry (`claude-foundry`) | Microsoft (Azure) | «Iniciar sesión con Microsoft» (Entra ID, scope `https://ai.azure.com/.default`, rol «Foundry User» o «Cognitive Services User») o clave del recurso (`api-key`) | `@anthropic-ai/foundry-sdk` (`azureADTokenProvider` con el token vigente) | Microsoft Marketplace a tarifas de Anthropic (CCU) |
+| Claude en Amazon Bedrock (`claude-bedrock`) | AWS | Rol de IAM del cliente + `ExternalId` (STS AssumeRole, SigV4 `bedrock-mantle`), región | `@anthropic-ai/bedrock-sdk` (`AnthropicBedrockMantle`, `providerChainResolver` con las credenciales temporales) | Tarifas de AWS (`needsPricing`) |
+| Claude Platform on AWS (`claude-aws`) | Anthropic | Rol de IAM del cliente + `ExternalId` (SigV4 `aws-external-anthropic`), región y workspace `wrkspc_` | `@anthropic-ai/aws-sdk` (`AnthropicAws`, beta) | AWS Marketplace en CCU (`needsPricing`) |
 
 - **Este es el «iniciar sesión» legítimo para Claude:** Anthropic prohíbe que terceros ofrezcan el inicio de sesión de
   Claude.ai o usen planes Free/Pro/Max (code.claude.com/docs/en/legal-and-compliance). El acceso con cuenta de empresa
-  y sin claves es por la nube del cliente (Google Cloud, Vertex AI) o, a futuro, por Workload Identity Federation.
+  y sin claves es por la nube del cliente (Google Cloud, Vertex AI, AWS) o por Workload Identity Federation.
 - Las entradas de Google comparten la **misma app OAuth de Nexo** (`OAuthAppSpec.appKey = 'vertex'` →
   `OAUTH_LLM_VERTEX_CLIENT_ID/SECRET`); en la app se registra un redirect URI por entrada
   (`/api/llm/oauth/<claude-google-cloud|claude-vertex|vertex>/callback`).
@@ -190,8 +192,85 @@ los agrupa bajo «Claude» (`ProviderCatalogEntry.family = 'CLAUDE'`, `claudeCha
   conteo de tokens (gratuito) y `verifyMode: 'lenient'` (404 si el modelo no está activado; 401/403 impiden conectar).
 - **Precios:** API de Anthropic y Foundry con las tarifas verificadas en platform.claude.com/docs/en/about-claude/pricing;
   Google Cloud y Vertex AI se importan con `needsPricing`.
-- **Pendiente:** Amazon Bedrock (Mantle) y Claude Platform on AWS con rol de IAM y `ExternalId` (sin tokens Bearer) y
-  Workload Identity Federation para la API de Anthropic. Entra ID para Foundry quedó resuelto (addendum 2026-10-24).
+- Entra ID para Foundry quedó resuelto (addendum 2026-10-24). Workload Identity Federation y los canales de AWS con rol
+  de IAM quedaron resueltos en el addendum siguiente.
+
+#### Addendum 2026-10-24 (L2, L3, B2): conexiones Claude sin claves y uso único del `state` entre réplicas
+Fuentes verificadas el 2026-10-24: platform.claude.com/docs/en/manage-claude/workload-identity-federation, …/wif-
+reference y …/wif-providers/okta (WIF); …/build-with-claude/claude-in-amazon-bedrock y …/claude-platform-on-aws (AWS);
+SDK `@anthropic-ai/sdk` 1.1.0 (`lib/credentials/oidc-federation`, `TokenCache`), `@anthropic-ai/bedrock-sdk` 1.1.0,
+`@anthropic-ai/aws-sdk` 1.1.1 y `@aws-sdk/client-sts` 3.1156.0 (modelo oficial de `AssumeRole`). La guía de IAM sobre
+`ExternalId` (docs.aws.amazon.com) no fue accesible desde el entorno: la plantilla de confianza sigue el modelo del SDK y
+el texto exacto de la guía queda pendiente de verificación.
+
+- **Conexiones sin claves** (`MechanismType` `WORKLOAD_IDENTITY` y `AWS_ROLE`): no guardan secretos
+  (`apiKeyCipher = null`); los identificadores no secretos van en `driverOptions.keyless` (sin cambios de esquema),
+  validados al leer (`keyless/keyless-options.ts`). `credentialType` sigue en `API_KEY`. El driver obtiene la credencial
+  en cada uso y toda llamada (canje WIF, STS, Bedrock, AWS) sale por `HttpClientService.safeFetch` (A1).
+- **L2 · Workload Identity Federation con la API de Anthropic.** Nexo es un emisor OIDC «Custom OIDC»:
+  - Emisor `LLM_WIF_ISSUER` (por defecto `${PUBLIC_URL}/api/oidc`); endpoints públicos con `@Public()` y 120/min:
+    `GET /api/oidc/.well-known/openid-configuration` y `GET /api/oidc/jwks` (solo claves públicas, `Cache-Control`
+    5 min; 404 si no hay clave). Anthropic exige https, puerto 443 y DNS público (sin IP literales): sin dominio público
+    el mecanismo se muestra no disponible con el motivo.
+  - Claves `LLM_WIF_SIGNING_KEYS` (JSON `[{ kid?, pem, active? }]`) o `LLM_WIF_SIGNING_KEY`: RSA ≥ 2048 (RS256) o EC
+    P-256/P-384/P-521 (ES256/384/512); HMAC y Ed25519 se rechazan al arrancar (Anthropic solo acepta RSA/ECDSA). `kid`
+    por defecto = huella RFC 7638. Rotación: se publican todas, firma la `active` (o la primera privada); publicar la
+    nueva ≥ 15 min antes de activarla y conservar la anterior hasta que expiren sus aserciones (caché de JWKS de Anthropic
+    de hasta 1 min). Fuera de producción, sin clave, se genera una efímera P-256 con aviso; en producción, no se ofrece.
+  - Aserción: `iss` = emisor, `sub = nexo:workspace:<workspaceId>` (la regla se crea antes que la conexión, por eso el
+    sujeto es por workspace), `aud = https://api.anthropic.com`, `iat`/`nbf`/`exp` con vida de 10 min (≤ 1 h del emisor),
+    `jti` aleatorio (Anthropic lo trata como de un solo uso: se firma una aserción nueva por canje) y `nexo_workspace_id`.
+  - Canje: el SDK oficial (`oidcFederationProvider`) hace `POST /v1/oauth/token` con `grant_type = jwt-bearer`,
+    `assertion`, `federation_rule_id` (`fdrl_`), `organization_id` (UUID), `service_account_id` (`svac_`) y
+    `workspace_id` (`wrkspc_`, opcional) y la cabecera beta `oidc-federation-2026-04-01`; el token `sk-ant-oat01-…` viaja
+    como Bearer con `oauth-2025-04-20` y el `TokenCache` del SDK lo reutiliza hasta su expiración (renovación 120 s / 30 s
+    antes). El cliente se cachea por conexión en `LlmGatewayService`, así que el token se comparte entre ejecuciones.
+  - Pasos para el cliente (en `mechanisms[].steps`): Consola de Claude → Workload identity → «Connect workload» →
+    «Custom OIDC»; emisor = URL de Nexo con JWKS por descubrimiento («Verify issuer»); regla con `subject_prefix` exacto
+    (sin `*`) igual al sujeto del workspace y `audience = https://api.anthropic.com`; alcance `workspace:inference` (o
+    `workspace:developer`) y vida corta; pegar en Nexo los ids de la regla, cuenta de servicio, organización y workspace.
+  - Errores: el 401 opaco de Anthropic («Authentication failed») se traduce a un mensaje accionable
+    (`KeylessAuthError`) que remite al historial de autenticación de la Consola; nunca se devuelve el cuerpo.
+- **L3 · Claude en AWS con rol de IAM + `ExternalId`** (`claude-bedrock`, `claude-aws`; el `bedrock` compatible con
+  OpenAI sigue con token de corta duración, sin SigV4):
+  - `LLM_AWS_PRINCIPAL_ARN`: principal de IAM de la plataforma que aparece en la política de confianza del cliente. Sin
+    él, el mecanismo no está disponible. Las credenciales de la plataforma salen de la cadena estándar del SDK de AWS
+    (rol de tarea de ECS, perfil, variables `AWS_*`); esas consultas de credenciales de la propia plataforma (metadatos de
+    ECS/IMDS) no pasan por la política SSRF, que sí aplica a STS (`requestHandler` sobre `safeFetch`) y a los endpoints de
+    Claude. `LLM_AWS_STS_ENDPOINT` solo para pruebas o un VPC endpoint.
+  - `ExternalId` generado por Nexo (`nexo-` + 192 bits base64url), nunca elegido por el cliente (confused deputy):
+    `POST …/keyless/prepare` lo devuelve con un comprobante HMAC ligado al workspace (vida 24 h); `POST …/connect` exige
+    ese comprobante y rechaza un `ExternalId` ya usado por cualquier conexión (uno por conexión).
+  - `AssumeRole` (`DurationSeconds` 3600, `RoleSessionName = nexo-<workspaceId>`) con las credenciales temporales en
+    caché hasta 5 min antes de expirar y una sola solicitud por rol aunque haya concurrencia. AccessDenied se explica
+    («revise la política de confianza…») sin el cuerpo de STS.
+  - Bedrock: `https://bedrock-mantle.{región}.api.aws/anthropic`, ids `anthropic.claude-…`, sin API de modelos: se
+    verifica con un conteo de tokens y `verifyMode: 'lenient'` (tras asumir el rol); sin fallback server-side. Claude
+    Platform on AWS: `https://aws-external-anthropic.{región}.api.aws`, cabecera `anthropic-workspace-id`, API de
+    modelos; el cliente debe ejecutar `aws iam enable-outbound-web-identity-federation`. En ambos `apiKey: null` impide
+    que el SDK tome un Bearer del entorno.
+  - Plantillas que muestra la web: confianza `{ Principal: { AWS: <principal de Nexo> }, Action: sts:AssumeRole,
+    Condition: { StringEquals: { sts:ExternalId } } }`; permisos `bedrock-mantle:CreateInference` (Bedrock, `Resource: *`
+    hasta verificar el ARN de modelos de bedrock-mantle) y `aws-external-anthropic:CreateInference|CountTokens|GetModel|
+    ListModels|GetWorkspace` sobre `arn:aws:aws-external-anthropic:<región>:*:workspace/<wrkspc>` (AWS).
+  - `pendingVerification`: ARN de modelos de bedrock-mantle, `count_tokens` en bedrock-mantle, tarifas de ambos canales,
+    fallback server-side en Claude Platform on AWS y emisores de terceros en «Custom OIDC».
+- **B2 · uso único del `state` OAuth entre réplicas.** `SingleUseService` (`infrastructure/redis/single-use.service.ts`)
+  reclama el `jti` con `SET nexo:once:<ámbito>:<jti> 1 NX PX <vida restante>` en el Redis de la aplicación y **falla
+  cerrado** (sin Redis el `state` se rechaza y hay que iniciar sesión de nuevo). `OAuthStateService.consume(state,
+  { replayGuard })` lo aplica de forma opcional; lo usan el OAuth de proveedores IA (`llm-auth-flows`) y el de
+  OpenRouter. El OAuth de conectores puede adoptarlo pasando la misma opción (sin cambios en este addendum).
+- **Contrato** (ADMIN/OWNER salvo lo público):
+  - `POST /admin/llm/providers/:id/keyless/prepare` `{ mechanism: 'WORKLOAD_IDENTITY'|'AWS_ROLE', fields? }` → 200
+    `{ mechanism: 'WORKLOAD_IDENTITY', issuerUrl, discoveryUrl, jwksUrl, audience, subject, suggestedScope,
+    assertionTtlSeconds, consoleUrl, ephemeralKey, steps }` o `{ mechanism: 'AWS_ROLE', externalId, setupToken,
+    expiresAt, principalArn, trustPolicy, permissionsPolicy, steps }`; 400 si el proveedor no tiene el mecanismo o no
+    está disponible (motivo en español); no guarda nada.
+  - `POST /admin/llm/providers/:id/connect` agrega `mechanism?: 'API_KEY'|'WORKLOAD_IDENTITY'|'AWS_ROLE'` (por defecto
+    `API_KEY`) y `setupToken?` (solo `AWS_ROLE`); igual que con clave, prueba la conexión antes de guardarla.
+  - `ProviderView.mechanisms[]` agrega `steps?: string[]`; `LlmConnection` agrega `keyless: null | { type:
+    'WORKLOAD_IDENTITY' } | { type: 'AWS_ROLE'; externalId; roleArn }`.
+  - Públicos: `GET /api/oidc/.well-known/openid-configuration` y `GET /api/oidc/jwks`.
 
 ## Contrato de API
 
@@ -305,7 +384,8 @@ Solo incluye conexiones y modelos habilitados.
   `UsageRecord`; columnas `Membership.orgUnitId`, `Agent.costCenterId`).
 - Los agentes y conversaciones existentes siguen funcionando (`anthropic`/`mock` son conexiones de sistema).
 - El costo es una estimación según los precios configurados; la factura del proveedor manda. Se documenta en la consola.
-- Pendiente (fase siguiente): Bedrock con rol de IAM (el proveedor con token de corta duración ya existe, D8),
+- Pendiente (fase siguiente): SigV4 con rol de IAM en el proveedor `bedrock` compatible con OpenAI (Claude en Bedrock ya
+  lo tiene, D9),
   notificaciones por correo/Slack de alertas, presupuestos por usuario,
   streaming en el proveedor OpenAI-compatible, contador en Redis para muy alto volumen.
 

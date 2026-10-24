@@ -15,12 +15,12 @@ export interface AppConfig {
   registrationMode: RegistrationMode;
   /** Correo saliente (`SMTP_URL`, `MAIL_FROM`), opcional: invitaciones y verificación de correo. */
   mail: { smtpUrl: string | null; from: string | null };
+  jwt: { secret: string; expiresIn: string };
   /**
    * Cookie de sesión de la web (M6): `nexo_session` (HttpOnly, SameSite=Strict, path `/api`) y `nexo_csrf` (legible
    * por la web, doble envío). `cookieSecure` (`SESSION_COOKIE_SECURE`; por defecto, solo en producción) añade `Secure`.
    */
   session: { cookieSecure: boolean };
-  jwt: { secret: string; expiresIn: string };
   encryptionKey: string;
   /**
    * Conexión a Redis compartida por BullMQ, el limitador y el bus del Edge. `tls` (opciones de `tls.connect` para
@@ -55,6 +55,20 @@ export interface AppConfig {
      */
     platformMonthlyUsd: number;
     platformUnlimitedWorkspaces: string[];
+    /**
+     * Nexo como emisor OIDC para Workload Identity Federation con la API de Anthropic (L2, ADR 0002 D9).
+     * `issuer` (`LLM_WIF_ISSUER`, por defecto `${PUBLIC_URL}/api/oidc`): valor exacto del claim `iss`; Anthropic lee
+     * `${issuer}/.well-known/openid-configuration`, por lo que debe ser https, puerto 443 y DNS público.
+     * `signingKeys` (`LLM_WIF_SIGNING_KEYS`, JSON `[{ "kid", "pem", "active" }]`, o `LLM_WIF_SIGNING_KEY` con un PEM):
+     * claves privadas asimétricas (RSA o EC P-256/P-384); las públicas sin `active` solo se publican (rotación).
+     */
+    wif: { issuer: string; signingKeys: OidcSigningKeyConfig[] };
+    /**
+     * Rol de IAM del cliente con STS AssumeRole + ExternalId (L3, ADR 0002 D9). `principalArn` (`LLM_AWS_PRINCIPAL_ARN`):
+     * rol o usuario de IAM de la plataforma Nexo que aparece en la política de confianza del cliente; sus credenciales
+     * salen de la cadena estándar del SDK de AWS. `stsEndpoint` (`LLM_AWS_STS_ENDPOINT`): solo pruebas o VPC endpoint.
+     */
+    aws: { principalArn: string | null; stsEndpoint: string | null };
   };
   http: { timeoutMs: number; allowPrivateNetworks: boolean };
   executions: { retentionDays: number };
@@ -77,6 +91,39 @@ export function copilotModelFrom(env: NodeJS.ProcessEnv): { provider: string; mo
     return { provider: 'mock', model: requested === 'mock' && env.COPILOT_MODEL ? env.COPILOT_MODEL : 'mock-echo' };
   }
   return { provider: requested, model: env.COPILOT_MODEL || 'claude-opus-5-5' };
+}
+
+/** Clave de firma del emisor OIDC de Nexo (`kid` opcional: por defecto la huella RFC 7638 de la clave pública). */
+export interface OidcSigningKeyConfig {
+  kid?: string;
+  pem: string;
+  /** Firma los tokens nuevos; si ninguna lo indica, firma la primera clave privada. */
+  active?: boolean;
+}
+
+/**
+ * `LLM_WIF_SIGNING_KEYS` (JSON `[{ kid?, pem, active? }]`, con `\n` escapados) o `LLM_WIF_SIGNING_KEY` (un PEM). Un
+ * JSON inválido lanza: una configuración de claves rota no debe pasar desapercibida.
+ */
+export function parseOidcSigningKeys(env: NodeJS.ProcessEnv): OidcSigningKeyConfig[] {
+  const raw = env.LLM_WIF_SIGNING_KEYS?.trim();
+  if (raw) {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) throw new Error('LLM_WIF_SIGNING_KEYS debe ser un arreglo JSON');
+    return parsed.map((k: unknown, i) => {
+      const o = (k && typeof k === 'object' ? k : {}) as Record<string, unknown>;
+      if (typeof o.pem !== 'string' || !o.pem.includes('-----BEGIN')) {
+        throw new Error(`LLM_WIF_SIGNING_KEYS[${i}].pem debe ser una clave PEM`);
+      }
+      return {
+        pem: o.pem.replace(/\\n/g, '\n'),
+        ...(typeof o.kid === 'string' && o.kid ? { kid: o.kid } : {}),
+        ...(o.active === true ? { active: true } : {}),
+      };
+    });
+  }
+  const single = env.LLM_WIF_SIGNING_KEY?.trim();
+  return single ? [{ pem: single.replace(/\\n/g, '\n') }] : [];
 }
 
 /** `{ "<providerId>": "<url>" }`; un JSON inválido o valores no http(s) se ignoran. */
@@ -205,6 +252,17 @@ export default (): AppConfig => ({
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
+    wif: {
+      issuer: (
+        process.env.LLM_WIF_ISSUER?.trim() ||
+        `${(process.env.PUBLIC_URL ?? 'http://localhost:3000').replace(/\/+$/, '')}/api/oidc`
+      ).replace(/\/+$/, ''),
+      signingKeys: parseOidcSigningKeys(process.env),
+    },
+    aws: {
+      principalArn: process.env.LLM_AWS_PRINCIPAL_ARN?.trim() || null,
+      stsEndpoint: process.env.LLM_AWS_STS_ENDPOINT?.trim() || null,
+    },
   },
   http: {
     timeoutMs: parseInt(process.env.CONNECTOR_TIMEOUT_MS ?? '30000', 10),

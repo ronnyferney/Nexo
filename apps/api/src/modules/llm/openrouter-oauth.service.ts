@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { ROLE_RANK } from '../../common/decorators/roles.decorator';
 import { HttpClientService } from '../../common/http/http-client.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { SingleUseService } from '../../infrastructure/redis/single-use.service';
 import { createPkce, OAuthStateService } from '../oauth/oauth-state.service';
 import { bindingMatches, newBrowserBinding } from './llm-browser-binding';
 import { LlmProvidersService } from './llm-providers.service';
@@ -30,6 +31,8 @@ export class OpenRouterOAuthService {
     private readonly states: OAuthStateService,
     private readonly providers: LlmProvidersService,
     private readonly config: ConfigService,
+    /** Uso único del `state` compartido entre réplicas (Redis, falla cerrado; B2). */
+    private readonly singleUse: SingleUseService,
   ) {}
 
   private get publicUrl(): string {
@@ -79,7 +82,7 @@ export class OpenRouterOAuthService {
 
   /** Procesa el callback público y devuelve la URL (siempre bajo `webUrl`) a la que se redirige al navegador. */
   async callback(query: { code?: string; state?: string; error?: string }, browserNonce?: string): Promise<string> {
-    const payload = query.state ? await this.states.consume(query.state) : null;
+    const payload = query.state ? await this.states.consume(query.state, { replayGuard: this.singleUse }) : null;
     const prefix = `${OPENROUTER_STATE_ID}:`;
     if (!payload || !payload.connectorId.startsWith(prefix)) return this.redirect('invalid_state');
     // Mismo navegador que inició (M1).

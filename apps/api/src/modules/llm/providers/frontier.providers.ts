@@ -1,9 +1,16 @@
 import { SYSTEM_ANTHROPIC_MODELS } from '../pricing';
 import {
+  ANTHROPIC_WORKSPACE_PATTERN,
+  FEDERATION_RULE_PATTERN,
+  ORGANIZATION_ID_PATTERN,
+  SERVICE_ACCOUNT_PATTERN,
+} from '../keyless/keyless-options';
+import {
   API_KEY_FIELD,
   type ModelSpecialty,
   type ProviderCatalogEntry,
   type ProviderDataNotice,
+  type ProviderField,
 } from './provider-catalog.types';
 
 /**
@@ -53,6 +60,63 @@ export const CLAUDE_COVERED_MODELS_NOTICE: ProviderDataNotice = {
   sourceUrl: 'https://platform.claude.com/docs/en/manage-claude/api-and-data-retention',
 };
 
+/**
+ * Workload Identity Federation con la API de Anthropic (plan de mejora L2). Verificado el 2026-10-24 en
+ * platform.claude.com/docs/en/manage-claude/workload-identity-federation («Set up federation», «Concepts») y …/wif-
+ * reference («Token exchange request», formatos `fdrl_`, `svac_`, `wrkspc_` y UUID de organización). Nexo es el emisor
+ * OIDC («Custom OIDC»); la regla fija el sujeto exacto del workspace y la audiencia `https://api.anthropic.com`.
+ */
+export const WORKLOAD_IDENTITY_FIELDS: ProviderField[] = [
+  {
+    key: 'federationRuleId',
+    label: 'Regla de federación',
+    secret: false,
+    required: true,
+    placeholder: 'fdrl_01AbCdEf',
+    help: 'Id de la regla de federación (Consola de Claude → Workload identity).',
+    pattern: FEDERATION_RULE_PATTERN,
+    mechanisms: ['WORKLOAD_IDENTITY'],
+  },
+  {
+    key: 'serviceAccountId',
+    label: 'Cuenta de servicio',
+    secret: false,
+    required: true,
+    placeholder: 'svac_01AbCdEf',
+    help: 'Id de la cuenta de servicio a la que apunta la regla.',
+    pattern: SERVICE_ACCOUNT_PATTERN,
+    mechanisms: ['WORKLOAD_IDENTITY'],
+  },
+  {
+    key: 'organizationId',
+    label: 'Id de la organización de Anthropic',
+    secret: false,
+    required: true,
+    placeholder: '00000000-0000-0000-0000-000000000000',
+    help: 'UUID de la página Settings → Organization de la Consola de Claude.',
+    pattern: ORGANIZATION_ID_PATTERN,
+    mechanisms: ['WORKLOAD_IDENTITY'],
+  },
+  {
+    key: 'anthropicWorkspaceId',
+    label: 'Workspace de Anthropic',
+    secret: false,
+    required: false,
+    placeholder: 'wrkspc_01AbCdEf',
+    help: 'Obligatorio si la regla cubre más de un workspace; define cupos, límites y facturación.',
+    pattern: ANTHROPIC_WORKSPACE_PATTERN,
+    mechanisms: ['WORKLOAD_IDENTITY'],
+  },
+];
+
+export const WORKLOAD_IDENTITY_STEPS = [
+  'En la Consola de Claude abra Settings → Workload identity (platform.claude.com/settings/workload-identity-federation) y pulse «Connect workload» → «Custom OIDC» (requiere rol admin u owner de la organización).',
+  'Emisor: use la URL del emisor de Nexo que se muestra aquí, con JWKS por descubrimiento («discovery»). Pulse «Verify issuer» para comprobar que Anthropic lee las claves de Nexo.',
+  'Regla: sujeto exacto (subject_prefix sin «*») igual al sujeto de este workspace y audiencia https://api.anthropic.com; alcance workspace:inference (o workspace:developer) y una vida de token corta (p. ej. 600 s).',
+  'Copie los ids de la regla (fdrl_…), de la cuenta de servicio (svac_…), de su organización y, si la regla cubre varios workspaces, del workspace (wrkspc_…), y péguelos aquí.',
+  'Nexo firma una aserción nueva en cada intercambio y canjea por un token de corta duración; no se guarda ninguna clave.',
+];
+
 export const FRONTIER_PROVIDERS: ProviderCatalogEntry[] = [
   {
     id: 'anthropic',
@@ -64,7 +128,14 @@ export const FRONTIER_PROVIDERS: ProviderCatalogEntry[] = [
     kind: 'ANTHROPIC',
     baseUrl: 'https://api.anthropic.com',
     auth: 'API_KEY',
-    fields: [API_KEY_FIELD({ placeholder: 'sk-ant-...', help: 'Clave de la Consola de Claude; se guarda cifrada.' })],
+    fields: [
+      API_KEY_FIELD({
+        placeholder: 'sk-ant-...',
+        help: 'Clave de la Consola de Claude; se guarda cifrada.',
+        mechanisms: ['API_KEY'],
+      }),
+      ...WORKLOAD_IDENTITY_FIELDS,
+    ],
     docsUrl: 'https://platform.claude.com/docs/en/get-api-key',
     keyUrl: 'https://platform.claude.com/settings/keys',
     keySteps: [
@@ -97,10 +168,21 @@ export const FRONTIER_PROVIDERS: ProviderCatalogEntry[] = [
       },
       CLAUDE_COVERED_MODELS_NOTICE,
     ],
-    pendingVerification: [],
+    pendingVerification: [
+      'emisores OIDC de terceros como Nexo en el asistente «Custom OIDC» (la guía oficial lo describe para Okta, SPIFFE y otros proveedores conformes)',
+    ],
     authHeader: 'bearer',
     family: 'CLAUDE',
     claudeChannel: 'anthropic',
+    mechanisms: [
+      { type: 'API_KEY', label: 'Clave de API', primary: true },
+      {
+        type: 'WORKLOAD_IDENTITY',
+        label: 'Federación de identidad (sin claves)',
+        primary: false,
+        steps: WORKLOAD_IDENTITY_STEPS,
+      },
+    ],
   },
   {
     id: 'openai',

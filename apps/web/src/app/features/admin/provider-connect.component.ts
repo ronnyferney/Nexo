@@ -31,6 +31,7 @@ import { formatUsd } from '../../shared/usd.pipe';
 import { BrandLogoComponent } from '../integrations/brand-logo.component';
 import { providerLogo } from './ai-provider-logos';
 import { DeviceCodeComponent } from './device-code.component';
+import { KeylessConnectComponent } from './keyless-connect.component';
 import { LlmOAuthFlow } from './llm-oauth.flow';
 import { LocalDetectComponent } from './local-detect.component';
 import {
@@ -54,7 +55,15 @@ import {
  */
 @Component({
   selector: 'nx-provider-connect',
-  imports: [FormsModule, NgTemplateOutlet, IconComponent, BrandLogoComponent, DeviceCodeComponent, LocalDetectComponent],
+  imports: [
+    FormsModule,
+    NgTemplateOutlet,
+    IconComponent,
+    BrandLogoComponent,
+    DeviceCodeComponent,
+    LocalDetectComponent,
+    KeylessConnectComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './provider-connect.component.html',
   styleUrl: './provider-connect.component.scss',

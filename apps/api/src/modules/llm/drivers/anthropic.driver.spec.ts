@@ -67,7 +67,7 @@ describe('Driver de Claude por canal', () => {
       project: 'p',
       region: 'global',
     });
-    expect(parseClaudeOptions({ channel: 'bedrock' })).toBeNull();
+    expect(parseClaudeOptions({ channel: 'otro-canal' })).toBeNull();
     expect(parseClaudeOptions('vertex')).toBeNull();
     expect(parseClaudeOptions({ channel: 'foundry', resource: 'x'.repeat(500) })).toEqual({ channel: 'foundry' });
   });
@@ -140,5 +140,174 @@ describe('A1 · los SDK de Claude salen por la política de red de Nexo', () => 
       driver.create({ apiKey: 'k', baseUrl: `http://127.0.0.1:${port}/anthropic`, claude: { channel: 'foundry' } }),
     );
     expect(hits).toBe(0);
+  });
+
+  it('también en Bedrock, Claude Platform on AWS y el canje de Workload Identity Federation', async () => {
+    const aws = async () => ({ accessKeyId: 'ASIA', secretAccessKey: 's', sessionToken: 't' });
+    await blocked(
+      driver.create({
+        awsCredentials: aws,
+        baseUrl: `http://127.0.0.1:${port}/anthropic`,
+        claude: { channel: 'bedrock', region: 'us-east-1' },
+      }),
+    );
+    await blocked(
+      driver.create({
+        awsCredentials: aws,
+        baseUrl: `http://127.0.0.1:${port}`,
+        claude: { channel: 'aws', region: 'us-west-2', workspaceId: 'wrkspc_01Ab' },
+      }),
+    );
+    const err = (await driver.create({
+      baseUrl: `http://127.0.0.1:${port}`,
+      workloadIdentity: {
+        federationRuleId: 'fdrl_1',
+        organizationId: '00000000-0000-4000-8000-000000000000',
+        identityToken: () => 'jwt',
+      },
+    }).verify!().catch((e: unknown) => e)) as Error;
+    expect(err).toBeInstanceOf(Error);
+    expect(hits).toBe(0);
+  });
+});
+
+describe('Conexiones sin claves: Workload Identity Federation y rol de IAM (L2, L3)', () => {
+  interface Seen {
+    method: string;
+    url: string;
+    headers: Headers;
+    body: string;
+  }
+  /** `safeFetch` falso: registra cada solicitud y responde según `reply`. */
+  function driverWith(reply: (r: Seen) => Response) {
+    const seen: Seen[] = [];
+    const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const req = input instanceof Request ? input : null;
+      const r: Seen = {
+        method: init?.method ?? req?.method ?? 'GET',
+        url: String(req ? req.url : input),
+        headers: new Headers(init?.headers ?? req?.headers),
+        body: typeof init?.body === 'string' ? init.body : '',
+      };
+      seen.push(r);
+      return reply(r);
+    }) as typeof fetch;
+    return { driver: new AnthropicDriver({ safeFetch: () => fetchFn } as unknown as HttpClientService), seen };
+  }
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  const models = {
+    data: [{ type: 'model', id: 'claude-opus-5-5', display_name: 'Opus', created_at: '2026-09-01T00:00:00Z' }],
+    has_more: false,
+    first_id: 'claude-opus-5-5',
+    last_id: 'claude-opus-5-5',
+  };
+  const wif = (identityToken: () => string) => ({
+    federationRuleId: 'fdrl_01Regla',
+    organizationId: '00000000-0000-4000-8000-000000000000',
+    serviceAccountId: 'svac_01Cuenta',
+    workspaceId: 'wrkspc_01Ws',
+    identityToken,
+  });
+
+  it('WIF: canjea la aserción de Nexo (RFC 7523) y usa el token como Bearer, en caché hasta su expiración', async () => {
+    const { driver, seen } = driverWith((r) =>
+      r.url.endsWith('/v1/oauth/token')
+        ? json({
+            access_token: 'sk-ant-oat01-federado',
+            token_type: 'Bearer',
+            expires_in: 600,
+            scope: 'workspace:inference',
+          })
+        : json(models),
+    );
+    let minted = 0;
+    const client = driver.create({ workloadIdentity: wif(() => `jwt-${++minted}`) });
+    await client.verify!();
+    await client.verify!();
+    const exchanges = seen.filter((r) => r.url.endsWith('/v1/oauth/token'));
+    expect(exchanges).toHaveLength(1);
+    expect(minted).toBe(1);
+    expect(exchanges[0].url).toBe('https://api.anthropic.com/v1/oauth/token');
+    expect(JSON.parse(exchanges[0].body)).toEqual({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: 'jwt-1',
+      federation_rule_id: 'fdrl_01Regla',
+      organization_id: '00000000-0000-4000-8000-000000000000',
+      service_account_id: 'svac_01Cuenta',
+      workspace_id: 'wrkspc_01Ws',
+    });
+    expect(exchanges[0].headers.get('anthropic-beta')).toContain('oidc-federation-2026-04-01');
+    const calls = seen.filter((r) => r.url.includes('/v1/models'));
+    expect(calls).toHaveLength(2);
+    for (const c of calls) {
+      expect(c.headers.get('authorization')).toBe('Bearer sk-ant-oat01-federado');
+      expect(c.headers.get('x-api-key')).toBeNull();
+      expect(c.headers.get('anthropic-beta')).toContain('oauth-2025-04-20');
+    }
+  });
+
+  it('WIF: un rechazo del intercambio se explica sin el cuerpo de la respuesta', async () => {
+    const { driver } = driverWith(() =>
+      json({ type: 'error', error: { type: 'authentication_error', message: 'Authentication failed' } }, 401),
+    );
+    const err = (await driver.create({ workloadIdentity: wif(() => 'jwt') }).verify!().catch(
+      (e: unknown) => e,
+    )) as Error;
+    expect(err.name).toBe('KeylessAuthError');
+    expect(err.message).toMatch(/identidad federada.*HTTP 401/);
+  });
+
+  /** Credenciales temporales del rol asumido (las entrega `AwsRoleService`). */
+  const role = async () => ({
+    accessKeyId: 'ASIAROLE0001',
+    secretAccessKey: 'secreto-temporal',
+    sessionToken: 'sesion-temporal',
+    expiration: new Date(Date.now() + 3600_000),
+  });
+
+  it('Bedrock: SigV4 con el servicio bedrock-mantle y el token de sesión, sin tomar un Bearer del entorno', async () => {
+    process.env.AWS_BEARER_TOKEN_BEDROCK = 'bedrock-api-key-del-entorno';
+    try {
+      const { driver, seen } = driverWith(() => json({ input_tokens: 3 }));
+      await driver.create({
+        baseUrl: 'https://bedrock-mantle.us-east-1.api.aws/anthropic',
+        awsCredentials: role,
+        claude: { channel: 'bedrock', region: 'us-east-1' },
+      }).verify!();
+      expect(seen).toHaveLength(1);
+      expect(seen[0].url).toBe('https://bedrock-mantle.us-east-1.api.aws/anthropic/v1/messages/count_tokens');
+      expect((JSON.parse(seen[0].body) as { model: string }).model).toBe('anthropic.claude-haiku-5-5');
+      expect(seen[0].headers.get('authorization')).toMatch(
+        /^AWS4-HMAC-SHA256 Credential=ASIAROLE0001\/\d{8}\/us-east-1\/bedrock-mantle\/aws4_request/,
+      );
+      expect(seen[0].headers.get('x-amz-security-token')).toBe('sesion-temporal');
+    } finally {
+      delete process.env.AWS_BEARER_TOKEN_BEDROCK;
+    }
+  });
+
+  it('Claude Platform on AWS: SigV4 con aws-external-anthropic, cabecera de workspace y API de modelos', async () => {
+    const { driver, seen } = driverWith(() => json(models));
+    const ids = await driver.create({
+      baseUrl: 'https://aws-external-anthropic.us-west-2.api.aws',
+      awsCredentials: role,
+      claude: { channel: 'aws', region: 'us-west-2', workspaceId: 'wrkspc_01Aws' },
+    }).listModels!();
+    expect(ids).toEqual(['claude-opus-5-5']);
+    expect(seen[0].url).toMatch(/^https:\/\/aws-external-anthropic\.us-west-2\.api\.aws\/v1\/models/);
+    expect(seen[0].headers.get('anthropic-workspace-id')).toBe('wrkspc_01Aws');
+    expect(seen[0].headers.get('authorization')).toMatch(/\/us-west-2\/aws-external-anthropic\/aws4_request/);
+  });
+
+  it('exige el rol, la región y el workspace en los canales de AWS; los hosts oficiales no son un proxy', () => {
+    expect(() => claudeSdkClient({ claude: { channel: 'bedrock', region: 'us-east-1' } })).toThrow(/rol de IAM/);
+    expect(() => claudeSdkClient({ awsCredentials: role, claude: { channel: 'bedrock' } })).toThrow(/región/);
+    expect(() => claudeSdkClient({ awsCredentials: role, claude: { channel: 'aws', region: 'us-west-2' } })).toThrow(
+      /workspace/,
+    );
+    expect(isCustomAnthropicEndpoint('https://bedrock-mantle.us-east-1.api.aws/anthropic', 'bedrock')).toBe(false);
+    expect(isCustomAnthropicEndpoint('https://aws-external-anthropic.us-west-2.api.aws', 'aws')).toBe(false);
+    expect(isCustomAnthropicEndpoint('https://bedrock-mantle.evil.example.com/anthropic', 'bedrock')).toBe(true);
   });
 });

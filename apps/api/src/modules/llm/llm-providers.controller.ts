@@ -12,6 +12,7 @@ import {
   DevicePollDto,
   LlmFlowStartDto,
   LlmOAuthStartDto,
+  PrepareKeylessDto,
 } from './dto/llm-providers.dto';
 import { LlmAuthFlowsService } from './llm-auth-flows.service';
 import { clearBindingCookie, readBindingCookie, setBindingCookie } from './llm-browser-binding';
@@ -48,6 +49,18 @@ export class LlmProvidersController {
   @Post(':id/connect')
   connect(@CurrentAuth() a: AuthContext, @Param('id') id: string, @Body() dto: ConnectProviderDto) {
     return this.providers.connect(a.workspaceId, id, dto);
+  }
+
+  /**
+   * Conexión sin claves, paso previo: el emisor OIDC, la audiencia y el sujeto que el cliente registra en la Consola de
+   * Claude, o un ExternalId nuevo con las políticas de IAM sugeridas. No guarda nada; después, `POST …/connect` con
+   * `mechanism` (y `setupToken` en AWS).
+   */
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post(':id/keyless/prepare')
+  prepareKeyless(@CurrentAuth() a: AuthContext, @Param('id') id: string, @Body() dto: PrepareKeylessDto) {
+    return this.providers.prepareKeyless(a.workspaceId, id, dto.mechanism, dto.fields);
   }
 
   @Throttle({ default: { limit: 30, ttl: 60_000 } })

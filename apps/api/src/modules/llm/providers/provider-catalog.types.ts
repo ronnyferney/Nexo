@@ -15,12 +15,17 @@ export type ModelSpecialty = 'CODE' | 'REASONING' | 'VISION' | 'FAST' | 'GENERAL
 export const MODEL_SPECIALTIES: readonly ModelSpecialty[] = ['CODE', 'REASONING', 'VISION', 'FAST', 'GENERAL'];
 /**
  * Canal oficial por el que se llega a los modelos Claude. Los modelos son los mismos; cambian la autenticación, la
- * facturación y quién opera el servicio: Anthropic (API directa y Claude en Google Cloud), Google (Vertex AI) o
- * Microsoft (Foundry).
+ * facturación y quién opera el servicio: Anthropic (API directa, Claude en Google Cloud y Claude Platform on AWS),
+ * Google (Vertex AI), Microsoft (Foundry) o AWS (Amazon Bedrock).
  */
-export type ClaudeChannel = 'anthropic' | 'google-cloud' | 'vertex' | 'foundry';
-/** Mecanismo de conexión que ofrece la galería. */
-export type MechanismType = 'API_KEY' | 'OAUTH' | 'DEVICE_CODE' | 'LOCAL_DETECT';
+export type ClaudeChannel = 'anthropic' | 'google-cloud' | 'vertex' | 'foundry' | 'bedrock' | 'aws';
+/**
+ * Mecanismo de conexión que ofrece la galería. `WORKLOAD_IDENTITY` (federación de identidad con la API de Anthropic) y
+ * `AWS_ROLE` (rol de IAM + ExternalId) son conexiones sin claves: no guardan ningún secreto.
+ */
+export type MechanismType = 'API_KEY' | 'OAUTH' | 'DEVICE_CODE' | 'LOCAL_DETECT' | 'WORKLOAD_IDENTITY' | 'AWS_ROLE';
+/** Mecanismos sin claves: `POST …/connect` con `mechanism` y, en AWS, el comprobante del ExternalId. */
+export const KEYLESS_MECHANISMS: readonly MechanismType[] = ['WORKLOAD_IDENTITY', 'AWS_ROLE'];
 
 /**
  * App OAuth **de Nexo** registrada en el proveedor (credenciales en `OAUTH_LLM_<PROVEEDOR>_CLIENT_ID/SECRET`). Las URLs
@@ -70,6 +75,8 @@ export interface ProviderMechanismSpec {
   primary: boolean;
   /** App OAuth de Nexo (OAUTH/DEVICE_CODE). OpenRouter no la necesita: su PKCE no exige registrar la app. */
   oauth?: OAuthAppSpec;
+  /** Pasos para el cliente (mecanismos sin claves: registrar el emisor de Nexo o crear el rol de IAM). */
+  steps?: string[];
 }
 
 export interface ProviderField {

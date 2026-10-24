@@ -9,7 +9,7 @@ export interface RecordedRequest {
   body: any;
 }
 
-interface Reply {
+export interface Reply {
   status: number;
   body: unknown;
 }
@@ -209,9 +209,20 @@ export class ClaudeMessagesMock {
   authorize: (headers: IncomingMessage['headers']) => boolean = (h) =>
     !!(h['x-api-key'] || h['api-key'] || h.authorization);
   reply = 'Hola desde Claude simulado';
+  /**
+   * Endpoint de Workload Identity Federation (`POST …/v1/oauth/token`, RFC 7523): si se define, responde lo que
+   * devuelva (p. ej. `AnthropicWifVerifier.exchange`). Sin definir, la ruta responde 404.
+   */
+  oauthToken?: (body: Record<string, unknown> | undefined, headers: IncomingMessage['headers']) => Reply;
+  /** Lista de modelos de `GET …/v1/models`. */
+  models = ['claude-opus-5-5'];
 
   get origin(): string {
     return `http://127.0.0.1:${this.port}`;
+  }
+
+  tokenRequests(): RecordedRequest[] {
+    return this.requests.filter((r) => r.path.endsWith('/v1/oauth/token'));
   }
 
   messageRequests(): RecordedRequest[] {
@@ -231,23 +242,26 @@ export class ClaudeMessagesMock {
           headers: req.headers,
           body,
         });
+        if (url.pathname.endsWith('/v1/oauth/token') && req.method === 'POST') {
+          const reply = this.oauthToken?.(body, req.headers) ?? { status: 404, body: { error: 'not_found' } };
+          send(res, reply.status, reply.body);
+          return;
+        }
         if (!this.authorize(req.headers)) {
           send(res, 401, { type: 'error', error: { type: 'authentication_error', message: 'invalid credentials' } });
           return;
         }
         if (url.pathname.endsWith('/v1/models')) {
           send(res, 200, {
-            data: [
-              {
-                type: 'model',
-                id: 'claude-opus-5-5',
-                display_name: 'Claude Opus 5.5',
-                created_at: '2026-09-01T00:00:00Z',
-              },
-            ],
+            data: this.models.map((id) => ({
+              type: 'model',
+              id,
+              display_name: id,
+              created_at: '2026-09-01T00:00:00Z',
+            })),
             has_more: false,
-            first_id: 'claude-opus-5-5',
-            last_id: 'claude-opus-5-5',
+            first_id: this.models[0] ?? null,
+            last_id: this.models.at(-1) ?? null,
           });
           return;
         }
@@ -294,6 +308,87 @@ export class ClaudeMessagesMock {
         for (const [event, data] of events) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
         res.end();
       })().catch((err: Error) => send(res, 500, { type: 'error', error: { type: 'api_error', message: err.message } }));
+    });
+    const server = this.server;
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    this.port = (server.address() as AddressInfo).port;
+    return this;
+  }
+
+  async stop(): Promise<void> {
+    if (!this.server) return;
+    this.server.closeAllConnections();
+    await new Promise<void>((resolve) => this.server!.close(() => resolve()));
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// AWS STS (AssumeRole, protocolo Query con respuestas XML)
+// ---------------------------------------------------------------------------------------------------------------
+
+/**
+ * STS simulado: `AssumeRole` solo si el rol existe en `roles` y el `ExternalId` coincide con su política de confianza
+ * (`sts:ExternalId`); exige una firma SigV4 de la plataforma. Devuelve credenciales temporales numeradas.
+ */
+export class StsMock {
+  private server?: Server;
+  port = 0;
+  readonly requests: { headers: IncomingMessage['headers']; params: URLSearchParams }[] = [];
+  /** ARN del rol → ExternalId que exige su política de confianza. */
+  readonly roles = new Map<string, string>();
+  /** Vida de las credenciales emitidas (ms). */
+  lifetimeMs = 3600_000;
+  issued = 0;
+
+  get origin(): string {
+    return `http://127.0.0.1:${this.port}`;
+  }
+
+  assumeRoleRequests() {
+    return this.requests.filter((r) => r.params.get('Action') === 'AssumeRole');
+  }
+
+  async start(): Promise<this> {
+    this.server = createServer((req, res) => {
+      void (async () => {
+        const params = new URLSearchParams(await readBody(req));
+        this.requests.push({ headers: req.headers, params });
+        const xml = (status: number, body: string) => {
+          res.writeHead(status, { 'content-type': 'text/xml' });
+          res.end(body);
+        };
+        const error = (status: number, code: string, message: string) =>
+          xml(
+            status,
+            '<ErrorResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/"><Error><Type>Sender</Type>' +
+              `<Code>${code}</Code><Message>${message}</Message></Error><RequestId>e2e</RequestId></ErrorResponse>`,
+          );
+        if (!/^AWS4-HMAC-SHA256 Credential=/.test(String(req.headers.authorization ?? ''))) {
+          return error(403, 'MissingAuthenticationToken', 'Request is missing Authentication Token');
+        }
+        if (params.get('Action') !== 'AssumeRole') return error(400, 'InvalidAction', 'unsupported');
+        const roleArn = params.get('RoleArn') ?? '';
+        const expected = this.roles.get(roleArn);
+        if (!expected || params.get('ExternalId') !== expected) {
+          return error(403, 'AccessDenied', `not authorized to perform: sts:AssumeRole on resource: ${roleArn}`);
+        }
+        const n = ++this.issued;
+        const session = params.get('RoleSessionName') ?? 'nexo';
+        xml(
+          200,
+          '<AssumeRoleResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/"><AssumeRoleResult><Credentials>' +
+            `<AccessKeyId>ASIAE2E${n}</AccessKeyId><SecretAccessKey>secreto-temporal-${n}</SecretAccessKey>` +
+            `<SessionToken>sesion-temporal-${n}</SessionToken>` +
+            `<Expiration>${new Date(Date.now() + this.lifetimeMs).toISOString()}</Expiration></Credentials>` +
+            `<AssumedRoleUser><AssumedRoleId>AROAE2E:${session}</AssumedRoleId>` +
+            `<Arn>${roleArn.replace(':iam::', ':sts::').replace(':role/', ':assumed-role/')}/${session}</Arn>` +
+            '</AssumedRoleUser></AssumeRoleResult><ResponseMetadata><RequestId>e2e</RequestId></ResponseMetadata>' +
+            '</AssumeRoleResponse>',
+        );
+      })().catch(() => {
+        res.writeHead(500);
+        res.end();
+      });
     });
     const server = this.server;
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));

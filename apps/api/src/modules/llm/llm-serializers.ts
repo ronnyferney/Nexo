@@ -1,4 +1,5 @@
 import type { LlmConnection, LlmModel } from '@prisma/client';
+import { parseKeyless } from './keyless/keyless-options';
 
 const num = (d: { toString(): string } | null) => (d === null ? null : Number(d));
 
@@ -31,6 +32,13 @@ function providerFields(c: LlmConnection): Record<string, string> {
   );
 }
 
+function keylessView(c: LlmConnection) {
+  const o = (c.driverOptions && typeof c.driverOptions === 'object' ? c.driverOptions : {}) as Record<string, unknown>;
+  const k = parseKeyless(o.keyless);
+  if (!k) return null;
+  return k.type === 'AWS_ROLE' ? { type: k.type, externalId: k.externalId, roleArn: k.roleArn } : { type: k.type };
+}
+
 export function serializeConnection(c: LlmConnection & { models?: LlmModel[] }) {
   return {
     id: c.id,
@@ -46,6 +54,11 @@ export function serializeConnection(c: LlmConnection & { models?: LlmModel[] }) 
     /** Conexión OAuth con la sesión cerrada (sin tokens): conserva modelos y agentes hasta volver a iniciar sesión. */
     signedOut: c.credentialType === 'OAUTH' && !c.apiKeyCipher,
     enabled: c.enabled,
+    /**
+     * Conexión sin claves: `WORKLOAD_IDENTITY` (federación con la API de Anthropic) o `AWS_ROLE` (con el ExternalId que
+     * exige la política de confianza del rol). `null` en las conexiones con clave o con inicio de sesión.
+     */
+    keyless: keylessView(c),
     /** Entrada del catálogo de proveedores; null en conexiones manuales. */
     providerId: c.providerId,
     providerFields: providerFields(c),

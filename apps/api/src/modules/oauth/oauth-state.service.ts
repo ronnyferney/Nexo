@@ -3,10 +3,13 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { createHash, randomBytes } from 'node:crypto';
 import { CryptoService } from '../../common/crypto/crypto.service';
+import type { ReplayGuard } from '../../infrastructure/redis/single-use.service';
 
 /** Vida del `state` firmado (ADR 0005, D3). */
 export const STATE_TTL_SECONDS = 600;
 const AUDIENCE = 'nexo:oauth-state';
+/** Ámbito de los `jti` de `state` en el almacén de uso único compartido. */
+export const STATE_REPLAY_SCOPE = 'oauth-state';
 
 export interface OAuthStatePayload {
   workspaceId: string;
@@ -72,8 +75,14 @@ export class OAuthStateService {
     return this.jwt.signAsync(claims, { secret: this.secret, audience: AUDIENCE, expiresIn: ttlSeconds });
   }
 
-  /** Devuelve el contenido del `state` o `null` si es inválido, expiró o ya se usó. Lo marca como consumido. */
-  async consume(state: string): Promise<OAuthStatePayload | null> {
+  /**
+   * Devuelve el contenido del `state` o `null` si es inválido, expiró o ya se usó. Lo marca como consumido.
+   *
+   * Sin `replayGuard` el uso único es solo por instancia (memoria). Con `replayGuard` (p. ej. `SingleUseService`, en
+   * Redis) el `jti` se reclama para todas las réplicas y, si el almacén falla, el `state` se rechaza (auditoría B2).
+   * Los proveedores IA ya lo usan; el OAuth de conectores puede adoptarlo pasando la misma opción.
+   */
+  async consume(state: string, opts: { replayGuard?: ReplayGuard } = {}): Promise<OAuthStatePayload | null> {
     let claims: StateClaims & { exp: number };
     try {
       claims = await this.jwt.verifyAsync<StateClaims & { exp: number }>(state, {
@@ -85,8 +94,13 @@ export class OAuthStateService {
     }
     if (claims.typ !== 'oauth_state' || !claims.ws || !claims.cid || !claims.uid || !claims.cv) return null;
     this.sweep();
-    if (this.used.has(claims.jti)) return null;
+    if (!claims.jti || this.used.has(claims.jti)) return null;
     this.used.set(claims.jti, claims.exp * 1000);
+    if (
+      opts.replayGuard &&
+      !(await opts.replayGuard.claim(STATE_REPLAY_SCOPE, claims.jti, claims.exp * 1000 - Date.now()))
+    )
+      return null;
     let codeVerifier: string;
     try {
       codeVerifier = this.crypto.decrypt(claims.cv);

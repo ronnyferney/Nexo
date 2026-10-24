@@ -6,12 +6,17 @@ export type ProviderCategory = 'FRONTIER' | 'OPEN_MODELS' | 'ENTERPRISE_CLOUD' |
  * Canal oficial por el que se llega a la familia Claude: los modelos son los mismos y cambian quién opera el servicio,
  * cómo se inicia sesión y quién factura.
  */
-export type ClaudeChannel = 'anthropic' | 'google-cloud' | 'vertex' | 'foundry';
+export type ClaudeChannel = 'anthropic' | 'google-cloud' | 'vertex' | 'foundry' | 'bedrock' | 'aws';
 /** Forma de cobro: Nexo no conecta suscripciones personales (Claude Pro/Max, ChatGPT Plus…), solo cuentas de API. */
 export type ProviderBilling = 'PAY_AS_YOU_GO' | 'FREE_TIER' | 'ENTERPRISE' | 'LOCAL';
 export type ProviderAuth = 'API_KEY' | 'OAUTH' | 'NONE';
-/** Mecanismo con el que se conecta un proveedor; cada uno tiene su propio flujo en el diálogo. */
-export type MechanismType = 'API_KEY' | 'OAUTH' | 'DEVICE_CODE' | 'LOCAL_DETECT';
+/**
+ * Mecanismo con el que se conecta un proveedor; cada uno tiene su propio flujo en el diálogo. `WORKLOAD_IDENTITY`
+ * (federación de identidad con la API de Anthropic) y `AWS_ROLE` (rol de IAM + ExternalId) no guardan ninguna clave.
+ */
+export type MechanismType = 'API_KEY' | 'OAUTH' | 'DEVICE_CODE' | 'LOCAL_DETECT' | 'WORKLOAD_IDENTITY' | 'AWS_ROLE';
+/** Mecanismos sin claves. */
+export type KeylessMechanism = 'WORKLOAD_IDENTITY' | 'AWS_ROLE';
 /** Especialidad de un modelo para los filtros del diálogo del proveedor conectado. */
 export type ModelSpecialty = 'CODE' | 'REASONING' | 'VISION' | 'FAST' | 'GENERAL';
 
@@ -29,6 +34,8 @@ export interface ProviderMechanism {
    * no secretos y obligatorios del proveedor.
    */
   fields?: (ProviderField | string)[];
+  /** Pasos para el cliente en los mecanismos sin claves (registrar el emisor de Nexo, crear el rol de IAM). */
+  steps?: string[];
 }
 
 /** Campo dinámico del formulario de conexión (clave, recurso, región, URL…). */
@@ -115,7 +122,39 @@ export interface ProviderConnectInput {
   name?: string;
   fields: Record<string, string>;
   models?: string[];
+  /** Por defecto `API_KEY`. Los mecanismos sin claves se prueban igual antes de guardar. */
+  mechanism?: 'API_KEY' | KeylessMechanism;
+  /** Solo `AWS_ROLE`: comprobante del ExternalId que devolvió `keyless/prepare`. */
+  setupToken?: string;
 }
+
+/** `POST /admin/llm/providers/:id/keyless/prepare` → datos para configurar el lado del cliente (no guarda nada). */
+export type KeylessSetup =
+  | {
+      mechanism: 'WORKLOAD_IDENTITY';
+      issuerUrl: string;
+      discoveryUrl: string;
+      jwksUrl: string;
+      audience: string;
+      /** Sujeto exacto (`subject_prefix` sin `*`) de las aserciones de este workspace. */
+      subject: string;
+      suggestedScope: string;
+      assertionTtlSeconds: number;
+      consoleUrl: string;
+      /** Clave de firma efímera (desarrollo): la federación se rompe al reiniciar la API. */
+      ephemeralKey: boolean;
+      steps: string[];
+    }
+  | {
+      mechanism: 'AWS_ROLE';
+      externalId: string;
+      setupToken: string;
+      expiresAt: string;
+      principalArn: string;
+      trustPolicy: Record<string, unknown>;
+      permissionsPolicy: Record<string, unknown>;
+      steps: string[];
+    };
 
 /** `POST /admin/llm/providers/:id/connect`; 400 con `message` en español si la prueba falla. */
 export interface ProviderConnectResult {
@@ -143,6 +182,8 @@ export interface LlmConnectionMeta extends LlmConnection {
   oauthRenewable?: boolean | null;
   /** Conexión OAuth con la sesión cerrada: conserva modelos y agentes hasta volver a iniciar sesión. */
   signedOut?: boolean;
+  /** Conexión sin claves (federación de identidad o rol de IAM con su ExternalId). */
+  keyless?: { type: KeylessMechanism; externalId?: string; roleArn?: string } | null;
 }
 
 /** `GET /admin/llm/connections/:id/usage`: agente que usa la conexión como modelo principal o de respaldo. */

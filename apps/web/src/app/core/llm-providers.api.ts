@@ -6,6 +6,8 @@ import type {
   DetectResult,
   DevicePollResult,
   DeviceStartResult,
+  KeylessMechanism,
+  KeylessSetup,
   OAuthStartInput,
   ProviderConnectInput,
   ProviderConnectResult,
@@ -33,6 +35,9 @@ export class LlmProvidersApi {
     firstValueFrom(this.http.post<DeviceStartResult>(`${this.url(id)}/device/start`, data));
   devicePoll = (id: string, flowId: string) =>
     firstValueFrom(this.http.post<DevicePollResult>(`${this.url(id)}/device/poll`, { flowId }));
+  /** Conexión sin claves: datos del emisor OIDC de Nexo o un ExternalId nuevo con las políticas de IAM sugeridas. */
+  prepareKeyless = (id: string, mechanism: KeylessMechanism, fields: Record<string, string> = {}) =>
+    firstValueFrom(this.http.post<KeylessSetup>(`${this.url(id)}/keyless/prepare`, { mechanism, fields }));
   /** Detección de un servidor local (Ollama, LM Studio) y de sus modelos instalados. */
   detect = (id: string, baseUrl?: string) =>
     firstValueFrom(this.http.post<DetectResult>(`${this.url(id)}/detect`, baseUrl ? { baseUrl } : {}));

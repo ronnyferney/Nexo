@@ -99,6 +99,8 @@ const LOGOS: Record<string, BrandLogo> = {
   'claude-google-cloud': fromSimpleIcon(siAnthropic),
   'claude-vertex': fromSimpleIcon(siAnthropic),
   'claude-foundry': fromSimpleIcon(siAnthropic),
+  'claude-bedrock': fromSimpleIcon(siAnthropic),
+  'claude-aws': fromSimpleIcon(siAnthropic),
   openai: OPENAI,
   gemini: fromSimpleIcon(siGooglegemini),
   google: fromSimpleIcon(siGooglegemini),

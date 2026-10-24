@@ -76,13 +76,13 @@ export interface ClaudeChannelInfo {
   note: string;
 }
 
-export const CLAUDE_CHANNEL_ORDER: ClaudeChannel[] = ['anthropic', 'google-cloud', 'vertex', 'foundry'];
+export const CLAUDE_CHANNEL_ORDER: ClaudeChannel[] = ['anthropic', 'google-cloud', 'vertex', 'foundry', 'bedrock', 'aws'];
 
 export const CLAUDE_CHANNELS: Record<ClaudeChannel, ClaudeChannelInfo> = {
   anthropic: {
     short: 'API de Anthropic',
     operator: 'Anthropic',
-    how: 'Clave de API de la Consola de Claude',
+    how: 'Clave de API o federación de identidad (sin claves)',
     billing: 'Anthropic, pago por uso',
     note: 'Todas las funciones nuevas el mismo día.',
   },
@@ -106,6 +106,20 @@ export const CLAUDE_CHANNELS: Record<ClaudeChannel, ClaudeChannelInfo> = {
     how: 'Clave del recurso de Azure',
     billing: 'Microsoft Marketplace, con tarifas de Anthropic',
     note: 'Modelos desplegados en su recurso de Azure.',
+  },
+  bedrock: {
+    short: 'Amazon Bedrock',
+    operator: 'AWS',
+    how: 'Rol de IAM de su cuenta de AWS (sin claves)',
+    billing: 'AWS, con tarifas de Amazon Bedrock',
+    note: 'Su cuenta y región de AWS; Nexo asume el rol con un ExternalId.',
+  },
+  aws: {
+    short: 'Claude Platform on AWS',
+    operator: 'Anthropic',
+    how: 'Rol de IAM de su cuenta de AWS (sin claves)',
+    billing: 'AWS Marketplace',
+    note: 'Plataforma de Claude con su workspace, facturada por AWS.',
   },
 };
 
@@ -173,7 +187,12 @@ export function llmOAuthError(reason: string | null, name = 'el proveedor'): str
 
 // ----- Mecanismos de conexión -----
 
-const ORDER: MechanismType[] = ['OAUTH', 'DEVICE_CODE', 'LOCAL_DETECT', 'API_KEY'];
+const ORDER: MechanismType[] = ['OAUTH', 'DEVICE_CODE', 'LOCAL_DETECT', 'API_KEY', 'WORKLOAD_IDENTITY', 'AWS_ROLE'];
+
+/** Mecanismo sin claves (federación de identidad o rol de IAM). */
+export function isKeyless(m: Pick<ProviderMechanism, 'type'> | null | undefined): boolean {
+  return m?.type === 'WORKLOAD_IDENTITY' || m?.type === 'AWS_ROLE';
+}
 
 /**
  * Mecanismos del proveedor con exactamente un primario. Si el servidor aún no envía `mechanisms`, se derivan de
@@ -217,6 +236,9 @@ export function mechanismSubtitle(p: ProviderView): string {
       return `Código de dispositivo · ${p.name}`;
     case 'LOCAL_DETECT':
       return 'Servidor local';
+    case 'WORKLOAD_IDENTITY':
+    case 'AWS_ROLE':
+      return `${m.label} · ${BILLING_LABELS[p.billing]}`;
     default:
       return p.category === 'LOCAL' || p.auth === 'NONE' ? 'Servidor local' : `Clave de API · ${BILLING_LABELS[p.billing]}`;
   }

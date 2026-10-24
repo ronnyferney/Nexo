@@ -12,6 +12,9 @@ import {
   type LlmDriver,
 } from './llm-provider';
 import { LlmTokenService } from './llm-token.service';
+import { AwsRoleService } from './keyless/aws-role.service';
+import { parseKeyless, type KeylessOptions } from './keyless/keyless-options';
+import { OidcIssuerService } from './keyless/oidc-issuer.service';
 import { quotaPeriod } from '../copilot/copilot-quota.service';
 import { ConnectionUnavailableException } from './llm-errors';
 import {
@@ -66,7 +69,7 @@ export function connectionDriverOptions(
   };
 }
 
-const CLAUDE_CHANNELS = ['anthropic', 'google-cloud', 'vertex', 'foundry'] as const;
+const CLAUDE_CHANNELS = ['anthropic', 'google-cloud', 'vertex', 'foundry', 'bedrock', 'aws'] as const;
 
 /** `driverOptions.claude` guardado al conectar un canal de Claude (solo valores no secretos). */
 export function parseClaudeOptions(raw: unknown): ClaudeChannelOptions | null {
@@ -81,6 +84,12 @@ export function parseClaudeOptions(raw: unknown): ClaudeChannelOptions | null {
     ...(s(o.workspaceId) ? { workspaceId: s(o.workspaceId) } : {}),
     ...(s(o.resource) ? { resource: s(o.resource) } : {}),
   };
+}
+
+/** Conexión sin claves (`driverOptions.keyless`): Workload Identity Federation o rol de IAM de AWS. */
+export function connectionKeyless(c: Pick<LlmConnection, 'driverOptions'>): KeylessOptions | null {
+  const o = (c.driverOptions && typeof c.driverOptions === 'object' ? c.driverOptions : {}) as Record<string, unknown>;
+  return parseKeyless(o.keyless);
 }
 
 /**
@@ -120,6 +129,8 @@ export class LlmGatewayService {
     private readonly config: ConfigService,
     @Inject(LLM_DRIVERS) drivers: LlmDriver[],
     private readonly tokens: LlmTokenService,
+    private readonly oidc: OidcIssuerService,
+    private readonly awsRoles: AwsRoleService,
   ) {
     this.drivers = new Map(drivers.map((d) => [d.kind, d]));
     this.anthropicKey = config.get<string>('llm.anthropicApiKey');
@@ -206,7 +217,9 @@ export class LlmGatewayService {
       label: c.name,
       kind: c.kind,
       system: false,
-      configured: c.enabled && ((c.kind !== 'ANTHROPIC' && c.credentialType !== 'OAUTH') || !!c.apiKeyCipher),
+      configured:
+        c.enabled &&
+        ((c.kind !== 'ANTHROPIC' && c.credentialType !== 'OAUTH') || !!c.apiKeyCipher || !!connectionKeyless(c)),
       models: c.models.map((m) => strip(toCatalogModel(m))),
     }));
     return [...system, ...custom];
@@ -288,13 +301,39 @@ export class LlmGatewayService {
    */
   clientFor(c: LlmConnection): LlmClient {
     const oauth = c.credentialType === 'OAUTH';
+    const keyless = connectionKeyless(c);
     return this.client(`${c.id}:${c.updatedAt.getTime()}`, c.kind, {
-      ...(oauth
-        ? { getAccessToken: () => this.tokens.accessToken(c.id) }
-        : { apiKey: c.apiKeyCipher ? this.crypto.decrypt(c.apiKeyCipher) : undefined }),
+      ...(keyless
+        ? this.keylessCredentials(c.workspaceId, keyless)
+        : oauth
+          ? { getAccessToken: () => this.tokens.accessToken(c.id) }
+          : { apiKey: c.apiKeyCipher ? this.crypto.decrypt(c.apiKeyCipher) : undefined }),
       baseUrl: c.baseUrl ?? undefined,
       ...connectionDriverOptions(c),
     });
+  }
+
+  /**
+   * Credencial de una conexión sin claves: la aserción OIDC de Nexo (una nueva por intercambio, ligada al workspace) o
+   * las credenciales temporales del rol de IAM del cliente (STS, en caché hasta su expiración).
+   */
+  keylessCredentials(
+    workspaceId: string,
+    keyless: KeylessOptions,
+  ): Pick<LlmCredentials, 'workloadIdentity' | 'awsCredentials'> {
+    if (keyless.type === 'WORKLOAD_IDENTITY') {
+      return {
+        workloadIdentity: {
+          federationRuleId: keyless.federationRuleId,
+          organizationId: keyless.organizationId,
+          serviceAccountId: keyless.serviceAccountId,
+          ...(keyless.workspaceId ? { workspaceId: keyless.workspaceId } : {}),
+          identityToken: () => this.oidc.mint(workspaceId),
+        },
+      };
+    }
+    const session = this.awsRoles.sessionName(workspaceId);
+    return { awsCredentials: () => this.awsRoles.credentials(keyless, session) };
   }
 
   /** Cliente sin caché para probar credenciales antes de guardar una conexión. */

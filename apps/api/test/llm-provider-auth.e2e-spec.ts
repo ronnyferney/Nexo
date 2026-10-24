@@ -829,7 +829,14 @@ describe('Mecanismos oficiales de conexión de proveedores IA (E2E)', () => {
       const family = (await providers(owner)).filter(
         (p) => (p as ProviderView & { family?: string }).family === 'CLAUDE',
       );
-      expect(family.map((p) => p.id)).toEqual(['anthropic', 'claude-google-cloud', 'claude-vertex', 'claude-foundry']);
+      expect(family.map((p) => p.id)).toEqual([
+        'anthropic',
+        'claude-google-cloud',
+        'claude-vertex',
+        'claude-foundry',
+        'claude-bedrock',
+        'claude-aws',
+      ]);
       const gc = family.find((p) => p.id === 'claude-google-cloud')!;
       expect(gc.mechanisms).toEqual([expect.objectContaining({ type: 'OAUTH', available: true })]);
       expect(gc.suggestedModels.map((m) => m.id)).toEqual(

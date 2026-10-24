@@ -25,10 +25,13 @@
     "lint:fix": "eslint \"src/**/*.ts\" --fix"
   },
   "dependencies": {
+    "@anthropic-ai/aws-sdk": "^1.1.1",
+    "@anthropic-ai/bedrock-sdk": "^1.1.0",
     "@anthropic-ai/foundry-sdk": "^1.1.0",
     "@anthropic-ai/google-cloud-sdk": "^1.1.1",
     "@anthropic-ai/sdk": "^1.1.0",
     "@anthropic-ai/vertex-sdk": "^1.1.0",
+    "@aws-sdk/client-sts": "^3.1156.0",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@nestjs/bullmq": "^11.0.5",
     "@nestjs/common": "^11.0.1",

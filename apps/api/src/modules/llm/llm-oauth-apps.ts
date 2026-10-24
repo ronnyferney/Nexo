@@ -16,7 +16,12 @@ export interface MechanismView {
   available: boolean;
   unavailableReason?: string;
   primary: boolean;
+  /** Pasos para el cliente en los mecanismos sin claves (registrar el emisor de Nexo, crear el rol de IAM). */
+  steps?: string[];
 }
+
+/** Motivos de no disponibilidad de los mecanismos sin claves en esta instalación (`null` = disponible). */
+export type KeylessAvailability = Partial<Record<'WORKLOAD_IDENTITY' | 'AWS_ROLE', string | null>>;
 
 /** App OAuth de Nexo lista para usar: credenciales del entorno y endpoints ya renderizados. */
 export interface ResolvedLlmOAuthApp {
@@ -108,10 +113,20 @@ const LOCAL_SSRF_REASON =
   'La protección SSRF de Nexo bloquea redes privadas: la detección local requiere Nexo Edge o una instalación ' +
   'on-premise con CONNECTOR_ALLOW_PRIVATE_NETWORKS=true. Puede ingresar una URL pública alcanzable.';
 
-/** Disponibilidad de cada mecanismo de una entrada para la configuración actual. */
-export function mechanismViews(config: ConfigService, entry: ProviderCatalogEntry): MechanismView[] {
+/**
+ * Disponibilidad de cada mecanismo de una entrada para la configuración actual. Los mecanismos sin claves dependen del
+ * emisor OIDC y del principal de AWS de la plataforma (`keyless`); sin ese dato se consideran no disponibles.
+ */
+export function mechanismViews(
+  config: ConfigService,
+  entry: ProviderCatalogEntry,
+  keyless: KeylessAvailability = {},
+): MechanismView[] {
   return entryMechanisms(entry).map((m: ProviderMechanismSpec): MechanismView => {
     let reason: string | null = null;
+    if (m.type === 'WORKLOAD_IDENTITY' || m.type === 'AWS_ROLE') {
+      reason = keyless[m.type] === undefined ? 'No disponible en esta instalación.' : keyless[m.type]!;
+    }
     if ((m.type === 'OAUTH' || m.type === 'DEVICE_CODE') && m.oauth) {
       reason = oauthAppUnavailableReason(config, entry, m.oauth);
       if (!reason && m.type === 'DEVICE_CODE' && !m.oauth.deviceUrl) {
@@ -125,6 +140,7 @@ export function mechanismViews(config: ConfigService, entry: ProviderCatalogEntr
       available: !reason,
       ...(reason ? { unavailableReason: reason } : {}),
       primary: m.primary,
+      ...(m.steps?.length ? { steps: m.steps } : {}),
     };
   });
 }

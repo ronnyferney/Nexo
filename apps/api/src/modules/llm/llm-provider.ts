@@ -95,16 +95,37 @@ export interface LlmCredentials {
   replayReasoning?: boolean;
   /** Canal de Claude y sus datos no secretos (proyecto, región, workspace o recurso). */
   claude?: ClaudeChannelOptions;
+  /**
+   * Workload Identity Federation con la API de Anthropic (sin clave): `identityToken` firma una aserción nueva en cada
+   * intercambio (los `jti` son de un solo uso) y el SDK la canjea por un token de acceso que cachea hasta su expiración.
+   */
+  workloadIdentity?: {
+    federationRuleId: string;
+    organizationId: string;
+    serviceAccountId?: string;
+    workspaceId?: string;
+    identityToken: () => string | Promise<string>;
+  };
+  /**
+   * Credenciales temporales de AWS (STS AssumeRole del rol del cliente) para firmar con SigV4 en Claude en Amazon
+   * Bedrock y Claude Platform on AWS. Se piden en cada solicitud; el proveedor las cachea hasta su expiración.
+   */
+  awsCredentials?: () => Promise<{
+    accessKeyId: string;
+    secretAccessKey: string;
+    sessionToken?: string;
+    expiration?: Date;
+  }>;
 }
 
 /** Datos del canal por el que el driver Anthropic llega a Claude (ver `ClaudeChannel`). */
 export interface ClaudeChannelOptions {
-  channel: 'anthropic' | 'google-cloud' | 'vertex' | 'foundry';
+  channel: 'anthropic' | 'google-cloud' | 'vertex' | 'foundry' | 'bedrock' | 'aws';
   /** Proyecto de Google Cloud (google-cloud, vertex). */
   project?: string;
-  /** Región de Vertex AI (`global` recomendada). */
+  /** Región de Vertex AI (`global` recomendada) o de AWS (bedrock, aws). */
   region?: string;
-  /** Workspace de Claude en Google Cloud (`wrkspc_...`). */
+  /** Workspace de Claude en Google Cloud o en Claude Platform on AWS (`wrkspc_...`). */
   workspaceId?: string;
   /** Recurso de Microsoft Foundry (`https://<recurso>.services.ai.azure.com`). */
   resource?: string;

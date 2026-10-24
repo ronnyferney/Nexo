@@ -1,3 +1,4 @@
+import { ANTHROPIC_WORKSPACE_PATTERN, AWS_REGION_PATTERN, ROLE_ARN_PATTERN } from '../keyless/keyless-options';
 import { SYSTEM_ANTHROPIC_MODELS } from '../pricing';
 import { ENTRA_AI_OAUTH, GOOGLE_CLOUD_OAUTH } from './enterprise.providers';
 import { ANTHROPIC_SPECIALTIES, CLAUDE_COVERED_MODELS_NOTICE } from './frontier.providers';
@@ -23,10 +24,13 @@ import {
  * within Azure» (misma página, «Hosting options»).
  */
 
-/** Modelos Claude actuales; `priced: false` cuando el canal factura con tarifas propias (Google). */
-function claudeModels(priced: boolean): SuggestedModel[] {
+/**
+ * Modelos Claude actuales; `priced: false` cuando el canal factura con tarifas propias (Google, AWS). `idPrefix`: los
+ * ids de Claude en Amazon Bedrock llevan `anthropic.` (platform.claude.com, «Supported models»).
+ */
+function claudeModels(priced: boolean, idPrefix = ''): SuggestedModel[] {
   return SYSTEM_ANTHROPIC_MODELS.map((m) => ({
-    id: m.id,
+    id: `${idPrefix}${m.id}`,
     label: m.label,
     tier: m.tier,
     ...(priced
@@ -49,6 +53,44 @@ const PROJECT_FIELD: ProviderField = {
   placeholder: 'mi-proyecto-123',
   pattern: '^[a-z][a-z0-9-]{4,28}[a-z0-9]$',
 };
+
+/**
+ * Claude en AWS con rol de IAM + ExternalId (plan de mejora L3), sin claves de larga duración. Verificado el 2026-10-24:
+ * - platform.claude.com/docs/en/build-with-claude/claude-in-amazon-bedrock: Messages API en
+ *   `https://bedrock-mantle.{región}.api.aws/anthropic/v1/messages`, SigV4 con el servicio `bedrock-mantle`, SDK
+ *   `@anthropic-ai/bedrock-sdk` (`AnthropicBedrockMantle`), ids con prefijo `anthropic.`, «IAM assumed roles» con
+ *   `bedrock-mantle:CreateInference` y sesión de 12 horas como máximo; sin API de modelos ni fallback server-side.
+ * - …/claude-platform-on-aws: `https://aws-external-anthropic.{región}.api.aws`, SigV4 con `aws-external-anthropic`,
+ *   cabecera `anthropic-workspace-id` (`wrkspc_…`), SDK `@anthropic-ai/aws-sdk` (`AnthropicAws`, beta), acciones
+ *   `aws-external-anthropic:*`, ids iguales a la API de Anthropic, facturación en AWS Marketplace (CCU) y el requisito
+ *   `aws iam enable-outbound-web-identity-federation` en la cuenta.
+ */
+const AWS_REGION_FIELD: ProviderField = {
+  key: 'region',
+  label: 'Región de AWS',
+  secret: false,
+  required: true,
+  placeholder: 'us-east-1',
+  pattern: AWS_REGION_PATTERN,
+};
+
+const ROLE_ARN_FIELD: ProviderField = {
+  key: 'roleArn',
+  label: 'ARN del rol de IAM',
+  secret: false,
+  required: true,
+  placeholder: 'arn:aws:iam::123456789012:role/nexo-claude',
+  help: 'Rol de su cuenta con la política de confianza que muestra Nexo (principal de Nexo + ExternalId).',
+  pattern: ROLE_ARN_PATTERN,
+  mechanisms: ['AWS_ROLE'],
+};
+
+const AWS_ROLE_STEPS = (permissions: string) => [
+  'Pulse «Generar ExternalId»: Nexo crea un identificador único para esta conexión (no lo elija usted ni lo reutilice).',
+  'En la consola de IAM de su cuenta cree un rol con la política de confianza que muestra Nexo: solo el principal de la plataforma Nexo puede asumirlo y solo con ese ExternalId (sts:ExternalId).',
+  `Asigne al rol una política de permisos mínima: ${permissions}`,
+  'Pegue aquí el ARN del rol. Nexo lo asume con AWS STS en cada sesión (credenciales temporales de una hora) y no guarda ninguna clave.',
+];
 
 export const CLAUDE_CHANNEL_PROVIDERS: ProviderCatalogEntry[] = [
   {
@@ -211,6 +253,104 @@ export const CLAUDE_CHANNEL_PROVIDERS: ProviderCatalogEntry[] = [
         oauth: { ...ENTRA_AI_OAUTH, appKey: 'azure-openai' },
       },
       { type: 'API_KEY', label: 'Clave del recurso', primary: false },
+    ],
+  },
+  {
+    id: 'claude-bedrock',
+    name: 'Claude en Amazon Bedrock',
+    description:
+      'Claude operado por AWS en Amazon Bedrock con un rol de IAM de su cuenta, sin claves de larga duración.',
+    logo: 'claude-bedrock',
+    category: 'ENTERPRISE_CLOUD',
+    billing: 'ENTERPRISE',
+    kind: 'ANTHROPIC',
+    baseUrl: 'https://bedrock-mantle.{{ region }}.api.aws/anthropic',
+    auth: 'NONE',
+    fields: [
+      { ...AWS_REGION_FIELD, help: 'Región de Bedrock con los modelos Claude habilitados (p. ej. us-east-1).' },
+      ROLE_ARN_FIELD,
+    ],
+    docsUrl: 'https://platform.claude.com/docs/en/build-with-claude/claude-in-amazon-bedrock',
+    keySteps: [],
+    suggestedModels: claudeModels(false, 'anthropic.'),
+    notes:
+      'Operado y facturado por AWS (los endpoints regionales cuestan un 10 % más que los globales): complete las tarifas ' +
+      'en «Modelos de IA». Habilite el acceso a los modelos Claude en Amazon Bedrock. No admite servidor de herramientas ' +
+      'remotas, Files API, lotes, API de modelos ni el fallback server-side.',
+    dataNotices: [
+      {
+        level: 'info',
+        text: 'Claude en Amazon Bedrock corre en infraestructura gestionada por AWS sin acceso de operadores de Anthropic; el tratamiento de los datos lo rige Amazon Bedrock.',
+        sourceUrl: 'https://platform.claude.com/docs/en/build-with-claude/claude-in-amazon-bedrock',
+      },
+      CLAUDE_COVERED_MODELS_NOTICE,
+    ],
+    pendingVerification: [
+      'ARN de recurso de los modelos en bedrock-mantle para restringir la política de permisos (la plantilla usa Resource: *)',
+      'conteo de tokens (count_tokens) en bedrock-mantle: si no existe, la verificación tolera el 404 tras asumir el rol',
+      'tarifas por token de este canal',
+    ],
+    authHeader: 'none',
+    verifyMode: 'lenient',
+    family: 'CLAUDE',
+    claudeChannel: 'bedrock',
+    mechanisms: [
+      {
+        type: 'AWS_ROLE',
+        label: 'Rol de IAM de AWS (sin claves)',
+        primary: true,
+        steps: AWS_ROLE_STEPS('bedrock-mantle:CreateInference (Nexo muestra la plantilla).'),
+      },
+    ],
+  },
+  {
+    id: 'claude-aws',
+    name: 'Claude Platform on AWS',
+    description:
+      'Plataforma de Claude operada por Anthropic con su cuenta de AWS: rol de IAM y facturación en AWS Marketplace.',
+    logo: 'claude-aws',
+    category: 'ENTERPRISE_CLOUD',
+    billing: 'ENTERPRISE',
+    kind: 'ANTHROPIC',
+    baseUrl: 'https://aws-external-anthropic.{{ region }}.api.aws',
+    auth: 'NONE',
+    fields: [
+      { ...AWS_REGION_FIELD, help: 'Región del endpoint (p. ej. us-west-2); no fija dónde se procesa la inferencia.' },
+      {
+        key: 'workspaceId',
+        label: 'Workspace de Claude',
+        secret: false,
+        required: true,
+        placeholder: 'wrkspc_01AbCdEf',
+        help: 'En la Consola de Claude abierta desde la consola de AWS: Settings → Workspaces.',
+        pattern: ANTHROPIC_WORKSPACE_PATTERN,
+      },
+      ROLE_ARN_FIELD,
+    ],
+    docsUrl: 'https://platform.claude.com/docs/en/build-with-claude/claude-platform-on-aws',
+    keySteps: [],
+    suggestedModels: claudeModels(false),
+    notes:
+      'Facturado por AWS Marketplace en Claude Consumption Units (CCU): complete las tarifas en «Modelos de IA». Es una ' +
+      'organización de Anthropic distinta de la de la Consola de Claude. En la cuenta de AWS ejecute una vez ' +
+      '«aws iam enable-outbound-web-identity-federation»; sin ese paso todas las solicitudes fallan.',
+    dataNotices: [CLAUDE_COVERED_MODELS_NOTICE],
+    pendingVerification: [
+      'tarifas por token en CCU (platform.claude.com/docs/en/about-claude/pricing#claude-platform-on-aws-pricing)',
+      'fallback server-side en este canal (no figura entre las funciones admitidas ni excluidas)',
+    ],
+    authHeader: 'none',
+    family: 'CLAUDE',
+    claudeChannel: 'aws',
+    mechanisms: [
+      {
+        type: 'AWS_ROLE',
+        label: 'Rol de IAM de AWS (sin claves)',
+        primary: true,
+        steps: AWS_ROLE_STEPS(
+          'aws-external-anthropic:CreateInference, CountTokens, GetModel, ListModels y GetWorkspace sobre el ARN de su workspace (Nexo muestra la plantilla).',
+        ),
+      },
     ],
   },
 ];

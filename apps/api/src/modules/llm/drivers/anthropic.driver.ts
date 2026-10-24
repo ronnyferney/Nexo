@@ -1,10 +1,15 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { oidcFederationProvider } from '@anthropic-ai/sdk/lib/credentials/oidc-federation';
+import { WorkloadIdentityError } from '@anthropic-ai/sdk/lib/credentials/types';
+import AnthropicAws from '@anthropic-ai/aws-sdk';
+import { AnthropicBedrockMantle } from '@anthropic-ai/bedrock-sdk';
 import { AnthropicFoundry } from '@anthropic-ai/foundry-sdk';
 import { AnthropicGoogleCloud } from '@anthropic-ai/google-cloud-sdk';
 import { AnthropicVertex } from '@anthropic-ai/vertex-sdk';
 import { Injectable, Logger } from '@nestjs/common';
 import { HttpClientService } from '../../../common/http/http-client.service';
 import { OAuth2Client } from 'google-auth-library';
+import { KeylessAuthError } from '../keyless/keyless-errors';
 import {
   LlmHttpError,
   type ClaudeChannelOptions,
@@ -20,6 +25,10 @@ type ToolResultBlock = Anthropic.Beta.Messages.BetaToolResultBlockParam;
 
 /** Modelo con el que se verifica un canal sin API de modelos (conteo de tokens: gratuito). */
 const VERIFY_MODEL = 'claude-haiku-5-5';
+/** En Claude en Amazon Bedrock los ids llevan el prefijo `anthropic.` (platform.claude.com, «Supported models»). */
+const VERIFY_MODEL_BEDROCK = 'anthropic.claude-haiku-5-5';
+/** Endpoint oficial de la API de Anthropic (también del canje de Workload Identity Federation). */
+const ANTHROPIC_API = 'https://api.anthropic.com';
 
 /** Host oficial de cada canal: otra URL es un proxy o un servidor de pruebas (sin fallback server-side). */
 const OFFICIAL_HOSTS: Record<ClaudeChannelOptions['channel'], (host: string) => boolean> = {
@@ -27,6 +36,8 @@ const OFFICIAL_HOSTS: Record<ClaudeChannelOptions['channel'], (host: string) => 
   'google-cloud': (h) => h === 'claude.googleapis.com',
   vertex: (h) => h.endsWith('aiplatform.googleapis.com'),
   foundry: (h) => h.endsWith('.services.ai.azure.com'),
+  bedrock: (h) => /^bedrock-mantle\.[a-z0-9-]+\.api\.aws$/.test(h),
+  aws: (h) => /^aws-external-anthropic\.[a-z0-9-]+\.api\.aws$/.test(h),
 };
 
 /** Un proxy/gateway propio (no la API directa de Anthropic): sin fallback server-side. */
@@ -49,6 +60,14 @@ export function isCustomAnthropicEndpoint(
  * - `google-cloud`: Claude en Google Cloud (operado por Anthropic) con el token de Google de «Iniciar sesión con Google».
  * - `vertex`: Claude en Vertex AI (operado por Google) con el mismo token de Google.
  * - `foundry`: Claude en Microsoft Foundry con clave del recurso o token de Microsoft Entra ID.
+ * - `bedrock`: Claude en Amazon Bedrock (`AnthropicBedrockMantle`, `https://bedrock-mantle.{región}.api.aws/anthropic`)
+ *   con SigV4 y las credenciales temporales del rol de IAM del cliente.
+ * - `aws`: Claude Platform on AWS (`AnthropicAws`, `https://aws-external-anthropic.{región}.api.aws`, cabecera
+ *   `anthropic-workspace-id`) con SigV4 y las mismas credenciales temporales.
+ * La API de Anthropic también admite Workload Identity Federation (`credentials.workloadIdentity`): el SDK canjea la
+ * aserción de Nexo en `POST /v1/oauth/token` y cachea el token (`TokenCache`: renovación 120 s / 30 s antes de expirar).
+ * Fuentes: platform.claude.com/docs/en/manage-claude/workload-identity-federation, …/build-with-claude/
+ * claude-in-amazon-bedrock y …/claude-platform-on-aws (2026-10-24).
  * Los tokens OAuth se piden en cada llamada para que `LlmTokenService` los renueve antes de expirar.
  */
 export function claudeSdkClient(
@@ -104,7 +123,48 @@ export function claudeSdkClient(
       // Misma Messages API que `Anthropic`, sin lotes (que el driver no usa).
       return async () => client as unknown as Anthropic;
     }
+    case 'bedrock':
+    case 'aws': {
+      const aws = credentials.awsCredentials;
+      if (!aws) throw new Error('Claude en AWS requiere el rol de IAM de la conexión');
+      if (!ch.region) throw new Error('Claude en AWS requiere la región');
+      // SigV4 con las credenciales temporales del rol (se piden en cada solicitud). `apiKey: null` impide que el SDK
+      // tome un token Bearer de las variables de entorno (AWS_BEARER_TOKEN_BEDROCK, ANTHROPIC_AWS_API_KEY).
+      const auth = { awsRegion: ch.region, apiKey: null, providerChainResolver: async () => aws };
+      if (ch.channel === 'bedrock') {
+        const client = new AnthropicBedrockMantle({ ...common, ...auth, ...(baseURL ? { baseURL } : {}) });
+        // Solo expone `messages` y `beta.messages`, que es lo que usa el driver.
+        return async () => client as unknown as Anthropic;
+      }
+      if (!ch.workspaceId) throw new Error('Claude Platform on AWS requiere el workspace (wrkspc_...)');
+      const client = new AnthropicAws({
+        ...common,
+        ...auth,
+        workspaceId: ch.workspaceId,
+        ...(baseURL ? { baseURL } : {}),
+      });
+      return async () => client;
+    }
     default: {
+      const wif = credentials.workloadIdentity;
+      if (wif) {
+        // Workload Identity Federation (RFC 7523): sin clave; `credentials` se envuelve en el `TokenCache` del SDK.
+        const client = new Anthropic({
+          ...common,
+          baseURL,
+          credentials: oidcFederationProvider({
+            identityTokenProvider: wif.identityToken,
+            federationRuleId: wif.federationRuleId,
+            organizationId: wif.organizationId,
+            serviceAccountId: wif.serviceAccountId,
+            workspaceId: wif.workspaceId,
+            baseURL: baseURL ?? ANTHROPIC_API,
+            fetch: fetch ?? globalThis.fetch,
+            userAgent: 'Nexo (workload identity federation)',
+          }),
+        });
+        return async () => client;
+      }
       if (!credentials.apiKey) throw new Error('La conexión Anthropic no tiene API key');
       const client = new Anthropic({ ...common, apiKey: credentials.apiKey, baseURL });
       return async () => client;
@@ -121,6 +181,28 @@ export function providerErrorMessage(err: { status?: number; error?: unknown }):
   const message = body?.error?.message;
   if (typeof body?.error?.type === 'string' && typeof message === 'string') return message.slice(0, 300);
   return `El proveedor respondió HTTP ${err.status ?? 'desconocido'}`;
+}
+
+/**
+ * Fallo de una credencial sin claves dentro del SDK: el intercambio de Workload Identity Federation (el SDK lanza
+ * `WorkloadIdentityError`) o el AssumeRole de AWS (`KeylessAuthError`, a veces envuelto como causa de un error de
+ * conexión del SDK). `null` si el error es de otro tipo.
+ */
+export function keylessError(err: unknown): KeylessAuthError | null {
+  for (let e: unknown = err, depth = 0; e && depth < 4; e = (e as { cause?: unknown }).cause, depth++) {
+    if (e instanceof KeylessAuthError) return e;
+    if (e instanceof WorkloadIdentityError) {
+      const status = e.statusCode ? ` (HTTP ${e.statusCode})` : '';
+      return new KeylessAuthError(
+        e.statusCode === 401 || e.statusCode === 403
+          ? `Anthropic rechazó la identidad federada de Nexo${status}: revise que el emisor, la audiencia, el sujeto y ` +
+              'los ids (regla fdrl_, cuenta de servicio svac_, organización y workspace) coincidan con la Consola de ' +
+              'Claude; el motivo exacto está en su historial de autenticación.'
+          : `No se pudo canjear la identidad federada de Nexo con Anthropic${status}.`,
+      );
+    }
+  }
+  return null;
 }
 
 /**
@@ -143,9 +225,9 @@ class AnthropicClient implements LlmClient {
       !isCustomAnthropicEndpoint(credentials.baseUrl, this.channel);
   }
 
-  /** Vertex AI y Foundry no ofrecen la API de modelos: se verifica con un conteo de tokens. */
+  /** Vertex AI, Foundry y Bedrock no ofrecen la API de modelos: se verifica con un conteo de tokens. */
   private get hasModelsApi(): boolean {
-    return this.channel === 'anthropic' || this.channel === 'google-cloud';
+    return this.channel === 'anthropic' || this.channel === 'google-cloud' || this.channel === 'aws';
   }
 
   async test() {
@@ -160,16 +242,24 @@ class AnthropicClient implements LlmClient {
 
   private countTokens(client: Anthropic) {
     return client.messages.countTokens(
-      { model: VERIFY_MODEL, messages: [{ role: 'user', content: 'ping' }] },
+      {
+        model: this.channel === 'bedrock' ? VERIFY_MODEL_BEDROCK : VERIFY_MODEL,
+        messages: [{ role: 'user', content: 'ping' }],
+      },
       { timeout: 15_000, maxRetries: 0 },
     );
   }
 
-  /** Errores HTTP del SDK como `LlmHttpError` (estado + mensaje del proveedor). */
+  /**
+   * Errores HTTP del SDK como `LlmHttpError` (estado + mensaje del proveedor) y fallos de la credencial sin claves
+   * (intercambio WIF, STS) como `KeylessAuthError`, con un mensaje accionable y sin el cuerpo de la respuesta.
+   */
   private async probe<T>(fn: () => Promise<T>): Promise<T> {
     try {
       return await fn();
     } catch (err) {
+      const keyless = keylessError(err);
+      if (keyless) throw keyless;
       if (err instanceof Anthropic.APIError && typeof err.status === 'number') {
         throw new LlmHttpError(err.status, providerErrorMessage(err));
       }

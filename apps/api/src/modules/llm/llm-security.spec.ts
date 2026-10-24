@@ -8,6 +8,8 @@ import { AnthropicDriver } from './drivers/anthropic.driver';
 import { assertSafeDestinationChange } from './llm-admin.controller';
 import { ConnectionUnavailableException } from './llm-errors';
 import { LlmGatewayService } from './llm-gateway.service';
+import type { AwsRoleService } from './keyless/aws-role.service';
+import type { OidcIssuerService } from './keyless/oidc-issuer.service';
 import type { LlmTokenService } from './llm-token.service';
 
 describe('A2 · las credenciales no se redirigen a otro destino', () => {
@@ -74,6 +76,8 @@ describe('A6 · cupo mensual de la conexión de plataforma', () => {
       config,
       [new AnthropicDriver({ safeFetch: () => fetch } as unknown as HttpClientService)],
       {} as LlmTokenService,
+      {} as OidcIssuerService,
+      {} as AwsRoleService,
     );
     return { g, aggregate };
   }

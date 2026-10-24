@@ -4,13 +4,23 @@ import { Prisma } from '@prisma/client';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import type { ConnectProviderDto } from './dto/llm-providers.dto';
-import { LlmGatewayService } from './llm-gateway.service';
-import { mechanismViews, type MechanismView } from './llm-oauth-apps';
+import { connectionKeyless, LlmGatewayService } from './llm-gateway.service';
+import { AwsRoleService } from './keyless/aws-role.service';
+import { KeylessAuthError } from './keyless/keyless-errors';
+import {
+  AWS_REGION_PATTERN,
+  ANTHROPIC_WORKSPACE_PATTERN,
+  type KeylessMechanism,
+  type KeylessOptions,
+} from './keyless/keyless-options';
+import { ANTHROPIC_WIF_AUDIENCE, OidcIssuerService, WIF_ASSERTION_TTL_S } from './keyless/oidc-issuer.service';
+import { mechanismViews, type KeylessAvailability, type MechanismView } from './llm-oauth-apps';
 import { LlmHttpError, type AuthHeaderStyle, type ClaudeChannelOptions, type LlmCredentials } from './llm-provider';
 import { serializeConnection, serializeModel } from './llm-serializers';
 import type { OAuthTokens } from './llm-token.service';
 import { SYSTEM_ANTHROPIC_MODELS } from './pricing';
 import {
+  entryMechanisms,
   findMechanism,
   findProvider,
   PROVIDER_CATALOG,
@@ -59,7 +69,38 @@ export interface SaveConnectionInput {
   discovered: string[];
   /** Conexión con token OAuth renovable (Vertex, Azure con Entra ID, Hugging Face): se envía como Bearer. */
   oauth?: OAuthTokens;
+  /** Conexión sin claves (federación de identidad o rol de IAM): se guarda en `driverOptions.keyless`. */
+  keyless?: KeylessOptions;
 }
+
+/** Lo que el cliente necesita para configurar su lado de una conexión sin claves (`keyless/prepare`). */
+export type KeylessSetup =
+  | {
+      mechanism: 'WORKLOAD_IDENTITY';
+      issuerUrl: string;
+      discoveryUrl: string;
+      jwksUrl: string;
+      audience: string;
+      subject: string;
+      /** Alcance mínimo sugerido para la regla (solo inferencia). */
+      suggestedScope: string;
+      assertionTtlSeconds: number;
+      consoleUrl: string;
+      /** La clave de firma es efímera (desarrollo): la federación se rompe al reiniciar la API. */
+      ephemeralKey: boolean;
+      steps: string[];
+    }
+  | {
+      mechanism: 'AWS_ROLE';
+      externalId: string;
+      /** Comprobante firmado del ExternalId: se devuelve en `connect` (`setupToken`). Vence en `expiresAt`. */
+      setupToken: string;
+      expiresAt: string;
+      principalArn: string;
+      trustPolicy: Record<string, unknown>;
+      permissionsPolicy: Record<string, unknown>;
+      steps: string[];
+    };
 
 /** Resultado de `POST /admin/llm/providers/:id/detect`. */
 export interface DetectResult {
@@ -119,7 +160,14 @@ export function modelMetadata(entry: ProviderCatalogEntry, modelId: string): Pub
  * Traduce un fallo de la prueba de conexión a un mensaje claro en español (clave inválida, URL no alcanzable,
  * SSRF...). Nunca incluye la clave.
  */
-export function describeProbeError(err: unknown, entry: ProviderCatalogEntry, baseUrl: string): string {
+export function describeProbeError(
+  err: unknown,
+  entry: ProviderCatalogEntry,
+  baseUrl: string,
+  mechanism?: MechanismType,
+): string {
+  // Credencial sin claves: el mensaje ya es accionable (emisor, regla, política de confianza…).
+  if (err instanceof KeylessAuthError) return err.message;
   let host = baseUrl;
   try {
     host = new URL(baseUrl).host;
@@ -131,6 +179,18 @@ export function describeProbeError(err: unknown, entry: ProviderCatalogEntry, ba
       err.status === 401 ||
       err.status === 403 ||
       (err.status === 400 && /api[ _-]?key|unauthori[sz]ed|invalid[^.]*(key|token)/i.test(err.message));
+    if (keyRejected && mechanism === 'AWS_ROLE') {
+      return (
+        `${entry.name} rechazó la solicitud firmada con el rol de IAM (HTTP ${err.status}): revise la política de ` +
+        'permisos del rol y que los modelos Claude estén habilitados en la cuenta y la región.'
+      );
+    }
+    if (keyRejected && mechanism === 'WORKLOAD_IDENTITY') {
+      return (
+        `Anthropic aceptó la identidad federada pero rechazó el token (HTTP ${err.status}): revise el alcance ` +
+        '(oauth_scope) de la regla y que la cuenta de servicio sea miembro del workspace.'
+      );
+    }
     if (keyRejected) {
       if (entry.auth === 'NONE') {
         const token = entry.fields.find((f) => f.secret);
@@ -172,7 +232,101 @@ export class LlmProvidersService {
     private readonly crypto: CryptoService,
     private readonly gateway: LlmGatewayService,
     private readonly config: ConfigService,
+    private readonly oidc: OidcIssuerService,
+    private readonly awsRoles: AwsRoleService,
   ) {}
+
+  /** Disponibilidad de los mecanismos sin claves según la configuración de la plataforma. */
+  keylessAvailability(): KeylessAvailability {
+    return { WORKLOAD_IDENTITY: this.oidc.unavailableReason(), AWS_ROLE: this.awsRoles.unavailableReason() };
+  }
+
+  /** Mecanismo sin claves de la entrada, disponible en esta instalación (si no, 400 con el motivo). */
+  private keylessMechanism(entry: ProviderCatalogEntry, mechanism: KeylessMechanism): MechanismView {
+    const view = mechanismViews(this.config, entry, this.keylessAvailability()).find((m) => m.type === mechanism);
+    if (!view) {
+      const label = mechanism === 'WORKLOAD_IDENTITY' ? 'federación de identidad' : 'rol de IAM de AWS';
+      throw new BadRequestException(`${entry.name} no admite la conexión con ${label}`);
+    }
+    if (!view.available) throw new BadRequestException(view.unavailableReason ?? 'Mecanismo no disponible');
+    return view;
+  }
+
+  /**
+   * Datos para que el cliente configure su lado antes de conectar: el emisor OIDC, la audiencia y el sujeto del
+   * workspace (federación) o un ExternalId nuevo con la política de confianza (rol de IAM). No guarda nada.
+   */
+  prepareKeyless(
+    workspaceId: string,
+    providerId: string,
+    mechanism: KeylessMechanism,
+    fields: Record<string, unknown> = {},
+  ): KeylessSetup {
+    const entry = this.provider(providerId);
+    const view = this.keylessMechanism(entry, mechanism);
+    if (mechanism === 'WORKLOAD_IDENTITY') {
+      return {
+        mechanism,
+        issuerUrl: this.oidc.issuer,
+        discoveryUrl: this.oidc.discoveryUrl,
+        jwksUrl: this.oidc.jwksUri,
+        audience: ANTHROPIC_WIF_AUDIENCE,
+        subject: this.oidc.subjectFor(workspaceId),
+        suggestedScope: 'workspace:inference',
+        assertionTtlSeconds: WIF_ASSERTION_TTL_S,
+        consoleUrl: 'https://platform.claude.com/settings/workload-identity-federation',
+        ephemeralKey: this.oidc.ephemeral,
+        steps: view.steps ?? [],
+      };
+    }
+    const pick = (key: string, pattern: string) => {
+      const v = fields[key];
+      return typeof v === 'string' && new RegExp(pattern).test(v.trim()) ? v.trim() : undefined;
+    };
+    const { externalId, setupToken, expiresAt } = this.awsRoles.newExternalId(workspaceId);
+    return {
+      mechanism,
+      externalId,
+      setupToken,
+      expiresAt,
+      principalArn: this.awsRoles.principalArn!,
+      trustPolicy: this.awsRoles.trustPolicy(externalId),
+      permissionsPolicy: this.awsRoles.permissionsPolicy(entry.claudeChannel === 'aws' ? 'aws' : 'bedrock', {
+        region: pick('region', AWS_REGION_PATTERN),
+        workspaceId: pick('workspaceId', ANTHROPIC_WORKSPACE_PATTERN),
+      }),
+      steps: view.steps ?? [],
+    };
+  }
+
+  /** Identificadores de la conexión sin claves a partir de los campos validados (ExternalId de Nexo, único). */
+  private async keylessOptions(
+    workspaceId: string,
+    mechanism: KeylessMechanism,
+    values: Record<string, string>,
+    setupToken: string | undefined,
+  ): Promise<KeylessOptions> {
+    if (mechanism === 'WORKLOAD_IDENTITY') {
+      return {
+        type: 'WORKLOAD_IDENTITY',
+        federationRuleId: values.federationRuleId,
+        organizationId: values.organizationId,
+        serviceAccountId: values.serviceAccountId,
+        ...(values.anthropicWorkspaceId ? { workspaceId: values.anthropicWorkspaceId } : {}),
+      };
+    }
+    const externalId = this.awsRoles.verifySetupToken(setupToken, workspaceId);
+    // Un ExternalId por conexión: nunca se reutiliza (ni en el mismo workspace ni en otro).
+    const reused = await this.prisma.llmConnection.count({
+      where: { driverOptions: { path: ['keyless', 'externalId'], equals: externalId } },
+    });
+    if (reused) {
+      throw new BadRequestException(
+        'Ese ExternalId ya pertenece a otra conexión: genere uno nuevo y actualice la política de confianza del rol',
+      );
+    }
+    return { type: 'AWS_ROLE', roleArn: values.roleArn, externalId, region: values.region };
+  }
 
   async list(workspaceId: string): Promise<{ providers: ProviderView[] }> {
     const rows = await this.prisma.llmConnection.findMany({
@@ -183,7 +337,7 @@ export class LlmProvidersService {
     const providers = PROVIDER_CATALOG.filter((entry) => !entry.devOnly || this.devSimulator).map(
       (entry): ProviderView => ({
         ...publicEntry(entry),
-        mechanisms: mechanismViews(this.config, entry),
+        mechanisms: mechanismViews(this.config, entry, this.keylessAvailability()),
         connected: rows
           .filter((r) => r.providerId === entry.id)
           .map((r) => ({ connectionId: r.id, name: r.name, modelCount: r._count.models, enabled: r.enabled })),
@@ -250,8 +404,12 @@ export class LlmProvidersService {
     entry: ProviderCatalogEntry,
     validated: ValidatedFields,
     authHeader: AuthHeaderStyle = entry.authHeader,
+    keyless?: { workspaceId: string; options: KeylessOptions },
   ): Promise<string[]> {
-    const client = this.gateway.createClient(entry.kind, this.credentials(entry, validated, authHeader));
+    const client = this.gateway.createClient(entry.kind, {
+      ...this.credentials(entry, validated, authHeader),
+      ...(keyless ? this.gateway.keylessCredentials(keyless.workspaceId, keyless.options) : {}),
+    });
     try {
       if (client.verify) await client.verify();
       else {
@@ -262,7 +420,7 @@ export class LlmProvidersService {
       const tolerated =
         entry.verifyMode === 'lenient' && err instanceof LlmHttpError && (err.status === 404 || err.status === 405);
       if (tolerated) return [];
-      throw new BadRequestException(describeProbeError(err, entry, validated.baseUrl));
+      throw new BadRequestException(describeProbeError(err, entry, validated.baseUrl, keyless?.options.type));
     }
     const ids = await (client.listModels?.() ?? Promise.resolve([])).catch(() => [] as string[]);
     return ids.slice(0, MAX_DISCOVERED);
@@ -270,9 +428,23 @@ export class LlmProvidersService {
 
   async connect(workspaceId: string, providerId: string, dto: ConnectProviderDto) {
     const entry = this.provider(providerId);
+    if (dto.mechanism === 'WORKLOAD_IDENTITY' || dto.mechanism === 'AWS_ROLE') {
+      // Sin claves: se prueba con la credencial federada o el rol asumido antes de guardar, como con una clave.
+      this.keylessMechanism(entry, dto.mechanism);
+      const validated = this.validate(entry, dto.fields, dto.mechanism);
+      const keyless = await this.keylessOptions(workspaceId, dto.mechanism, validated.values, dto.setupToken);
+      const discovered = await this.probe(entry, validated, entry.authHeader, { workspaceId, options: keyless });
+      return this.saveConnection(workspaceId, entry, {
+        name: dto.name,
+        validated,
+        models: dto.models,
+        discovered,
+        keyless,
+      });
+    }
     // El formulario de campos es el mecanismo API_KEY (o la URL manual de los locales).
     if (entry.category !== 'LOCAL' && !findMechanism(entry, 'API_KEY')) {
-      const label = findMechanism(entry, 'OAUTH')?.label ?? 'su inicio de sesión';
+      const label = findMechanism(entry, 'OAUTH')?.label ?? entryMechanisms(entry)[0]?.label ?? 'su inicio de sesión';
       throw new BadRequestException(`${entry.name} no usa clave de API: conéctelo con «${label}»`);
     }
     const validated = this.validate(entry, dto.fields, 'API_KEY');
@@ -307,8 +479,9 @@ export class LlmProvidersService {
       } satisfies Prisma.LlmModelCreateWithoutConnectionInput;
     });
 
-    const { oauth } = input;
+    const { oauth, keyless } = input;
     const driverOptions: Prisma.InputJsonObject = {
+      ...(keyless ? { keyless: keyless as unknown as Prisma.InputJsonObject } : {}),
       // Los tokens OAuth siempre viajan como Bearer (Azure con Entra ID incluido).
       authHeader: oauth ? 'bearer' : entry.authHeader,
       ...(entry.verifyPath ? { verifyPath: entry.verifyPath } : {}),
@@ -326,11 +499,13 @@ export class LlmProvidersService {
         name: input.name?.trim() || entry.name,
         kind: entry.kind,
         baseUrl,
-        apiKeyCipher: oauth
-          ? this.crypto.encrypt(oauth.accessToken)
-          : validated.apiKey
-            ? this.crypto.encrypt(validated.apiKey)
-            : null,
+        apiKeyCipher: keyless
+          ? null
+          : oauth
+            ? this.crypto.encrypt(oauth.accessToken)
+            : validated.apiKey
+              ? this.crypto.encrypt(validated.apiKey)
+              : null,
         ...(oauth
           ? {
               credentialType: 'OAUTH' as const,
@@ -370,7 +545,9 @@ export class LlmProvidersService {
     try {
       ids = client.listModels ? await client.listModels() : [];
     } catch (err) {
-      throw new BadRequestException(describeProbeError(err, entry, connection.baseUrl ?? entry.baseUrl));
+      throw new BadRequestException(
+        describeProbeError(err, entry, connection.baseUrl ?? entry.baseUrl, connectionKeyless(connection)?.type),
+      );
     }
     const discovered = ids.slice(0, MAX_DISCOVERED);
     return {

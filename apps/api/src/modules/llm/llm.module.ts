@@ -14,19 +14,24 @@ import { LlmProvidersService } from './llm-providers.service';
 import { LlmTokenService } from './llm-token.service';
 import { LlmUsageService } from './llm-usage.service';
 import { OpenRouterOAuthService } from './openrouter-oauth.service';
+import { SingleUseModule } from '../../infrastructure/redis/single-use.module';
+import { AwsRoleService } from './keyless/aws-role.service';
+import { OidcIssuerController } from './keyless/oidc-issuer.controller';
+import { OidcIssuerService } from './keyless/oidc-issuer.service';
 
 /** Para agregar un tipo de proveedor (Bedrock, Gemini nativo...) implemente LlmDriver y regístrelo aquí. */
 const DRIVERS = [AnthropicDriver, OpenAiCompatibleDriver, MockDriver];
 
 @Global()
 @Module({
-  imports: [OAuthModule],
+  imports: [OAuthModule, SingleUseModule],
   controllers: [
     LlmCatalogController,
     LlmAdminController,
     LlmProvidersController,
     LlmOAuthCallbackController,
     DevLlmSimulatorController,
+    OidcIssuerController,
   ],
   providers: [
     ...DRIVERS,
@@ -37,6 +42,8 @@ const DRIVERS = [AnthropicDriver, OpenAiCompatibleDriver, MockDriver];
     LlmAuthFlowsService,
     LlmUsageService,
     DevLlmSimulatorService,
+    OidcIssuerService,
+    AwsRoleService,
     { provide: LLM_DRIVERS, useFactory: (...d: unknown[]) => d, inject: DRIVERS },
   ],
   exports: [LlmGatewayService, LlmTokenService, LlmUsageService],

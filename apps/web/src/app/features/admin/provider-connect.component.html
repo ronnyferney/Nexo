@@ -38,6 +38,8 @@
         @switch (m.type) {
           @case ('OAUTH') { Inicie sesión con su cuenta de {{ brand() }} y autorice a Nexo. No compartimos su contraseña y puede revocar el acceso cuando quiera. }
           @case ('DEVICE_CODE') { Autorice a Nexo con un código de un solo uso, sin copiar claves. }
+          @case ('WORKLOAD_IDENTITY') { Conecte la API de Anthropic sin claves: registre a Nexo como emisor de identidad en la Consola de Claude y Nexo obtendrá tokens de corta duración en cada uso. }
+          @case ('AWS_ROLE') { Conecte sin claves de larga duración: cree en su cuenta de AWS un rol que Nexo asume con un ExternalId único y credenciales temporales. }
           @case ('LOCAL_DETECT') { Conecte su servidor {{ p.name }}: Nexo lo detecta y lista sus modelos. }
           @default {
             @if ((p.auth === 'NONE' || p.category === 'LOCAL') && hasSecret()) {
@@ -98,6 +100,12 @@
           @case ('DEVICE_CODE') {
             <nx-device-code [provider]="p" [mechanism]="m" [autostart]="autostart()" [connectionId]="reauth()?.connectionId ?? null" (connected)="signedIn.emit($event)" />
             @if (!m.available) { <p class="unavail"><nx-icon name="lock" [size]="14" />{{ m.unavailableReason || 'No disponible por ahora.' }}</p> }
+          }
+          @case ('WORKLOAD_IDENTITY') {
+            <nx-keyless-connect [provider]="p" [mechanism]="m" (connected)="onLocalConnected($event)" />
+          }
+          @case ('AWS_ROLE') {
+            <nx-keyless-connect [provider]="p" [mechanism]="m" (connected)="onLocalConnected($event)" />
           }
           @case ('LOCAL_DETECT') {
             <nx-local-detect [provider]="p" [mechanism]="m" [autostart]="autostart()" (connected)="onLocalConnected($event)" />

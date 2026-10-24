@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   ArrayMaxSize,
   IsArray,
+  IsIn,
   IsNumber,
   IsObject,
   IsOptional,
@@ -32,6 +33,37 @@ export class ConnectProviderDto {
   @MinLength(1, { each: true })
   @MaxLength(120, { each: true })
   models?: string[];
+
+  @ApiPropertyOptional({
+    description:
+      'Mecanismo: `API_KEY` (por defecto, o la URL manual de los locales), `WORKLOAD_IDENTITY` (federación de identidad ' +
+      'con la API de Anthropic) o `AWS_ROLE` (rol de IAM + ExternalId). Los dos últimos no guardan ningún secreto.',
+    enum: ['API_KEY', 'WORKLOAD_IDENTITY', 'AWS_ROLE'],
+  })
+  @IsOptional()
+  @IsIn(['API_KEY', 'WORKLOAD_IDENTITY', 'AWS_ROLE'])
+  mechanism?: 'API_KEY' | 'WORKLOAD_IDENTITY' | 'AWS_ROLE';
+
+  @ApiPropertyOptional({ description: 'Solo `AWS_ROLE`: comprobante del ExternalId devuelto por `keyless/prepare`' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1024)
+  setupToken?: string;
+}
+
+/** `POST /admin/llm/providers/:id/keyless/prepare`: datos que el cliente necesita para configurar su lado. */
+export class PrepareKeylessDto {
+  @ApiProperty({ enum: ['WORKLOAD_IDENTITY', 'AWS_ROLE'] })
+  @IsIn(['WORKLOAD_IDENTITY', 'AWS_ROLE'])
+  mechanism!: 'WORKLOAD_IDENTITY' | 'AWS_ROLE';
+
+  @ApiPropertyOptional({
+    description: 'Campos no secretos ya escritos (p. ej. `region`, `workspaceId`) para concretar la política sugerida',
+    type: Object,
+  })
+  @IsOptional()
+  @IsObject()
+  fields?: Record<string, string>;
 }
 
 /** Datos opcionales de una conexión creada con inicio de sesión (OAuth o código de dispositivo). */

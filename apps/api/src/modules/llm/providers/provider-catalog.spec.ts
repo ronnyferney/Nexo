@@ -1,4 +1,5 @@
 import { parseUrlOverrides } from '../../../config/configuration';
+import { KeylessAuthError } from '../keyless/keyless-errors';
 import { LlmHttpError } from '../llm-provider';
 import { describeProbeError, publicEntry } from '../llm-providers.service';
 import { SYSTEM_ANTHROPIC_MODELS } from '../pricing';
@@ -265,7 +266,7 @@ describe('Mecanismos de conexión y metadatos de modelos (ADR 0002 D8)', () => {
       const mechanisms = entryMechanisms(p);
       expect(mechanisms.filter((m) => m.primary)).toHaveLength(1);
       for (const m of mechanisms) {
-        expect(['API_KEY', 'OAUTH', 'DEVICE_CODE', 'LOCAL_DETECT']).toContain(m.type);
+        expect(['API_KEY', 'OAUTH', 'DEVICE_CODE', 'LOCAL_DETECT', 'WORKLOAD_IDENTITY', 'AWS_ROLE']).toContain(m.type);
         expect(m.label.length).toBeGreaterThan(0);
       }
       if (p.category === 'LOCAL') expect(mechanisms[0]).toMatchObject({ type: 'LOCAL_DETECT', primary: true });
@@ -463,5 +464,94 @@ describe('Revisión del catálogo 2026-10-24 (plan de mejora L4–L14)', () => {
       }
     }
     expect(publicEntry(findProvider('anthropic')!).dataNotices).toEqual(findProvider('anthropic')!.dataNotices);
+  });
+});
+
+describe('Conexiones sin claves (plan de mejora L2 y L3)', () => {
+  it('L2: la API de Anthropic ofrece Workload Identity Federation sin campos secretos', () => {
+    const anthropic = findProvider('anthropic')!;
+    const wif = findMechanism(anthropic, 'WORKLOAD_IDENTITY')!;
+    expect(wif).toMatchObject({ primary: false });
+    expect(wif.steps?.join(' ')).toMatch(/Custom OIDC/);
+    expect(wif.steps?.join(' ')).toContain('https://api.anthropic.com');
+    expect(findMechanism(anthropic, 'API_KEY')).toMatchObject({ primary: true });
+    const v = validateProviderFields(
+      anthropic,
+      {
+        federationRuleId: 'fdrl_01Regla',
+        serviceAccountId: 'svac_01Cuenta',
+        organizationId: '00000000-0000-4000-8000-000000000000',
+      },
+      'WORKLOAD_IDENTITY',
+    );
+    expect(v.apiKey).toBeUndefined();
+    expect(v.baseUrl).toBe('https://api.anthropic.com');
+    // La clave no se acepta en este mecanismo, ni los ids de federación con la clave de API.
+    expect(() =>
+      validateProviderFields(anthropic, { apiKey: 'sk-ant-x', federationRuleId: 'fdrl_1' }, 'WORKLOAD_IDENTITY'),
+    ).toThrow(ProviderFieldsError);
+    expect(() => validateProviderFields(anthropic, { federationRuleId: 'fdrl_1' }, 'API_KEY')).toThrow(
+      ProviderFieldsError,
+    );
+    expect(() =>
+      validateProviderFields(
+        anthropic,
+        { federationRuleId: 'regla', serviceAccountId: 'svac_1', organizationId: 'org' },
+        'WORKLOAD_IDENTITY',
+      ),
+    ).toThrow(/formato/);
+  });
+
+  it('L3: Claude en Amazon Bedrock y Claude Platform on AWS solo con rol de IAM, sin secretos y con su SDK', () => {
+    const bedrock = findProvider('claude-bedrock')!;
+    const aws = findProvider('claude-aws')!;
+    for (const p of [bedrock, aws]) {
+      expect(p).toMatchObject({ kind: 'ANTHROPIC', family: 'CLAUDE', category: 'ENTERPRISE_CLOUD' });
+      expect(entryMechanisms(p).map((m) => m.type)).toEqual(['AWS_ROLE']);
+      expect(p.fields.some((f) => f.secret)).toBe(false);
+      expect(findMechanism(p, 'AWS_ROLE')!.steps!.join(' ')).toMatch(/ExternalId/);
+      expect(p.suggestedModels.every((m) => m.inputUsdPerMTok === undefined)).toBe(true);
+    }
+    expect(bedrock.claudeChannel).toBe('bedrock');
+    expect(bedrock.suggestedModels[0].id).toBe('anthropic.claude-opus-5-5');
+    expect(
+      validateProviderFields(
+        bedrock,
+        { region: 'eu-west-1', roleArn: 'arn:aws:iam::123456789012:role/nexo-claude' },
+        'AWS_ROLE',
+      ).baseUrl,
+    ).toBe('https://bedrock-mantle.eu-west-1.api.aws/anthropic');
+    expect(aws.claudeChannel).toBe('aws');
+    expect(aws.suggestedModels[0].id).toBe('claude-opus-5-5');
+    expect(
+      validateProviderFields(
+        aws,
+        { region: 'us-west-2', workspaceId: 'wrkspc_01AbCd', roleArn: 'arn:aws:iam::123456789012:role/x' },
+        'AWS_ROLE',
+      ).baseUrl,
+    ).toBe('https://aws-external-anthropic.us-west-2.api.aws');
+    expect(() =>
+      validateProviderFields(bedrock, { region: 'us-east-1', roleArn: 'arn:aws:iam::12:user/x' }, 'AWS_ROLE'),
+    ).toThrow(/formato/);
+    expect(() =>
+      validateProviderFields(
+        bedrock,
+        { region: 'us-east-1/../x', roleArn: 'arn:aws:iam::123456789012:role/x' },
+        'AWS_ROLE',
+      ),
+    ).toThrow(/formato/);
+  });
+
+  it('los errores de la credencial sin claves llegan tal cual; un 403 tras asumir el rol apunta a sus permisos', () => {
+    const bedrock = findProvider('claude-bedrock')!;
+    expect(describeProbeError(new KeylessAuthError('revise la política de confianza'), bedrock, 'https://x')).toBe(
+      'revise la política de confianza',
+    );
+    expect(describeProbeError(new LlmHttpError(403, 'denied'), bedrock, 'https://x', 'AWS_ROLE')).toMatch(
+      /política de permisos del rol/,
+    );
+    expect(
+      describeProbeError(new LlmHttpError(403, 'denied'), findProvider('anthropic')!, 'https://x', 'WORKLOAD_IDENTITY'),
+    ).toMatch(/oauth_scope/);
   });
 });
