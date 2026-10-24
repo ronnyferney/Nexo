@@ -1,5 +1,40 @@
 /* ===== Nexo design system ===== */
 /* Kit de Marca NEXO: azul profundo, azul eléctrico, cian y violeta. Tipografía Inter (alternativa Arial). */
+/*
+ * GUÍA DE TOKENS (RX-9 · base del Design System)
+ * ------------------------------------------------
+ * Todos los colores, radios, sombras y tipografías se consumen como variables CSS (custom properties).
+ * No escribas valores hex ni px sueltos en componentes: usa siempre el token correspondiente para que el
+ * modo claro/oscuro y futuros temas funcionen sin reescribir estilos.
+ *
+ *  Superficies y texto
+ *   --bg            fondo de la aplicación           --surface      tarjetas y paneles
+ *   --surface-2     fondos sutiles (hover, tracks)   --border       bordes y divisores
+ *   --text          texto principal                  --muted        texto secundario / etiquetas
+ *
+ *  Marca (no cambian entre claro/oscuro)
+ *   --brand-navy · --brand-blue · --brand-cyan · --brand-violet
+ *   --brand-gradient / --brand-gradient-x  degradados de marca (usar con moderación: CTA, acentos, barras)
+ *   --brand-violet-text  violeta legible como texto sobre superficies (contraste AA)
+ *
+ *  Primario (acción) — distingue uso:
+ *   --primary / --primary-600 / --primary-50   texto, bordes, íconos y fondos tenues
+ *   --primary-solid / --primary-solid-hover    RELLENOS de botón; el texto encima va con --on-primary
+ *
+ *  Tonos semánticos (estado) — cada uno con su fondo tenue -50 para badges/callouts:
+ *   éxito     --success  / --success-50
+ *   error     --danger   / --danger-50
+ *   aviso     --warning  / --warning-50
+ *   info      --info     / --info-50
+ *   Regla: el color fuerte va en texto/ícono/borde; el -50 como fondo. Nunca texto fuerte sobre fondo fuerte.
+ *
+ *  Forma y tipografía
+ *   --radius   radio base (tarjetas, modales)   --shadow  sombra de elevación
+ *   --focus    anillo de foco (:focus-visible)  --font / --mono  familias tipográficas
+ *
+ * Clases base ya disponibles: .card .btn (.primary/.brand/.danger/.ghost/.sm/.icon) .badge .input .field
+ *   .callout (.info/.warning/.danger) .empty .table .tabs .segmented .switch .spinner … (ver más abajo).
+ */
 :root {
   /* Marca (idénticos en claro y oscuro) */
   --brand-navy: #08102D;
@@ -157,6 +192,17 @@ textarea.code { font-family: var(--mono); font-size: 12.5px; min-height: 140px; 
 /* Empty */
 .empty { text-align: center; padding: 56px 20px; color: var(--muted); }
 .empty h3 { color: var(--text); margin: 12px 0 6px; }
+/* Estados compartidos (nx-empty-state, nx-loading-state, nx-error-state): centran su contenido y
+   limitan el ancho de las descripciones para buena lectura. */
+.empty p { max-width: 42ch; margin: 0 auto; }
+.empty .empty-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 18px; }
+
+/* Spinner compartido: anillo giratorio sobre el color primario. Respeta prefers-reduced-motion. */
+.spinner { display: inline-block; width: 22px; height: 22px; border-radius: 50%; border: 2.5px solid var(--border); border-top-color: var(--primary); animation: nx-spin 0.7s linear infinite; flex-shrink: 0; }
+.spinner.sm { width: 14px; height: 14px; border-width: 2px; }
+.spinner.lg { width: 32px; height: 32px; border-width: 3px; }
+@keyframes nx-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 1.6s; } }
 
 .icon-tile { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; background: var(--primary-50); color: var(--primary); flex-shrink: 0; }
 .icon-tile.REST { background: var(--info-50); color: var(--info); }
