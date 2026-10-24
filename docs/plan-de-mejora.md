@@ -69,6 +69,8 @@ claves cifrados con AES-256-GCM, `redirect: 'manual'` en el cliente HTTP, `postM
 | L14 | P2 | Avisos de datos por proveedor en el catálogo (entrenamiento con datos en niveles gratuitos, residencia, retención) | Hecho (bf53087) |
 | L15 | P2 | Tarifa escalonada de Claude Haiku 5.5 (>100.000 tokens: 0,50/2,50 USD por MTok) | Hecho (bf53087) |
 | L16 | P2 | Mostrar la tarifa de lectura de caché en «Modelos de IA» | Hecho (bf53087) |
+| L17 | P1 | **Orquestación multi-modelo activa (super-agentes).** Visión del producto: aprovechar el potencial de varios modelos de distintos fabricantes para maximizar resultado y efectividad, más allá del respaldo. Enrutar cada tarea/subtarea al mejor modelo por capacidad y costo (p. ej. uno rápido y barato para triage/clasificación, uno fuerte para razonamiento, uno con visión para imágenes/documentos). | Base lista: Nexo ya es multi-proveedor (Anthropic, OpenAI-compatibles, OpenRouter — ADR 0002) con cadena de respaldo entre fabricantes (ADR 0003 D1). **Pendiente**: el enrutamiento activo por capacidad/costo (hoy es un modelo principal + respaldos ante fallo, no selección por tarea). |
+| L18 | P2 | **Colaboración y verificación cruzada entre modelos.** Un modelo redacta y otro de distinto fabricante verifica o critica (reduce errores y sesgos); patrones multi-agente con modelos heterogéneos por rol. Parte de la visión de «super agentes». | Pendiente (depende de L17 y del runtime multi-agente). |
 
 ## 3. Producto y pruebas
 
