@@ -23,6 +23,8 @@ export interface CatalogOperation {
   key: string;
   name: string;
   description: string;
+  /** true = crea o modifica datos en el sistema remoto. */
+  write?: boolean;
 }
 
 /** Entrada de `GET /connector-catalog`. */

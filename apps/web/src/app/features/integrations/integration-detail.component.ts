@@ -84,7 +84,11 @@ import { oauthProvider } from './integration-logos';
                   }
                 </li>
               } @empty {
-                <li class="muted small">Cargando cuentas…</li>
+                @if (accountsState() === 'loading') { <li class="muted small" role="status">Cargando cuentas…</li> }
+                @else if (accountsState() === 'error') {
+                  <li class="small"><span class="grow">No se pudieron cargar las cuentas.</span>
+                    <button type="button" class="btn sm" (click)="loadAccounts()">Reintentar</button></li>
+                } @else { <li class="muted small">Aún no hay cuentas conectadas.</li> }
               }
               @if (auth.canEdit()) {
                 <li><button type="button" class="btn ghost sm add" (click)="install.emit()"><nx-icon name="plus" [size]="14" />Agregar otra cuenta</button></li>
@@ -93,33 +97,22 @@ import { oauthProvider } from './integration-logos';
           </section>
         }
 
-        <section aria-labelledby="idt-auth">
-          <h3 id="idt-auth">Autenticación</h3>
-          <ul class="plain">
-            @for (m of e.authMethods; track m) {
-              <li class="item"><nx-icon [name]="m === 'oauth2_code' ? 'user' : m === 'mcp' ? 'server' : 'key'" [size]="16" />
-                <span><strong>{{ m === 'oauth2_code' ? 'Iniciar sesión con ' + provider() : meta[m].label }}</strong>
-                  <span class="muted small block">{{ meta[m].description }}</span></span></li>
-            }
-          </ul>
-        </section>
-
         <section aria-labelledby="idt-ops">
-          <h3 id="idt-ops">Operaciones <span class="badge">{{ e.operations.length }}</span></h3>
+          <h3 id="idt-ops">Qué pueden hacer sus agentes</h3>
           @if (e.operations.length) {
-            <ul class="plain ops">
-              @for (op of e.operations; track op.key) {
-                <li>
-                  <div class="op-head"><strong>{{ op.name }}</strong>
-                    @if (op.write) { <span class="badge warning" title="Crea o modifica datos en {{ e.name }}">Escritura</span> }
-                    @else if (op.write === false) { <span class="badge">Lectura</span> }</div>
-                  <span class="muted small">{{ op.description }}</span>
-                </li>
-              }
-            </ul>
+            @if (reads().length) {
+              <div class="caps"><span class="cap-label">Lee</span>
+                @for (op of reads(); track op.key) { <span class="chip" [title]="op.description">{{ op.name }}</span> }</div>
+            }
+            @if (writes().length) {
+              <div class="caps"><span class="cap-label warn" title="Crea o modifica datos en {{ e.name }}">Modifica</span>
+                @for (op of writes(); track op.key) { <span class="chip" [title]="op.description">{{ op.name }}</span> }</div>
+            }
           } @else {
-            <p class="muted small">Las operaciones se descubren automáticamente del servidor al instalar.</p>
+            <p class="muted small">Las operaciones se descubren del servidor al instalar.</p>
           }
+          <p class="muted small access"><nx-icon [name]="e.authMethods[0] === 'oauth2_code' ? 'user' : 'key'" [size]="14" />
+            {{ e.authMethods[0] === 'oauth2_code' ? 'Acceso: iniciar sesión con ' + provider() : 'Acceso: ' + meta[e.authMethods[0]].label }}</p>
         </section>
 
         @if (e.verificationNotes) {
@@ -136,11 +129,10 @@ import { oauthProvider } from './integration-logos';
         @if (e.installed) {
           <a class="btn" routerLink="/connectors" (click)="close()"><nx-icon name="plug" [size]="16" />Mis conectores</a>
         }
-        @if (auth.canEdit()) {
-          <button type="button" class="btn primary" (click)="install.emit()">
-            <nx-icon name="plus" [size]="16" />{{ e.installed ? 'Instalar otra cuenta' : 'Instalar' }}</button>
-        } @else {
-          <span class="small muted">Solo un editor puede instalar integraciones.</span>
+        @if (!auth.canEdit()) {
+          <span class="small muted">Solo un editor puede instalar apps.</span>
+        } @else if (!e.installed) {
+          <button type="button" class="btn primary" (click)="install.emit()"><nx-icon name="plus" [size]="16" />Instalar</button>
         }
       </div>
     </dialog>
@@ -159,18 +151,17 @@ import { oauthProvider } from './integration-logos';
     .grow { flex: 1; min-width: 0; }
     .desc { margin: 0; line-height: 1.6; }
     h3 { display: flex; align-items: center; gap: 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-bottom: 8px; }
-    .plain { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-    .item { display: flex; gap: 10px; align-items: flex-start; }
-    .item nx-icon { color: var(--primary); margin-top: 2px; }
-    .ops li { display: grid; gap: 2px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
-    .ops li:last-child { border-bottom: 0; }
-    .op-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .accounts { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius); }
     .accounts li { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--border); }
     .accounts li:last-child { border-bottom: 0; }
     .accounts .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warning); flex-shrink: 0; }
     .accounts .dot.ok { background: var(--success); }
     .accounts .add { margin-left: -6px; }
+    .caps { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
+    .cap-label { font-size: 12px; font-weight: 600; color: var(--muted); min-width: 64px; }
+    .cap-label.warn { color: var(--warning); }
+    .chip { font-size: 12.5px; padding: 3px 10px; border-radius: 999px; background: var(--surface-2, var(--bg)); border: 1px solid var(--border); cursor: help; }
+    .access { display: flex; align-items: center; gap: 6px; margin: 4px 0 0; }
     .notes summary { cursor: pointer; color: var(--primary); font-weight: 550; }
     .notes p { margin: 8px 0 0; overflow-wrap: anywhere; }
     .docs { margin-right: auto; }
@@ -194,6 +185,9 @@ export class IntegrationDetailComponent {
   /** Cuentas de esta integración; cambió algo (desconectar/eliminar) → la galería recarga el estado. */
   readonly changed = output<void>();
   readonly accounts = signal<CatalogAccount[]>([]);
+  readonly accountsState = signal<'loading' | 'ready' | 'error'>('loading');
+  readonly reads = computed(() => this.entry().operations.filter((o) => !o.write));
+  readonly writes = computed(() => this.entry().operations.filter((o) => o.write));
   readonly busy = signal<string | null>(null);
 
   readonly meta = AUTH_METHOD_META;
@@ -209,10 +203,12 @@ export class IntegrationDetailComponent {
   }
 
   async loadAccounts() {
+    this.accountsState.set('loading');
     try {
       this.accounts.set(await this.api.catalogAccounts(this.entry().id));
-    } catch (e) {
-      this.toast.error(errorMessage(e));
+      this.accountsState.set('ready');
+    } catch {
+      this.accountsState.set('error');
     }
   }
 
