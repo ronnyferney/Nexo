@@ -331,40 +331,101 @@
             @for (acc of usedAccounts(); track acc) { <span class="chip">{{ acc }}</span> }
           </div>
         }
+        <div class="chat-views" role="tablist" aria-label="Vistas del chat">
+          <button type="button" role="tab" [class.active]="chatView() === 'conversation'" [attr.aria-selected]="chatView() === 'conversation'" (click)="chatView.set('conversation')">Conversación</button>
+          <button type="button" role="tab" [class.active]="chatView() === 'activity'" [attr.aria-selected]="chatView() === 'activity'" (click)="chatView.set('activity')">
+            Actividad @if (activityBadge()) { <span class="badge">{{ activityBadge() }}</span> }
+          </button>
+          @if (canEditAgent()) {
+            <button type="button" role="tab" [class.active]="chatView() === 'diagnostics'" [attr.aria-selected]="chatView() === 'diagnostics'" (click)="chatView.set('diagnostics')">Diagnóstico</button>
+          }
+        </div>
         <div class="messages" #scroller aria-live="polite">
-          @for (item of chat(); track $index) {
-            @switch (item.kind) {
-              @case ('user') { <div class="msg user">{{ item.text }}</div> }
-              @case ('assistant') {
-                <div class="msg assistant md" [innerHTML]="item.text | markdown"></div>
-                @if (item.final && item.response) {
-                  <nx-agent-chat-feedback [agentId]="a.id" [conversationId]="conversationId" [userMessage]="item.userMessage!" [agentResponse]="item.response" />
-                }
-              }
-              @case ('notice') { <div class="callout warning notice" role="status"><nx-icon name="shuffle" [size]="15" /><span>{{ item.text }}</span></div> }
-              @case ('usage') { <div class="msg usage" title="Costo estimado según precios configurados">{{ item.text }}</div> }
-              @case ('error') { <div class="msg error" role="alert"><nx-icon name="alert" [size]="16" /><span>{{ item.text }}</span></div> }
-              @case ('tool') {
-                <details class="tool">
-                  <summary>
-                    <nx-icon name="tool" [size]="14" /><code>{{ item.tool!.name }}</code>
-                    @if (item.tool!.output === undefined) { <span class="badge primary">ejecutando…</span> }
-                    @else if (item.needsApproval) { <span class="badge warning">requiere aprobación</span> }
-                    @else if (item.tool!.isError) { <span class="badge danger">error</span> }
-                    @else { <span class="badge success">ok</span> }
-                    @if (item.needsApproval && !streaming()) {
-                      <button class="btn sm primary" (click)="approve(item.tool!.name); $event.preventDefault()">Aprobar y continuar</button>
+          @switch (chatView()) {
+            @case ('conversation') {
+              @for (item of conversationItems(); track $index) {
+                @switch (item.kind) {
+                  @case ('user') { <div class="msg user">{{ item.text }}</div> }
+                  @case ('assistant') {
+                    <div class="msg assistant md" [innerHTML]="item.text | markdown"></div>
+                    @if (item.final && item.response) {
+                      <nx-agent-chat-feedback [agentId]="a.id" [conversationId]="conversationId" [userMessage]="item.userMessage!" [agentResponse]="item.response" />
                     }
-                  </summary>
-                  <div class="small muted" style="margin-top:6px">Entrada</div><pre>{{ pretty(item.tool!.input) }}</pre>
-                  @if (item.tool!.output !== undefined) { <div class="small muted" style="margin-top:6px">Salida</div><pre>{{ pretty(item.tool!.output) }}</pre> }
+                  }
+                  @case ('tool') {
+                    <div class="callout warning approval" role="status">
+                      <nx-icon name="shield" [size]="16" />
+                      <div class="grow"><strong>Requiere su autorización</strong>
+                        <span class="muted small block">La acción «{{ friendlyTool(item.tool!.name) }}» necesita su confirmación antes de ejecutarse.</span>
+                      </div>
+                      @if (!streaming()) { <button class="btn sm primary" (click)="approve(item.tool!.name)">Aprobar y continuar</button> }
+                    </div>
+                  }
+                  @case ('error') {
+                    <div class="msg error" role="alert"><nx-icon name="alert" [size]="16" />
+                      <span>No fue posible completar la solicitud.
+                        <button type="button" class="linklike" (click)="chatView.set('activity')">Ver actividad</button>@if (canEditAgent()) { · <button type="button" class="linklike" (click)="chatView.set('diagnostics')">Ver diagnóstico</button> }
+                      </span>
+                    </div>
+                  }
+                }
+              } @empty {
+                <div class="empty"><nx-icon name="bot" [size]="32" /><h3>Converse con su agente</h3><p>Escriba un mensaje para empezar.</p></div>
+              }
+              @if (streaming()) { <div class="typing" aria-label="El agente está trabajando"><span></span><span></span><span></span></div> }
+            }
+            @case ('activity') {
+              @if (securityItems().length) {
+                <details class="activity-item security">
+                  <summary><nx-icon name="shield" [size]="15" /><strong>Protección de datos aplicada</strong><span class="badge">{{ securityItems().length }}</span></summary>
+                  @for (s of securityItems(); track $index) { <p class="muted small m0">{{ s.text }}</p> }
                 </details>
               }
+              @for (item of activityItems(); track $index) {
+                @switch (item.kind) {
+                  @case ('tool') {
+                    <div class="activity-item row">
+                      <nx-icon name="tool" [size]="14" /><span class="grow">{{ friendlyTool(item.tool!.name) }}</span>
+                      @if (item.tool!.output === undefined) { <span class="badge primary">ejecutando…</span> }
+                      @else if (item.tool!.isError) { <span class="badge danger">error</span> }
+                      @else { <span class="badge success">completada</span> }
+                      @if (toolDuration(item.tool!); as d) { <span class="muted small">{{ d }}</span> }
+                    </div>
+                  }
+                  @case ('notice') { <div class="activity-item row"><nx-icon name="shuffle" [size]="14" /><span class="muted small grow">{{ item.text }}</span></div> }
+                  @case ('usage') { <div class="activity-item row"><nx-icon name="chart" [size]="14" /><span class="muted small grow">{{ item.text }}</span></div> }
+                }
+              } @empty {
+                @if (!securityItems().length) { <div class="empty small"><p class="muted small">Aún no hay actividad. Cuando el agente use una herramienta o se aplique una política, aparecerá aquí.</p></div> }
+              }
             }
-          } @empty {
-            <div class="empty"><nx-icon name="bot" [size]="32" /><h3>Converse con su agente</h3><p>Verá en vivo cada herramienta que use.</p></div>
+            @case ('diagnostics') {
+              @if (conversationId) { <p class="muted small diag-id">Conversación: <code>{{ conversationId }}</code></p> }
+              @for (item of chat(); track $index) {
+                @switch (item.kind) {
+                  @case ('tool') {
+                    <details class="tool">
+                      <summary>
+                        <nx-icon name="tool" [size]="14" /><code>{{ item.tool!.name }}</code>
+                        @if (item.tool!.output === undefined) { <span class="badge primary">ejecutando…</span> }
+                        @else if (item.needsApproval) { <span class="badge warning">requiere aprobación</span> }
+                        @else if (item.tool!.isError) { <span class="badge danger">error</span> }
+                        @else { <span class="badge success">ok</span> }
+                        @if (toolDuration(item.tool!); as d) { <span class="muted small">{{ d }}</span> }
+                      </summary>
+                      <div class="small muted" style="margin-top:6px">Entrada</div><pre>{{ pretty(item.tool!.input) }}</pre>
+                      @if (item.tool!.output !== undefined) { <div class="small muted" style="margin-top:6px">Salida</div><pre>{{ pretty(item.tool!.output) }}</pre> }
+                    </details>
+                  }
+                  @case ('notice') { <div class="callout warning notice" role="status"><nx-icon name="shuffle" [size]="15" /><span>{{ item.text }}</span></div> }
+                  @case ('usage') { <div class="msg usage">{{ item.text }}</div> }
+                  @case ('error') { <div class="msg error" role="alert"><nx-icon name="alert" [size]="16" /><span>{{ item.text }}</span></div> }
+                }
+              } @empty {
+                <div class="empty small"><p class="muted small">Sin detalles técnicos todavía.</p></div>
+              }
+            }
           }
-          @if (streaming()) { <div class="typing" aria-label="El agente está escribiendo"><span></span><span></span><span></span></div> }
         </div>
         <div class="composer">
           <label class="sr-only" for="chat-input">Mensaje</label>

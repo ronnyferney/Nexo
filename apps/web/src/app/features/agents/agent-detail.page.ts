@@ -16,6 +16,7 @@ import { canManageAgentOwnership, canWriteAgent } from '../../shared/agent-permi
 import { IconComponent } from '../../shared/icon.component';
 import { formatUsd, NumberPipe } from '../../shared/usd.pipe';
 import { MarkdownPipe } from '../../shared/markdown.pipe';
+import { isSecurityNotice, toolSlug } from './agent-chat.util';
 import { DEFAULT_TARGET_SCORE } from '../../core/training.models';
 import { AgentChatFeedbackComponent } from './agent-chat-feedback.component';
 import { AgentExamplesComponent } from './agent-examples.component';
@@ -31,7 +32,7 @@ import { AgentShareDialogComponent } from './agent-share-dialog.component';
 interface ChatItem {
   kind: 'user' | 'assistant' | 'tool' | 'notice' | 'usage' | 'error';
   text?: string;
-  tool?: { id: string; name: string; input: unknown; output?: string; isError?: boolean };
+  tool?: { id: string; name: string; input: unknown; output?: string; isError?: boolean; startedAt?: number; finishedAt?: number };
   needsApproval?: boolean;
   /** Turno del chat al que pertenece (respuestas del asistente). */
   turn?: number;
@@ -41,6 +42,9 @@ interface ChatItem {
   userMessage?: string;
   response?: string;
 }
+
+/** Vista activa del panel de prueba: separa la conversación de la actividad técnica y el diagnóstico (P0 UX). */
+type ChatView = 'conversation' | 'activity' | 'diagnostics';
 
 export type AgentTab = 'profile' | 'model' | 'tools' | 'knowledge' | 'routines' | 'training' | 'preview';
 
@@ -242,6 +246,24 @@ export class AgentDetailPage implements OnInit {
 
   // Chat
   readonly chat = signal<ChatItem[]>([]);
+  /** Vista activa del panel: Conversación (default) / Actividad / Diagnóstico. */
+  readonly chatView = signal<ChatView>('conversation');
+  /** Conversación: solo lo que el usuario necesita leer (mensajes, respuestas, aprobaciones y errores funcionales). */
+  readonly conversationItems = computed(() =>
+    this.chat().filter(
+      (i) => i.kind === 'user' || i.kind === 'assistant' || i.kind === 'error' || (i.kind === 'tool' && i.needsApproval),
+    ),
+  );
+  /** Actividad: qué hizo el agente (herramientas, avisos informativos, consumo). La seguridad va agrupada aparte. */
+  readonly activityItems = computed(() =>
+    this.chat().filter(
+      (i) => (i.kind === 'tool' && !i.needsApproval) || i.kind === 'usage' || (i.kind === 'notice' && !isSecurityNotice(i)),
+    ),
+  );
+  /** Eventos de protección de datos (DataGuard) de la ejecución: se muestran agrupados en un solo indicador. */
+  readonly securityItems = computed(() => this.chat().filter(isSecurityNotice));
+  /** Nº de elementos para el badge de la pestaña Actividad: eventos + un grupo de seguridad si lo hay. */
+  readonly activityBadge = computed(() => this.activityItems().length + (this.securityItems().length ? 1 : 0));
   readonly streaming = signal(false);
   conversationId?: string;
   message = '';
@@ -666,6 +688,29 @@ export class AgentDetailPage implements OnInit {
     this.abort?.abort();
     this.conversationId = undefined;
     this.chat.set([]);
+    this.chatView.set('conversation');
+  }
+
+  /** Nombre legible de una herramienta a partir de su identificador técnico (conector__operación o tool interna). */
+  friendlyTool(name: string): string {
+    const internal: Record<string, string> = {
+      load_skill: 'Cargar una habilidad',
+      search_knowledge: 'Buscar en el conocimiento',
+      save_knowledge: 'Guardar en el conocimiento',
+    };
+    if (internal[name]) return internal[name];
+    for (const c of this.connectors()) {
+      for (const op of c.operations ?? []) {
+        if (toolSlug(c.name, op.key) === name) return `${c.name} · ${op.name}`;
+      }
+    }
+    return name;
+  }
+
+  /** Duración aproximada (medida en el cliente) de una ejecución de herramienta. `null` si aún no terminó. */
+  toolDuration(t: { startedAt?: number; finishedAt?: number }): string | null {
+    if (!t.startedAt || !t.finishedAt) return null;
+    return `${((t.finishedAt - t.startedAt) / 1000).toFixed(1)} s`;
   }
 
   stop() {
@@ -698,13 +743,17 @@ export class AgentDetailPage implements OnInit {
               break;
             case 'tool_call':
               current = null;
-              this.push({ kind: 'tool', tool: { id: e.id, name: e.name, input: e.input } });
+              this.push({ kind: 'tool', tool: { id: e.id, name: e.name, input: e.input, startedAt: Date.now() } });
               break;
             case 'tool_result':
               this.chat.update((items) =>
                 items.map((i) =>
                   i.tool?.id === e.id
-                    ? { ...i, tool: { ...i.tool, output: e.output, isError: e.isError }, needsApproval: e.output.startsWith('APROBACIÓN REQUERIDA') }
+                    ? {
+                        ...i,
+                        tool: { ...i.tool, output: e.output, isError: e.isError, finishedAt: Date.now() },
+                        needsApproval: e.output.startsWith('APROBACIÓN REQUERIDA'),
+                      }
                     : i,
                 ),
               );
