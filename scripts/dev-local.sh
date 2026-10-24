@@ -54,17 +54,31 @@ check_prereqs() {
   ok "Node $(node -v)"
 }
 
+# Contraseña del Redis local de Docker: se genera una vez y se guarda en .dev/redis-password (solo su usuario).
+# docker-compose.yml exige REDIS_PASSWORD (requirepass); sync_env_ports la copia a apps/api/.env.
+redis_password() {
+  local file="$DEV/redis-password"
+  if [[ ! -s "$file" ]]; then
+    (umask 077 && openssl rand -hex 24 >"$file")
+  fi
+  cat "$file"
+}
+
 # docker compose valida todo docker-compose.yml aunque solo se levanten postgres y redis: la API y el worker exigen
-# JWT_SECRET y ENCRYPTION_KEY, que aquí no se usan (la API corre fuera de Docker con apps/api/.env).
+# JWT_SECRET y ENCRYPTION_KEY, que aquí no se usan (la API corre fuera de Docker con apps/api/.env). PostgreSQL usa la
+# contraseña local `nexo` (la de DATABASE_URL de sync_env_ports); ambos puertos solo escuchan en 127.0.0.1.
 compose() {
   (cd "$ROOT" && JWT_SECRET="${JWT_SECRET:-no-se-usa-en-local}" ENCRYPTION_KEY="${ENCRYPTION_KEY:-no-se-usa-en-local}" \
+    POSTGRES_PASSWORD=nexo REDIS_PASSWORD="$(redis_password)" \
     NEXO_PG_PORT="$PG_PORT" NEXO_REDIS_PORT="$REDIS_PORT" docker compose "$@")
 }
 
+USE_DOCKER=1
+
 start_infra() {
   if ! command -v docker >/dev/null; then
-    # Sin Docker: PostgreSQL y Redis locales en sus puertos estándar.
-    PG_PORT=5432 REDIS_PORT=6379
+    # Sin Docker: PostgreSQL y Redis locales en sus puertos estándar (Redis local sin contraseña).
+    PG_PORT=5432 REDIS_PORT=6379 USE_DOCKER=0
     port_open 5432 && port_open 6379 ||
       fail "Falta Docker Desktop (brew install --cask docker) o PostgreSQL 16 + Redis 7 locales en 5432/6379"
     warn "Sin Docker: se usan PostgreSQL (5432) y Redis (6379) locales; requieren usuario, contraseña y base 'nexo'"
@@ -84,13 +98,22 @@ start_infra() {
   ok "PostgreSQL y Redis listos"
 }
 
-# Apunta la API a la base y al Redis que se acaban de levantar (solo esas dos claves de apps/api/.env).
+# Apunta la API a la base y al Redis que se acaban de levantar (DATABASE_URL, REDIS_PORT y, con Docker,
+# REDIS_PASSWORD de apps/api/.env).
 sync_env_ports() {
-  PG="$PG_PORT" RD="$REDIS_PORT" FILE="$API_ENV" node -e '
+  local rpass=""
+  [[ "$USE_DOCKER" == 1 ]] && rpass="$(redis_password)"
+  PG="$PG_PORT" RD="$REDIS_PORT" RPASS="$rpass" FILE="$API_ENV" node -e '
     const fs = require("fs");
     let s = fs.readFileSync(process.env.FILE, "utf8");
     const url = `postgresql://nexo:nexo@localhost:${process.env.PG}/nexo?schema=public`;
     s = s.replace(/^DATABASE_URL=.*$/m, `DATABASE_URL=${url}`).replace(/^REDIS_PORT=.*$/m, `REDIS_PORT=${process.env.RD}`);
+    // El Redis de Docker exige contraseña (requirepass): se agrega la clave si falta.
+    if (process.env.RPASS) {
+      s = /^REDIS_PASSWORD=/m.test(s)
+        ? s.replace(/^REDIS_PASSWORD=.*$/m, `REDIS_PASSWORD=${process.env.RPASS}`)
+        : s.replace(/\n*$/, `\nREDIS_PASSWORD=${process.env.RPASS}\n`);
+    }
     // Proveedor IA simulado (solo desarrollo): se agrega si falta; si el usuario lo definió, se respeta su valor.
     if (!/^LLM_DEV_SIMULATOR=/m.test(s)) s = s.replace(/\n*$/, "\n\n# Proveedor IA simulado (solo desarrollo)\nLLM_DEV_SIMULATOR=true\n");
     // Entorno de desarrollo explícito (el simulador y las validaciones de desarrollo lo exigen).

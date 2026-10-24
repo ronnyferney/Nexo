@@ -5,10 +5,11 @@ import { LOGIN_ACCOUNT_LIMIT, LoginAccountThrottlerGuard, normalizeLoginEmail } 
 /** Almacenamiento en memoria con la semántica del limitador: bloquea al superar el límite. */
 function memoryStorage(): ThrottlerStorage & { keys: string[] } {
   const hits = new Map<string, number>();
+  const keys: string[] = [];
   return {
-    keys: [],
+    keys,
     increment(key, _ttl, limit) {
-      this.keys.push(key);
+      keys.push(key);
       const total = (hits.get(key) ?? 0) + 1;
       hits.set(key, total);
       return Promise.resolve({ totalHits: total, timeToExpire: 60, isBlocked: total > limit, timeToBlockExpire: 900 });

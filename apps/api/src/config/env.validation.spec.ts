@@ -24,13 +24,41 @@ describe('validateEnv · secretos débiles (M9)', () => {
   });
 
   it.each([
-    ['el JWT_SECRET de .env.example', { JWT_SECRET: 'cambie-este-secreto-por-uno-de-al-menos-32-caracteres' }, /JWT_SECRET es un valor de ejemplo/],
-    ['la ENCRYPTION_KEY en ceros de .env.example', { ENCRYPTION_KEY: '0'.repeat(64) }, /ENCRYPTION_KEY es un valor de ejemplo/],
-    ['un JWT_SECRET de un solo carácter repetido', { JWT_SECRET: 'a'.repeat(48) }, /JWT_SECRET tiene muy baja entropía/],
-    ['un JWT_SECRET con un patrón repetido', { JWT_SECRET: 'nexo1234'.repeat(5) }, /JWT_SECRET tiene muy baja entropía/],
-    ['una ENCRYPTION_KEY con un patrón repetido', { ENCRYPTION_KEY: '0123456789abcdef'.repeat(4) }, /ENCRYPTION_KEY tiene muy baja entropía/],
-    ['una ENCRYPTION_KEY con pocos dígitos distintos', { ENCRYPTION_KEY: 'ab'.repeat(31) + 'ba' }, /ENCRYPTION_KEY tiene muy baja entropía/],
-    ['una ENCRYPTION_KEY casi en ceros', { ENCRYPTION_KEY: '0'.repeat(63) + '1' }, /ENCRYPTION_KEY tiene muy baja entropía/],
+    [
+      'el JWT_SECRET de .env.example',
+      { JWT_SECRET: 'cambie-este-secreto-por-uno-de-al-menos-32-caracteres' },
+      /JWT_SECRET es un valor de ejemplo/,
+    ],
+    [
+      'la ENCRYPTION_KEY en ceros de .env.example',
+      { ENCRYPTION_KEY: '0'.repeat(64) },
+      /ENCRYPTION_KEY es un valor de ejemplo/,
+    ],
+    [
+      'un JWT_SECRET de un solo carácter repetido',
+      { JWT_SECRET: 'a'.repeat(48) },
+      /JWT_SECRET tiene muy baja entropía/,
+    ],
+    [
+      'un JWT_SECRET con un patrón repetido',
+      { JWT_SECRET: 'nexo1234'.repeat(5) },
+      /JWT_SECRET tiene muy baja entropía/,
+    ],
+    [
+      'una ENCRYPTION_KEY con un patrón repetido',
+      { ENCRYPTION_KEY: '0123456789abcdef'.repeat(4) },
+      /ENCRYPTION_KEY tiene muy baja entropía/,
+    ],
+    [
+      'una ENCRYPTION_KEY con pocos dígitos distintos',
+      { ENCRYPTION_KEY: 'ab'.repeat(31) + 'ba' },
+      /ENCRYPTION_KEY tiene muy baja entropía/,
+    ],
+    [
+      'una ENCRYPTION_KEY casi en ceros',
+      { ENCRYPTION_KEY: '0'.repeat(63) + '1' },
+      /ENCRYPTION_KEY tiene muy baja entropía/,
+    ],
     ['el mismo valor en ambos secretos', { JWT_SECRET: STRONG_KEY.toUpperCase() }, /no pueden ser el mismo valor/],
   ])('en producción rechaza %s', (_case, over, message) => {
     expect(() => validateEnv(env({ ...over, NODE_ENV: 'production' }))).toThrow(message);

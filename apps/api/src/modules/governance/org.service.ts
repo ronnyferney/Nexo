@@ -1,4 +1,10 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma, type OrgUnit } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import type { WorkspaceRole } from '../../common/decorators/roles.decorator';

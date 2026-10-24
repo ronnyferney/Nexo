@@ -39,7 +39,9 @@ export class LoginAccountThrottlerGuard implements CanActivate {
       LOGIN_ACCOUNT_THROTTLER,
     );
     if (record.isBlocked) {
-      http.getResponse<{ setHeader(name: string, value: number): void }>().setHeader('Retry-After', record.timeToBlockExpire);
+      http
+        .getResponse<{ setHeader(name: string, value: number): void }>()
+        .setHeader('Retry-After', record.timeToBlockExpire);
       throw new ThrottlerException('Demasiados intentos de inicio de sesión para esta cuenta; intente más tarde');
     }
     return true;

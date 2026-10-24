@@ -1,9 +1,16 @@
 # Nexo — entorno completo: docker compose up -d --build
-# Antes: cp .env.example .env y complete JWT_SECRET, ENCRYPTION_KEY y ANTHROPIC_API_KEY.
+# Antes: cp .env.example .env y complete JWT_SECRET, ENCRYPTION_KEY, POSTGRES_PASSWORD, REDIS_PASSWORD y
+# ANTHROPIC_API_KEY (genere los secretos con: openssl rand -hex 32).
+# PostgreSQL, Redis y la API solo escuchan en 127.0.0.1 del host: la entrada pública es la web (nginx, :8080).
+# Desarrollo local (solo PostgreSQL y Redis): use `npm run local` (scripts/dev-local.sh define estas variables).
 x-api-env: &api-env
-  DATABASE_URL: postgresql://nexo:${POSTGRES_PASSWORD:-nexo}@postgres:5432/nexo?schema=public
+  DATABASE_URL: postgresql://nexo:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD en .env}@postgres:5432/nexo?schema=public
   REDIS_HOST: redis
   REDIS_PORT: 6379
+  REDIS_PASSWORD: ${REDIS_PASSWORD:?Defina REDIS_PASSWORD en .env}
+  # Saltos de proxy de confianza (vacío = IP privadas: nginx de este compose o ALB → nginx).
+  TRUST_PROXY: ${TRUST_PROXY:-}
+  SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
   JWT_SECRET: ${JWT_SECRET:?Defina JWT_SECRET en .env}
   ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Defina ENCRYPTION_KEY en .env}
   ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -51,10 +58,12 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: nexo
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nexo}
+      # Sin valor por defecto: la contraseña se fija al crear el volumen (cambiarla después exige ALTER USER).
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD en .env}
       POSTGRES_DB: nexo
     volumes: [pgdata:/var/lib/postgresql/data]
-    ports: ["${NEXO_PG_PORT:-5432}:5432"]
+    # Solo desde el propio host (nunca en 0.0.0.0): la API llega por la red interna de compose.
+    ports: ["127.0.0.1:${NEXO_PG_PORT:-5432}:5432"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U nexo"]
       interval: 5s
@@ -62,11 +71,14 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Defina REDIS_PASSWORD en .env}
+    # Contraseña obligatoria (requirepass); `exec` deja a redis-server como PID 1 (recibe la señal de parada).
+    command: ["sh", "-c", "exec docker-entrypoint.sh redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
     volumes: [redisdata:/data]
-    ports: ["${NEXO_REDIS_PORT:-6379}:6379"]
+    ports: ["127.0.0.1:${NEXO_REDIS_PORT:-6379}:6379"]
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
       interval: 5s
       retries: 10
 
@@ -79,7 +91,7 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
-    ports: ["3000:3000"]
+    ports: ["127.0.0.1:3000:3000"]
 
   # Workers de flujos (escale con: docker compose up -d --scale worker=3)
   worker:

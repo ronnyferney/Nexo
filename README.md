@@ -100,8 +100,9 @@ inicial en `.dev/credenciales.txt`. Para IA real agregue `ANTHROPIC_API_KEY` en 
 **Paso a paso:**
 
 ```bash
-# 1. Infraestructura
-docker compose up -d postgres redis
+# 1. Infraestructura (escucha solo en 127.0.0.1; JWT_SECRET/ENCRYPTION_KEY aquí solo completan docker-compose.yml)
+export REDIS_PASSWORD=$(openssl rand -hex 24)   # cópiela también en REDIS_PASSWORD de apps/api/.env
+POSTGRES_PASSWORD=nexo JWT_SECRET=x ENCRYPTION_KEY=x docker compose up -d postgres redis
 
 # 2. API
 cd apps/api
@@ -119,12 +120,22 @@ npm start                       # http://localhost:4200 (proxy /api -> :3000)
 ## Despliegue con Docker
 
 ```bash
-cp .env.example .env    # defina JWT_SECRET, ENCRYPTION_KEY, ANTHROPIC_API_KEY
+cp .env.example .env    # defina JWT_SECRET, ENCRYPTION_KEY, POSTGRES_PASSWORD, REDIS_PASSWORD (openssl rand -hex 32)
+                        # y ANTHROPIC_API_KEY
 docker compose up -d --build
 docker compose up -d --scale worker=3   # más capacidad de ejecución de flujos
 ```
 
 Web en `http://localhost:8080`. La API y los workers comparten imagen; `WORKER_ENABLED` decide el rol.
+
+- PostgreSQL, Redis y la API solo escuchan en `127.0.0.1` del host; la única entrada pública es la web (nginx, `:8080`),
+  que reenvía `/api`. Publique `:8080` detrás de un proxy con TLS (HSTS se envía cuando llega `X-Forwarded-Proto: https`).
+- `POSTGRES_PASSWORD` y `REDIS_PASSWORD` son obligatorias (sin valores por defecto). La de PostgreSQL se fija al crear el
+  volumen `pgdata`: para cambiarla después use `ALTER USER nexo PASSWORD '…'`.
+- Con `NODE_ENV=production` la API no arranca con los secretos de ejemplo, claves en ceros o de baja entropía, y no
+  publica Swagger salvo `SWAGGER_ENABLED=true`.
+- `TRUST_PROXY` (vacío por defecto) confía en los saltos con IP privada (nginx) para obtener la IP real del cliente; si
+  pone otro proxy con IP pública delante, indique su número de saltos o sus IP (ver `apps/api/.env.example`).
 
 ## Publicación y despliegue
 
