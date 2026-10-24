@@ -33,28 +33,43 @@ code{font-size:22px;letter-spacing:3px}.danger{color:#ff8fa3;border-color:#5a243
 export class DevLlmSimulatorController {
   constructor(private readonly sim: DevLlmSimulatorService) {}
 
+  /**
+   * Las páginas del simulador imitan la de un proveedor externo: sin COOP `same-origin` (cortaría `window.opener` de la
+   * ventana emergente de Nexo) y con `form-action` que admite la redirección final a la web (WEB_URL).
+   */
+  private html(res: Response, status: number, body: string) {
+    res
+      .status(status)
+      .set({
+        'Cross-Origin-Opener-Policy': 'unsafe-none',
+        'Content-Security-Policy': `default-src 'none'; style-src 'unsafe-inline'; form-action 'self' ${this.sim.webUrl}; frame-ancestors 'none'; base-uri 'none'`,
+      })
+      .type('html')
+      .send(body);
+  }
+
   @Get('authorize')
   authorize(@Query() q: Record<string, unknown>, @Res() res: Response) {
     this.sim.assertEnabled();
     const redirectUri = str(q.redirect_uri);
     if (!this.sim.validRedirect(str(q.client_id), redirectUri)) {
-      res
-        .status(400)
-        .type('html')
-        .send(page('Solicitud inválida', '<h1>Solicitud inválida</h1><p>client_id o redirect_uri no permitidos.</p>'));
+      this.html(
+        res,
+        400,
+        page('Solicitud inválida', '<h1>Solicitud inválida</h1><p>client_id o redirect_uri no permitidos.</p>'),
+      );
       return;
     }
     if (str(q.response_type) !== 'code' || str(q.code_challenge_method) !== 'S256' || !str(q.code_challenge)) {
-      res
-        .status(400)
-        .type('html')
-        .send(page('Solicitud inválida', '<h1>Solicitud inválida</h1><p>Se requiere PKCE S256.</p>'));
+      this.html(res, 400, page('Solicitud inválida', '<h1>Solicitud inválida</h1><p>Se requiere PKCE S256.</p>'));
       return;
     }
     const hidden = ['redirect_uri', 'state', 'code_challenge', 'scope']
       .map((k) => `<input type="hidden" name="${k}" value="${esc(str(q[k]))}">`)
       .join('');
-    res.type('html').send(
+    this.html(
+      res,
+      200,
       page(
         'Autorizar a Nexo',
         `<h1>¿Autorizar a Nexo?</h1><p>Nexo solicita acceso de inferencia (<strong>${esc(str(q.scope) || 'inference')}</strong>) a su cuenta simulada.</p>
@@ -81,6 +96,7 @@ export class DevLlmSimulatorController {
     } else {
       url.searchParams.set('error', 'access_denied');
     }
+    res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
     res.redirect(302, url.toString());
   }
 
@@ -115,7 +131,9 @@ export class DevLlmSimulatorController {
   @Get('device')
   device(@Query('user_code') userCode: string | undefined, @Res() res: Response) {
     this.sim.assertEnabled();
-    res.type('html').send(
+    this.html(
+      res,
+      200,
       page(
         'Conectar dispositivo',
         `<h1>Conectar Nexo con un código</h1><p>Ingrese el código que muestra Nexo y autorice el acceso.</p>
@@ -130,17 +148,17 @@ export class DevLlmSimulatorController {
     this.sim.assertEnabled();
     const allow = str(b.decision) === 'allow';
     const ok = this.sim.decideDevice(str(b.user_code), allow);
-    res
-      .status(ok ? 200 : 400)
-      .type('html')
-      .send(
-        page(
-          'Simulador',
-          ok
-            ? `<h1>${allow ? 'Acceso autorizado' : 'Acceso denegado'}</h1><p>Vuelva a Nexo: ${allow ? 'la conexión se completa sola.' : 'verá que se denegó.'}</p>`
-            : '<h1>Código no válido</h1><p>El código no existe, ya se usó o venció.</p>',
-        ),
-      );
+    this.html(
+      res,
+      ok ? 200 : 400,
+
+      page(
+        'Simulador',
+        ok
+          ? `<h1>${allow ? 'Acceso autorizado' : 'Acceso denegado'}</h1><p>Vuelva a Nexo: ${allow ? 'la conexión se completa sola.' : 'verá que se denegó.'}</p>`
+          : '<h1>Código no válido</h1><p>El código no existe, ya se usó o venció.</p>',
+      ),
+    );
   }
 
   @HttpCode(200)
@@ -155,14 +173,14 @@ export class DevLlmSimulatorController {
   revokeAll(@Res() res: Response) {
     this.sim.assertEnabled();
     this.sim.revokeAll();
-    res
-      .type('html')
-      .send(
-        page(
-          'Simulador',
-          '<h1>Sesiones revocadas</h1><p>La próxima renovación de Nexo recibirá invalid_grant y la conexión quedará con la sesión cerrada.</p>',
-        ),
-      );
+    this.html(
+      res,
+      200,
+      page(
+        'Simulador',
+        '<h1>Sesiones revocadas</h1><p>La próxima renovación de Nexo recibirá invalid_grant y la conexión quedará con la sesión cerrada.</p>',
+      ),
+    );
   }
 
   @Get('v1/models')

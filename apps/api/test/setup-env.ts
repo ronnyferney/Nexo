@@ -16,6 +16,8 @@ const env: Record<string, string> = {
   WORKER_CONCURRENCY: '2',
   // Nunca llamar a un LLM real desde la suite.
   ANTHROPIC_API_KEY: '',
+  // El simulador local solo se activa en su propia suite (llm-dev-simulator.e2e-spec.ts).
+  LLM_DEV_SIMULATOR: 'false',
   LOG_LEVEL: 'silent',
 };
 Object.assign(process.env, env);

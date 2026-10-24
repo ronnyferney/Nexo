@@ -61,8 +61,11 @@ describe('Simulador local de proveedor IA con inicio de sesión (E2E)', () => {
         scope: url.searchParams.get('scope'),
       })
       .expect(302);
+    // La ventana emergente conserva `window.opener` (sin COOP same-origin) para avisar a la consola y cerrarse.
+    expect(back.headers['cross-origin-opener-policy']).toBe('unsafe-none');
     const callback = new URL(back.headers.location as string);
     const res = await http().get(`${callback.pathname}${callback.search}`).expect(302);
+    expect(res.headers['cross-origin-opener-policy']).toBe('unsafe-none');
     return new URL(res.headers.location as string);
   }
 
@@ -126,7 +129,7 @@ describe('Simulador local de proveedor IA con inicio de sesión (E2E)', () => {
   });
 
   it('si el usuario revoca el acceso en el proveedor, la sesión queda cerrada y volver a iniciarla la recupera', async () => {
-    await http().post('/api/dev/llm-sim/revoke-all').expect(201);
+    await http().post('/api/dev/llm-sim/revoke-all').expect(200);
     await prismaOf(app).llmConnection.update({
       where: { id: connectionId },
       data: { oauthExpiresAt: new Date(Date.now() - 1000) },

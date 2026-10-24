@@ -42,6 +42,10 @@ export class DevLlmSimulatorService {
     if (!this.enabled) throw new NotFoundException();
   }
 
+  get webUrl(): string {
+    return (this.config.get<string>('webUrl') ?? 'http://localhost:4200').replace(/\/+$/, '');
+  }
+
   get base(): string {
     return `${(this.config.get<string>('publicUrl') ?? 'http://localhost:3000').replace(/\/+$/, '')}${DEV_SIM_PATH}`;
   }

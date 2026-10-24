@@ -100,6 +100,9 @@ export class LlmOAuthCallbackController {
       provider === 'openrouter'
         ? await this.openrouter.callback(params)
         : await this.flows.oauthCallback(provider.slice(0, 64), params);
+    // El retorno ocurre en la ventana emergente que abrió la consola: con COOP `same-origin` el navegador cortaría
+    // `window.opener` y la ventana no podría avisar a Nexo ni cerrarse. El destino siempre es WEB_URL.
+    res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
     res.redirect(302, target);
   }
 }
