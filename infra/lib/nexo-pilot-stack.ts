@@ -56,7 +56,7 @@ const URL_UNSAFE = ' %+~`#$&*()|[]{}:;<>?!\'/@"\\=,^';
  * subdominios del cliente y debe poder retirarse.
  */
 const HSTS_HEADER = 'max-age=31536000';
-/** Para que ENCRYPTION_KEY sea hexadecimal (64 caracteres = 32 bytes), se excluye todo lo que no sea [0-9a-fA-F]. */
+/** Para que ENCRYPTION_KEY (clave legacy k0) sea hexadecimal (64 caracteres = 32 bytes), se excluye todo lo que no sea [0-9a-fA-F]. */
 const NON_HEX_LETTERS = 'ghijklmnopqrstuvwxyzGHIJKLMNOPQRSTUVWXYZ';
 /**
  * Apps OAuth de la plataforma (`OAUTH_<PROVEEDOR>_CLIENT_ID/SECRET`, ver apps/api/src/modules/oauth/oauth.providers.ts).
@@ -210,13 +210,33 @@ export class NexoPilotStack extends cdk.Stack {
         excludeCharacters: '"\\\'`',
       },
     });
+    // Clave legacy (kid k0). Su valor no se reemplaza nunca: descifra lo cifrado con ella hasta completar la rotación.
+    // No cambie su id lógico ni `generateSecretString`: CloudFormation generaría otra clave y los datos dejarían de
+    // descifrarse.
     const encryptionSecret = new secretsmanager.Secret(this, 'EncryptionKey', {
-      description: 'Nexo: ENCRYPTION_KEY (32 bytes en hex). NO ROTAR: cifra los secretos de los clientes.',
+      description:
+        'Nexo: ENCRYPTION_KEY, clave legacy k0 (32 bytes en hex). No reemplace su valor: para rotar use el secreto ' +
+        'EncryptionKeyring (docs/rotacion-de-claves.md).',
       generateSecretString: {
         passwordLength: 64,
         excludePunctuation: true,
         includeSpace: false,
         excludeCharacters: NON_HEX_LETTERS,
+      },
+    });
+    // Rotación de claves (B7, docs/rotacion-de-claves.md): claves adicionales `kid:hex` y kid activo. Se crea vacío
+    // (solo k0) y se completa a mano en Secrets Manager; los valores se leen al arrancar cada tarea, así que tras
+    // editarlo hay que reemplazar las tareas de api y worker (`aws ecs update-service --force-new-deployment`).
+    // No cambie esta plantilla en un despliegue existente: CloudFormation reescribiría el secreto con valores vacíos
+    // y la API dejaría de descifrar lo cifrado con las claves nuevas.
+    const encryptionKeyringSecret = new secretsmanager.Secret(this, 'EncryptionKeyring', {
+      description:
+        'Nexo: rotación de claves de cifrado. ENCRYPTION_KEYS (kid:hex separados por coma), ENCRYPTION_ACTIVE_KID ' +
+        '(vacío = k0) y ENCRYPTION_LEGACY_READS (false solo tras rotar todo).',
+      secretObjectValue: {
+        ENCRYPTION_KEYS: cdk.SecretValue.unsafePlainText(''),
+        ENCRYPTION_ACTIVE_KID: cdk.SecretValue.unsafePlainText(''),
+        ENCRYPTION_LEGACY_READS: cdk.SecretValue.unsafePlainText(''),
       },
     });
 
@@ -273,6 +293,9 @@ export class NexoPilotStack extends cdk.Stack {
       JWT_SECRET: ecs.Secret.fromSecretsManager(appSecret, 'JWT_SECRET'),
       ANTHROPIC_API_KEY: ecs.Secret.fromSecretsManager(appSecret, 'ANTHROPIC_API_KEY'),
       ENCRYPTION_KEY: ecs.Secret.fromSecretsManager(encryptionSecret),
+      ENCRYPTION_KEYS: ecs.Secret.fromSecretsManager(encryptionKeyringSecret, 'ENCRYPTION_KEYS'),
+      ENCRYPTION_ACTIVE_KID: ecs.Secret.fromSecretsManager(encryptionKeyringSecret, 'ENCRYPTION_ACTIVE_KID'),
+      ENCRYPTION_LEGACY_READS: ecs.Secret.fromSecretsManager(encryptionKeyringSecret, 'ENCRYPTION_LEGACY_READS'),
       REDIS_PASSWORD: ecs.Secret.fromSecretsManager(redisAuthSecret),
       ...Object.fromEntries(OAUTH_PLATFORM_KEYS.map((k) => [k, ecs.Secret.fromSecretsManager(appSecret, k)])),
     };
@@ -433,6 +456,10 @@ export class NexoPilotStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'RedisAuthSecretArn', {
       value: redisAuthSecret.secretArn,
       description: 'Token AUTH de Redis (inyectado como REDIS_PASSWORD; rotarlo exige actualizar ElastiCache)',
+    });
+    new cdk.CfnOutput(this, 'EncryptionKeyringSecretArn', {
+      value: encryptionKeyringSecret.secretArn,
+      description: 'Rotación de claves: ENCRYPTION_KEYS y ENCRYPTION_ACTIVE_KID (docs/rotacion-de-claves.md)',
     });
     new cdk.CfnOutput(this, 'ClusterName', { value: cluster.clusterName });
   }

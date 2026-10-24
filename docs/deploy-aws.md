@@ -14,7 +14,8 @@ Internet ─▶ ALB (solo HTTPS: 80 redirige a 443, HSTS; timeout 600 s para SSE
                                                    │                  protección contra borrado y snapshot al eliminar)
                                                    └─▶ ElastiCache Redis 7 (subred aislada, noeviction para BullMQ,
                                                                           TLS en tránsito + AUTH, cifrado en reposo)
-Secretos: Secrets Manager (contraseña de BD, token AUTH de Redis, JWT_SECRET, ENCRYPTION_KEY, ANTHROPIC_API_KEY)
+Secretos: Secrets Manager (contraseña de BD, token AUTH de Redis, JWT_SECRET, ENCRYPTION_KEY, ENCRYPTION_KEYS,
+          ENCRYPTION_ACTIVE_KID, ANTHROPIC_API_KEY)
           → variables de entorno
 Logs: CloudWatch (30 días) · Autoescalado por CPU: api y worker 1–3 tareas
 ```
@@ -107,9 +108,23 @@ El primer despliegue tarda ~20–30 min (sobre todo RDS).
 - **Eliminar el piloto:** la base de datos tiene **protección contra borrado** (B8). Para eliminar el entorno a
   propósito: `aws rds modify-db-instance --db-instance-identifier <id> --no-deletion-protection --apply-immediately`
   y luego `npx cdk destroy NexoPilot` (la base de datos deja un snapshot final).
-- **No reemplace `ENCRYPTION_KEY`:** cifra los secretos y tokens de los clientes. Para rotar, agregue una clave nueva en
-  `ENCRYPTION_KEYS`, actívela con `ENCRYPTION_ACTIVE_KID` y re-cifre con `npm run crypto:rotate` (B7); el procedimiento
-  completo está en [`docs/rotacion-de-claves.md`](rotacion-de-claves.md). Hoy el stack solo inyecta `ENCRYPTION_KEY`.
+- **No reemplace `ENCRYPTION_KEY`:** es la clave legacy (`kid` `k0`) y cifra los secretos y tokens de los clientes.
+  Para rotar (B7) se usa el secreto de la salida `EncryptionKeyringSecretArn`, inyectado en api y worker como
+  `ENCRYPTION_KEYS`, `ENCRYPTION_ACTIVE_KID` y `ENCRYPTION_LEGACY_READS` (se crea vacío: solo `k0`). El procedimiento
+  completo está en [`docs/rotacion-de-claves.md`](rotacion-de-claves.md); en el piloto:
+  1. Genere la clave (`openssl rand -hex 32`) y guarde en el secreto `ENCRYPTION_KEYS=k2026b:<hex>` con
+     `ENCRYPTION_ACTIVE_KID=k0`. Las tareas leen los secretos al arrancar: reemplácelas con
+     `aws ecs update-service --cluster <ClusterName> --service <servicio> --force-new-deployment` (api y worker) y
+     espere a que el despliegue termine en ambos.
+  2. Cambie `ENCRYPTION_ACTIVE_KID=k2026b` y vuelva a reemplazar las tareas de api y worker.
+  3. Re-cifre lo existente desde una tarea de la API (ECS Exec, ver arriba):
+     `node dist/common/crypto/crypto-rotate.cli.js --dry-run` y luego sin `--dry-run`.
+  4. Para retirar `k0`, cuando `--dry-run` informe 0 pendientes defina `ENCRYPTION_LEGACY_READS=false`. El stack sigue
+     inyectando `ENCRYPTION_KEY`: no borre ese secreto.
+
+  Edite el secreto solo con `aws secretsmanager put-secret-value` o la consola, conservando las tres claves del JSON
+  (ECS no arranca si falta una). No modifique en el código la plantilla de los secretos `EncryptionKey` ni
+  `EncryptionKeyring`: CloudFormation los regeneraría y los datos cifrados dejarían de descifrarse.
 
 ## Actualizar un piloto desplegado antes del endurecimiento (M7 y B8)
 

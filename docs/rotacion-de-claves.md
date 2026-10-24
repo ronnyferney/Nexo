@@ -62,6 +62,9 @@ de ejemplo y las claves de baja entropía (igual que con `ENCRYPTION_KEY`, M9). 
    - Si era una clave de `ENCRYPTION_KEYS`, quítela de la lista.
    - Si era `ENCRYPTION_KEY` (`k0`), defina `ENCRYPTION_LEGACY_READS=false`, verifique y luego quite `ENCRYPTION_KEY`.
      (El `docker-compose.yml` y el stack del piloto todavía exigen `ENCRYPTION_KEY`: mientras sea así, consérvela.)
+     En `docker compose` las cuatro variables se definen en `.env`; en el piloto de AWS, `ENCRYPTION_KEYS`,
+     `ENCRYPTION_ACTIVE_KID` y `ENCRYPTION_LEGACY_READS` viven en el secreto `EncryptionKeyring` (ver
+     [`deploy-aws.md`](deploy-aws.md)).
    - Conserve una copia de la clave retirada fuera de línea mientras existan copias de seguridad de la base de datos
      cifradas con ella.
 

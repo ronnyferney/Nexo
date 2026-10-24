@@ -16,7 +16,12 @@ x-api-env: &api-env
   SMTP_URL: ${SMTP_URL:-}
   MAIL_FROM: ${MAIL_FROM:-}
   JWT_SECRET: ${JWT_SECRET:?Defina JWT_SECRET en .env}
+  # Cifrado (B7, docs/rotacion-de-claves.md): ENCRYPTION_KEY es la clave legacy (kid k0). Para rotar, agregue claves
+  # kid:hex en ENCRYPTION_KEYS (separadas por coma) y elija con cuál se cifra lo nuevo en ENCRYPTION_ACTIVE_KID.
   ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Defina ENCRYPTION_KEY en .env}
+  ENCRYPTION_KEYS: ${ENCRYPTION_KEYS:-}
+  ENCRYPTION_ACTIVE_KID: ${ENCRYPTION_ACTIVE_KID:-}
+  ENCRYPTION_LEGACY_READS: ${ENCRYPTION_LEGACY_READS:-}
   ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
   CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
   EXECUTIONS_RETENTION_DAYS: ${EXECUTIONS_RETENTION_DAYS:-30}
