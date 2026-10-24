@@ -184,11 +184,11 @@
 }
 
 @if (detail(); as d) {
-  <nx-provider-detail [data]="d" (closed)="detailClosed()" (disconnect)="disconnectFromDetail()" (signOut)="disconnectFromDetail(true)" (reauth)="reauthFromDetail()" (goModels)="detailGoModels(d)" />
+  <nx-provider-detail [data]="d" [usage]="usage()" (closed)="detailClosed()" (disconnect)="disconnectFromDetail()" (signOut)="disconnectFromDetail(true)" (reauth)="reauthFromDetail()" (goModels)="detailGoModels(d)" />
 }
 
 @if (confirmTarget(); as t) {
-  <nx-disconnect-confirm [name]="t.name" [action]="t.action" [busy]="disconnecting()" (confirmed)="confirmDisconnect()" (cancelled)="cancelDisconnect()" />
+  <nx-disconnect-confirm [name]="t.name" [action]="t.action" [usage]="usage()" [busy]="disconnecting()" (confirmed)="confirmDisconnect()" (cancelled)="cancelDisconnect()" />
 }
 
 <div class="notice-wrap" aria-live="polite" aria-atomic="true">

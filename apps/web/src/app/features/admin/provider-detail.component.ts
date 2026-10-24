@@ -10,7 +10,8 @@ import {
   viewChild,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import type { ModelSpecialty } from '../../core/llm-providers.models';
+import { RouterLink } from '@angular/router';
+import type { ConnectionUsage, ModelSpecialty } from '../../core/llm-providers.models';
 import type { ModelTier } from '../../core/models';
 import { TIER_LABELS } from '../../shared/budget';
 import { IconComponent } from '../../shared/icon.component';
@@ -71,7 +72,7 @@ export interface ProviderDetailData {
 /** Diálogo «<Proveedor> · N modelos · ● Conectado» con buscador y filtros de especialidad, costo y memoria. */
 @Component({
   selector: 'nx-provider-detail',
-  imports: [FormsModule, IconComponent, BrandLogoComponent],
+  imports: [FormsModule, RouterLink, IconComponent, BrandLogoComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './provider-detail.component.html',
   styleUrl: './provider-detail.component.scss',
@@ -80,6 +81,18 @@ export class ProviderDetailComponent {
   private readonly dialog = viewChild.required<ElementRef<HTMLDialogElement>>('dlg');
 
   readonly data = input.required<ProviderDetailData>();
+  /** Agentes que usan la conexión (null mientras carga o si no aplica, p. ej. la incluida por Nexo). */
+  readonly usage = input<ConnectionUsage[] | null>(null);
+  /** Un agente por fila (si usa la conexión como principal y como respaldo, se muestra una vez). */
+  readonly usageRows = computed(() => {
+    const rows = new Map<string, { agentId: string; agentName: string; detail: string[] }>();
+    for (const u of this.usage() ?? []) {
+      const r = rows.get(u.agentId) ?? { agentId: u.agentId, agentName: u.agentName, detail: [] };
+      r.detail.push(`${u.model}${u.role === 'FALLBACK' ? ' (respaldo)' : ''}`);
+      rows.set(u.agentId, r);
+    }
+    return [...rows.values()];
+  });
   readonly closed = output<void>();
   /** Desconectar (clave de API) o eliminar la conexión. */
   readonly disconnect = output<void>();

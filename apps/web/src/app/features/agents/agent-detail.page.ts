@@ -183,6 +183,32 @@ export class AgentDetailPage implements OnInit {
     return this.providers().find((p) => p.id === this.form.provider)?.models ?? [];
   }
 
+  /**
+   * Por qué el modelo guardado del agente no se puede usar ahora (conexión deshabilitada o eliminada, sesión cerrada,
+   * modelo deshabilitado). El catálogo solo trae conexiones y modelos habilitados; null si todo está bien.
+   */
+  modelIssue(): string | null {
+    const a = this.agent();
+    if (!a || !this.providers().length) return null;
+    const p = this.providers().find((x) => x.id === a.provider);
+    let issue: string;
+    if (!p) issue = 'La conexión de IA de este agente está deshabilitada o se eliminó.';
+    else if (!p.configured) {
+      issue = p.system
+        ? `«${p.label}» no está configurado en el servidor.`
+        : `La conexión «${p.label}» no está lista: la sesión está cerrada o falta su credencial.`;
+    } else if (!p.models.some((m) => m.id === a.model)) {
+      issue = `El modelo «${a.model}» está deshabilitado o se eliminó de «${p.label}».`;
+    } else return null;
+    return `${issue} ${
+      a.fallbackModels?.length
+        ? 'Mientras tanto, las conversaciones usan el modelo de respaldo.'
+        : 'Las conversaciones fallarán hasta que lo corrija o configure un modelo de respaldo.'
+    }`;
+  }
+
+  readonly isAdmin = this.auth.isAdmin;
+
   selectedModel(): CatalogModel | undefined {
     return this.models().find((m) => m.id === this.form.model);
   }

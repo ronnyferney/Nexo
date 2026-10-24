@@ -3,6 +3,7 @@ import { inject, Injectable } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { AuthService } from './auth.service';
+import type { ConnectionUsage } from './llm-providers.models';
 import type {
   Agent,
   AgentStreamEvent,
@@ -143,6 +144,8 @@ export class ApiService {
   updateLlmConnection = (id: string, data: LlmConnectionUpdateInput) =>
     this.patch<LlmConnection>(`/admin/llm/connections/${id}`, data);
   deleteLlmConnection = (id: string) => this.delete(`/admin/llm/connections/${id}`);
+  /** Agentes que usan la conexión (principal o respaldo). */
+  llmConnectionUsage = (id: string) => this.get<ConnectionUsage[]>(`/admin/llm/connections/${id}/usage`);
   /** Cierra la sesión OAuth (borra y revoca los tokens) conservando la conexión, sus modelos y agentes. */
   signOutLlmConnection = (id: string) =>
     this.post<{ connection: LlmConnection; revoked: boolean }>(`/admin/llm/connections/${id}/sign-out`);

@@ -4,6 +4,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { LlmProvidersApi } from '../../core/llm-providers.api';
 import type {
+  ConnectionUsage,
   DeleteConnectionResult,
   LlmConnectionMeta,
   LlmModelMeta,
@@ -148,6 +149,8 @@ export class ProvidersPage implements OnInit {
   readonly detail = signal<ProviderDetailData | null>(null);
   readonly confirmTarget = signal<ConfirmTarget | null>(null);
   readonly disconnecting = signal(false);
+  /** Agentes que usan la conexión abierta en el diálogo o en la confirmación. */
+  readonly usage = signal<ConnectionUsage[] | null>(null);
   readonly notice = signal<Notice | null>(null);
   /** Esta pestaña es la ventana emergente que volvió del proveedor: solo avisa a la principal y se cierra. */
   readonly popupDone = signal<'connected' | 'error' | null>(null);
@@ -433,6 +436,20 @@ export class ProvidersPage implements OnInit {
     this.trigger = (ev.currentTarget as HTMLElement) ?? null;
     this.menu.set(null);
     this.detail.set(this.detailData(card));
+    void this.loadUsage(card.connectionId);
+  }
+
+  private async loadUsage(connectionId: string | null) {
+    this.usage.set(null);
+    if (!connectionId) return;
+    try {
+      const u = await this.api.llmConnectionUsage(connectionId);
+      // Solo si sigue abierta la misma conexión.
+      const current = this.confirmTarget()?.connectionId ?? this.connected().find((c) => c.key === this.detail()?.key)?.connectionId;
+      if (current === connectionId) this.usage.set(u);
+    } catch {
+      /* el diálogo funciona sin la lista de uso */
+    }
   }
 
   detailGoModels(d: ProviderDetailData) {
@@ -616,7 +633,15 @@ export class ProvidersPage implements OnInit {
     if (!card.connectionId) return;
     try {
       await this.api.updateLlmConnection(card.connectionId, { enabled: !card.enabled });
-      this.toast.success(card.enabled ? 'Conexión deshabilitada' : 'Conexión habilitada');
+      const used = card.enabled ? await this.api.llmConnectionUsage(card.connectionId).catch(() => []) : [];
+      const n = new Set(used.map((u) => u.agentId)).size;
+      this.toast.success(
+        !card.enabled
+          ? 'Conexión habilitada'
+          : n
+            ? `Conexión deshabilitada. ${n} ${n === 1 ? 'agente la usa y usará' : 'agentes la usan y usarán'} su modelo de respaldo, si lo tienen.`
+            : 'Conexión deshabilitada',
+      );
       await this.load(true);
     } catch (e) {
       this.toast.error(errorMessage(e));
@@ -637,6 +662,7 @@ export class ProvidersPage implements OnInit {
       action: signOut ? 'signOut' : card.signedIn ? 'delete' : 'disconnect',
       returnFocus: fromDetail ? null : `menu-btn-${card.key}`,
     });
+    if (!fromDetail) void this.loadUsage(card.connectionId);
   }
 
   disconnectFromDetail(signOut = false) {

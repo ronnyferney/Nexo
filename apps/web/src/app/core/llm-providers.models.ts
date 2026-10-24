@@ -122,6 +122,14 @@ export interface LlmConnectionMeta extends LlmConnection {
   signedOut?: boolean;
 }
 
+/** `GET /admin/llm/connections/:id/usage`: agente que usa la conexión como modelo principal o de respaldo. */
+export interface ConnectionUsage {
+  agentId: string;
+  agentName: string;
+  model: string;
+  role: 'PRIMARY' | 'FALLBACK';
+}
+
 /** `POST /admin/llm/providers/:id/oauth/start` (también `device/start`). `limit` solo aplica a OpenRouter (USD). */
 export interface OAuthStartInput {
   name?: string;

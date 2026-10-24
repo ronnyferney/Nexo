@@ -62,6 +62,20 @@
     }
   </div>
 
+  @if (usage(); as u) {
+    <section class="pd-usage" aria-labelledby="pd-usage-title">
+      <h3 id="pd-usage-title">Agentes que usan esta conexión <span class="muted">{{ usageRows().length }}</span></h3>
+      @if (!u.length) {
+        <p class="muted small">Ningún agente la usa todavía. Asígnela en la pestaña «Modelo» de un agente.</p>
+      } @else {
+        <ul>
+          @for (r of usageRows(); track r.agentId) {
+            <li><a [routerLink]="['/agents', r.agentId]" (click)="close()">{{ r.agentName }}</a><span class="muted small"> · {{ r.detail.join(', ') }}</span></li>
+          }
+        </ul>
+      }
+    </section>
+  }
   <div class="pd-foot">
     <span class="foot-label"><nx-icon [name]="d.signedIn ? 'user' : d.canDisconnect ? 'key' : 'shield'" [size]="15" />
       <span>{{ d.footLabel }}@if (d.sessionNote) { <span class="note">{{ d.sessionNote }}</span> }</span></span>

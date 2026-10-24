@@ -87,6 +87,14 @@
           <nx-agent-health class="health-slot" [agentId]="a.id" [copilot]="canEditAgent()" (loaded)="health.set($event)"
             (openTab)="openTabFromHealth($event)" (askCopilot)="askCopilot($event)" />
         }
+        @if (seesConfig() && modelIssue(); as issue) {
+          <div class="callout warning model-issue" role="alert"><nx-icon name="alert" [size]="16" />
+            <span class="grow">{{ issue }}
+              @if (isAdmin()) { <a routerLink="/admin/providers">Revisar en Proveedores IA</a> }
+              @else { Avise a un administrador del workspace. }</span>
+            <button type="button" class="btn sm" (click)="tab.set('model')">Cambiar modelo</button>
+          </div>
+        }
         @if (seesConfig()) {
         <div class="tabs scroll" role="tablist" aria-label="Secciones del agente">
           @for (t of tabs; track t.id) {
