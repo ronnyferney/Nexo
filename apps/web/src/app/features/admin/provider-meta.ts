@@ -162,6 +162,8 @@ const LLM_OAUTH_ERRORS: Record<string, (name: string) => string> = {
   verification_failed: () =>
     'La cuenta inició sesión pero no tiene acceso al proyecto o recurso: revise el rol asignado.',
   not_configured: (n) => `El administrador de la plataforma debe configurar la app de ${n}.`,
+  browser_mismatch: () =>
+    'Por seguridad, el inicio de sesión debe completarse en el mismo navegador donde lo inició. Vuelva a iniciarlo desde Nexo.',
 };
 
 export function llmOAuthError(reason: string | null, name = 'el proveedor'): string {

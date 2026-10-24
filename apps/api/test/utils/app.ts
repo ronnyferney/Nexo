@@ -47,6 +47,15 @@ export function prismaOf(app: INestApplication): PrismaService {
 
 type Method = 'get' | 'post' | 'put' | 'patch' | 'delete';
 
+/**
+ * Cookie de ligadura del inicio de sesión OAuth de proveedores IA (M1) que recibió el «navegador» de la prueba al
+ * iniciar el flujo; el callback debe presentarla, como haría el navegador real.
+ */
+let llmOAuthCookieValue = '';
+export function llmOAuthCookie(): string {
+  return llmOAuthCookieValue;
+}
+
 /** Cliente HTTP autenticado contra la app (rutas sin el prefijo `/api`). */
 export class Api {
   constructor(
@@ -56,6 +65,11 @@ export class Api {
 
   call(method: Method, path: string): request.Test {
     const req = request(this.app.getHttpServer())[method](`/api${path}`);
+    req.on('response', (res: { headers: Record<string, unknown> }) => {
+      const cookies = ([] as string[]).concat((res.headers['set-cookie'] as string[] | string | undefined) ?? []);
+      const binding = cookies.find((c) => c.startsWith('nexo_llm_oauth=') && !c.startsWith('nexo_llm_oauth=;'));
+      if (binding) llmOAuthCookieValue = binding.split(';')[0];
+    });
     return this.token ? req.set('Authorization', `Bearer ${this.token}`) : req;
   }
 

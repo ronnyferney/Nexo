@@ -4,6 +4,7 @@ import { ROLE_RANK } from '../../common/decorators/roles.decorator';
 import { HttpClientService } from '../../common/http/http-client.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { createPkce, OAuthStateService } from '../oauth/oauth-state.service';
+import { bindingMatches, newBrowserBinding } from './llm-browser-binding';
 import { LlmProvidersService } from './llm-providers.service';
 import { findProvider } from './providers';
 
@@ -12,7 +13,7 @@ export const OPENROUTER_STATE_ID = 'llm-provider:openrouter';
 
 /** Motivos que la web recibe en `?llm=error&reason=` (nunca detalles del proveedor). */
 export type OpenRouterOAuthErrorReason =
-  'invalid_state' | 'access_denied' | 'missing_code' | 'forbidden' | 'exchange_failed';
+  'invalid_state' | 'access_denied' | 'missing_code' | 'forbidden' | 'exchange_failed' | 'browser_mismatch';
 
 /**
  * OAuth PKCE oficial de OpenRouter (ADR 0002, D8): el usuario autoriza en `openrouter.ai/auth`, OpenRouter redirige
@@ -49,10 +50,20 @@ export class OpenRouterOAuthService {
     return `${this.publicUrl}/api/llm/oauth/openrouter/callback`;
   }
 
-  async start(workspaceId: string, userId: string | undefined, limit?: number): Promise<{ authorizeUrl: string }> {
+  async start(
+    workspaceId: string,
+    userId: string | undefined,
+    limit?: number,
+  ): Promise<{ authorizeUrl: string; browserNonce: string }> {
     if (!userId) throw new BadRequestException('Inicie la conexión OAuth desde una sesión de usuario (no con API key)');
     const { codeVerifier, codeChallenge } = createPkce();
-    const state = await this.states.sign({ workspaceId, connectorId: OPENROUTER_STATE_ID, userId, codeVerifier });
+    const binding = newBrowserBinding();
+    const state = await this.states.sign({
+      workspaceId,
+      connectorId: `${OPENROUTER_STATE_ID}:${binding.tag}`,
+      userId,
+      codeVerifier,
+    });
     // OpenRouter no tiene parámetro `state`: viaja en la query del callback_url y vuelve junto al `code`.
     const callback = new URL(this.callbackUrl);
     callback.searchParams.set('state', state);
@@ -61,13 +72,17 @@ export class OpenRouterOAuthService {
     url.searchParams.set('code_challenge', codeChallenge);
     url.searchParams.set('code_challenge_method', 'S256');
     if (limit !== undefined) url.searchParams.set('limit', String(limit));
-    return { authorizeUrl: url.toString() };
+    return { authorizeUrl: url.toString(), browserNonce: binding.nonce };
   }
 
   /** Procesa el callback público y devuelve la URL (siempre bajo `webUrl`) a la que se redirige al navegador. */
-  async callback(query: { code?: string; state?: string; error?: string }): Promise<string> {
+  async callback(query: { code?: string; state?: string; error?: string }, browserNonce?: string): Promise<string> {
     const payload = query.state ? await this.states.consume(query.state) : null;
-    if (!payload || payload.connectorId !== OPENROUTER_STATE_ID) return this.redirect('invalid_state');
+    const prefix = `${OPENROUTER_STATE_ID}:`;
+    if (!payload || !payload.connectorId.startsWith(prefix)) return this.redirect('invalid_state');
+    // Mismo navegador que inició (M1).
+    if (!bindingMatches(payload.connectorId.slice(prefix.length), browserNonce))
+      return this.redirect('browser_mismatch');
     if (query.error) return this.redirect('access_denied');
     if (!query.code) return this.redirect('missing_code');
 

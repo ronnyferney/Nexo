@@ -3,10 +3,11 @@ import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { bindingTag } from '../src/modules/llm/llm-browser-binding';
 import { OPENROUTER_STATE_ID } from '../src/modules/llm/openrouter-oauth.service';
 import { OAuthStateService } from '../src/modules/oauth/oauth-state.service';
 import request from 'supertest';
-import { Api, createTestApp, prismaOf } from './utils/app';
+import { Api, createTestApp, llmOAuthCookie, prismaOf } from './utils/app';
 import { addMember, chat, createAgent, registerOwner, type Session } from './utils/fixtures';
 import { OpenAiMock } from './utils/mock-servers';
 
@@ -115,7 +116,10 @@ describe('Catálogo de proveedores IA "conectar en un clic" (E2E)', () => {
     ((await s.api.get('/admin/llm/providers').expect(200)).body as { providers: ProviderView[] }).providers;
   const connectionCount = (workspaceId: string) => prismaOf(app).llmConnection.count({ where: { workspaceId } });
   const callback = (query: Record<string, string>) =>
-    new Api(app).get(`/llm/oauth/openrouter/callback?${new URLSearchParams(query).toString()}`).redirects(0);
+    new Api(app)
+      .get(`/llm/oauth/openrouter/callback?${new URLSearchParams(query).toString()}`)
+      .set('Cookie', llmOAuthCookie())
+      .redirects(0);
   const errorTarget = (reason: string) => `${webUrl}/admin/providers?llm=error&provider=openrouter&reason=${reason}`;
 
   beforeAll(async () => {
@@ -339,6 +343,9 @@ describe('Catálogo de proveedores IA "conectar en un clic" (E2E)', () => {
     it('callback con state inválido, de otro flujo, sin código, denegado o con código incorrecto → redirige con error', async () => {
       const states = app.get(OAuthStateService);
       const base = { workspaceId: owner.workspaceId, userId: owner.userId, codeVerifier: 'v'.repeat(43) };
+      // El navegador de la prueba inicia un flujo y recibe su cookie: los `state` fabricados llevan su huella (M1).
+      await owner.api.post('/admin/llm/providers/openrouter/oauth/start', {}).expect(200);
+      const bound = `${OPENROUTER_STATE_ID}:${bindingTag(llmOAuthCookie().split('=')[1])}`;
 
       expect((await callback({ code: 'x', state: 'no-es-un-jwt' }).expect(302)).headers.location).toBe(
         errorTarget('invalid_state'),
@@ -353,18 +360,18 @@ describe('Catálogo de proveedores IA "conectar en un clic" (E2E)', () => {
       expect((await callback({ code: 'x', state: expired }).expect(302)).headers.location).toBe(
         errorTarget('invalid_state'),
       );
-      const s1 = await states.sign({ ...base, connectorId: OPENROUTER_STATE_ID });
+      const s1 = await states.sign({ ...base, connectorId: bound });
       expect((await callback({ state: s1 }).expect(302)).headers.location).toBe(errorTarget('missing_code'));
-      const s2 = await states.sign({ ...base, connectorId: OPENROUTER_STATE_ID });
+      const s2 = await states.sign({ ...base, connectorId: bound });
       expect((await callback({ state: s2, error: 'access_denied' }).expect(302)).headers.location).toBe(
         errorTarget('access_denied'),
       );
-      const s3 = await states.sign({ ...base, connectorId: OPENROUTER_STATE_ID });
+      const s3 = await states.sign({ ...base, connectorId: bound });
       expect((await callback({ state: s3, code: 'codigo-inexistente' }).expect(302)).headers.location).toBe(
         errorTarget('exchange_failed'),
       );
       // Quien inició el flujo ya no es ADMIN+.
-      const s4 = await states.sign({ ...base, userId: editor.userId, connectorId: OPENROUTER_STATE_ID });
+      const s4 = await states.sign({ ...base, userId: editor.userId, connectorId: bound });
       expect((await callback({ state: s4, code: 'x' }).expect(302)).headers.location).toBe(errorTarget('forbidden'));
 
       const conns = await prismaOf(app).llmConnection.count({

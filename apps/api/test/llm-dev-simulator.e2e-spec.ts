@@ -1,7 +1,7 @@
 import type { INestApplication } from '@nestjs/common';
 import { createServer } from 'node:net';
 import request from 'supertest';
-import { createTestApp, prismaOf } from './utils/app';
+import { createTestApp, llmOAuthCookie, prismaOf } from './utils/app';
 import { chat, createAgent, registerOwner, type Session } from './utils/fixtures';
 
 /** Puerto libre: la API se llama a sí misma (canje de tokens y chat) como haría con un proveedor real. */
@@ -64,7 +64,7 @@ describe('Simulador local de proveedor IA con inicio de sesión (E2E)', () => {
     // La ventana emergente conserva `window.opener` (sin COOP same-origin) para avisar a la consola y cerrarse.
     expect(back.headers['cross-origin-opener-policy']).toBe('unsafe-none');
     const callback = new URL(back.headers.location as string);
-    const res = await http().get(`${callback.pathname}${callback.search}`).expect(302);
+    const res = await http().get(`${callback.pathname}${callback.search}`).set('Cookie', llmOAuthCookie()).expect(302);
     expect(res.headers['cross-origin-opener-policy']).toBe('unsafe-none');
     return new URL(res.headers.location as string);
   }

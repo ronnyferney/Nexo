@@ -5,6 +5,7 @@ import { CryptoService } from '../../common/crypto/crypto.service';
 import { ROLE_RANK } from '../../common/decorators/roles.decorator';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { createPkce, OAuthStateService, STATE_TTL_SECONDS } from '../oauth/oauth-state.service';
+import { bindingMatches, newBrowserBinding } from './llm-browser-binding';
 import { LlmProvidersService } from './llm-providers.service';
 import { serializeConnection } from './llm-serializers';
 import { LlmTokenService, OAuthTokenError, stringValues, tokensFrom, type OAuthTokens } from './llm-token.service';
@@ -21,7 +22,8 @@ export type LlmOAuthErrorReason =
   | 'forbidden'
   | 'not_configured'
   | 'exchange_failed'
-  | 'verification_failed';
+  | 'verification_failed'
+  | 'browser_mismatch';
 
 export type DeviceFlowStatus = 'pending' | 'slow_down' | 'connected' | 'expired' | 'denied';
 
@@ -110,7 +112,7 @@ export class LlmAuthFlowsService {
     userId: string | undefined,
     providerId: string,
     input: FlowInput,
-  ): Promise<{ authorizeUrl: string }> {
+  ): Promise<{ authorizeUrl: string; browserNonce: string }> {
     if (!userId) throw new BadRequestException('Inicie la conexión OAuth desde una sesión de usuario (no con API key)');
     const entry = this.providers.provider(providerId);
     const spec = this.spec(entry, 'OAUTH');
@@ -133,10 +135,11 @@ export class LlmAuthFlowsService {
       },
     });
     const { codeVerifier, codeChallenge } = createPkce();
+    const binding = newBrowserBinding();
     const state = await this.states.sign({
       workspaceId,
       userId,
-      connectorId: `${LLM_STATE_PREFIX}${entry.id}:${flow.id}`,
+      connectorId: `${LLM_STATE_PREFIX}${entry.id}:${flow.id}:${binding.tag}`,
       codeVerifier,
     });
     const url = new URL(app.authorizeUrl);
@@ -148,15 +151,24 @@ export class LlmAuthFlowsService {
     url.searchParams.set('state', state);
     url.searchParams.set('code_challenge', codeChallenge);
     url.searchParams.set('code_challenge_method', 'S256');
-    return { authorizeUrl: url.toString() };
+    return { authorizeUrl: url.toString(), browserNonce: binding.nonce };
   }
 
   /** Procesa el callback público y devuelve la URL (siempre bajo `webUrl`) a la que se redirige al navegador. */
-  async oauthCallback(providerId: string, query: { code?: string; state?: string; error?: string }): Promise<string> {
+  async oauthCallback(
+    providerId: string,
+    query: { code?: string; state?: string; error?: string },
+    browserNonce?: string,
+  ): Promise<string> {
     const payload = query.state ? await this.states.consume(query.state) : null;
     const prefix = `${LLM_STATE_PREFIX}${providerId}:`;
     if (!payload || !payload.connectorId.startsWith(prefix)) return this.redirect(providerId, 'invalid_state');
-    const flowId = payload.connectorId.slice(prefix.length);
+    const [flowId, tag] = payload.connectorId.slice(prefix.length).split(':');
+    // El consentimiento debe volver al mismo navegador que lo inició (M1): si no, el flujo se descarta.
+    if (!bindingMatches(tag, browserNonce)) {
+      await this.prisma.llmAuthFlow.deleteMany({ where: { id: flowId, workspaceId: payload.workspaceId } });
+      return this.redirect(providerId, 'browser_mismatch');
+    }
     const flow = await this.prisma.llmAuthFlow.findFirst({
       where: { id: flowId, workspaceId: payload.workspaceId, userId: payload.userId, type: 'OAUTH' },
     });

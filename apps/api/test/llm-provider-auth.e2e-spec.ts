@@ -4,8 +4,9 @@ import { createHash, randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { CryptoService } from '../src/common/crypto/crypto.service';
+import { bindingTag } from '../src/modules/llm/llm-browser-binding';
 import { OAuthStateService } from '../src/modules/oauth/oauth-state.service';
-import { Api, createTestApp, prismaOf } from './utils/app';
+import { Api, createTestApp, llmOAuthCookie, prismaOf } from './utils/app';
 import { addMember, chat, createAgent, registerOwner, type Session } from './utils/fixtures';
 import { ClaudeMessagesMock } from './utils/mock-servers';
 
@@ -237,7 +238,10 @@ describe('Mecanismos oficiales de conexión de proveedores IA (E2E)', () => {
   const providers = async (s: Session) =>
     ((await s.api.get('/admin/llm/providers').expect(200)).body as { providers: ProviderView[] }).providers;
   const callback = (provider: string, query: Record<string, string>) =>
-    new Api(app).get(`/llm/oauth/${provider}/callback?${new URLSearchParams(query).toString()}`).redirects(0);
+    new Api(app)
+      .get(`/llm/oauth/${provider}/callback?${new URLSearchParams(query).toString()}`)
+      .set('Cookie', llmOAuthCookie())
+      .redirects(0);
   const errorTarget = (provider: string, reason: string) =>
     `${webUrl}/admin/providers?llm=error&provider=${provider}&reason=${reason}`;
   const connectedId = (location: string, provider: string) => {
@@ -603,7 +607,8 @@ describe('Mecanismos oficiales de conexión de proveedores IA (E2E)', () => {
       const editorState = await states.sign({
         workspaceId: owner.workspaceId,
         userId: editor.userId,
-        connectorId: `llm-provider:vertex:${editorFlow.id}`,
+        // Con la huella de la cookie del navegador de la prueba (M1), para llegar a la comprobación de rol.
+        connectorId: `llm-provider:vertex:${editorFlow.id}:${bindingTag(llmOAuthCookie().split('=')[1])}`,
         codeVerifier: 'v'.repeat(43),
       });
       expect((await callback('vertex', { state: editorState, code: 'x' }).expect(302)).headers.location).toBe(
@@ -883,6 +888,31 @@ describe('Mecanismos oficiales de conexión de proveedores IA (E2E)', () => {
       expect((await chat(owner, agent.id, 'Hola Vertex')).text).toBe('Hola desde Claude simulado');
       expect(claude.messageRequests().at(-1)!.path).toMatch(/\/models\/claude-sonnet-5-5:streamRawPredict$/);
       await prismaOf(app).agent.delete({ where: { id: agent.id } });
+    });
+
+    it('M1: el consentimiento que vuelve a otro navegador (sin la cookie del que inició) no conecta nada', async () => {
+      const before = await prismaOf(app).llmConnection.count({ where: { workspaceId: owner.workspaceId } });
+      const start = await owner.api
+        .post('/admin/llm/providers/claude-vertex/oauth/start', {
+          fields: { projectId: 'mi-proyecto-123', region: 'global' },
+        })
+        .expect(200);
+      expect(start.headers['set-cookie']?.[0]).toMatch(/^nexo_llm_oauth=[\w-]+; .*HttpOnly.*SameSite=Lax/i);
+      expect(JSON.stringify(start.body)).not.toContain(llmOAuthCookie().split('=')[1]);
+      const { code, state } = idp.authorize((start.body as { authorizeUrl: string }).authorizeUrl, {
+        path: '/google/auth',
+        clientId: 'nexo-vertex.apps.googleusercontent.com',
+        scope: 'https://www.googleapis.com/auth/cloud-platform',
+        provider: 'claude-vertex',
+      });
+      // La víctima abre el enlace del atacante en su propio navegador: no tiene la cookie.
+      const res = await new Api(app)
+        .get(`/llm/oauth/claude-vertex/callback?${new URLSearchParams({ code, state }).toString()}`)
+        .redirects(0)
+        .expect(302);
+      expect(res.headers.location).toBe(errorTarget('claude-vertex', 'browser_mismatch'));
+      expect(await prismaOf(app).llmConnection.count({ where: { workspaceId: owner.workspaceId } })).toBe(before);
+      expect(idp.tokenRequests('/google/token').filter((r) => r.form.code === code)).toHaveLength(0);
     });
 
     it('rechaza campos con formato inválido antes de abrir el consentimiento', async () => {
