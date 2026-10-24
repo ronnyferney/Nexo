@@ -6,7 +6,7 @@ import { type AgentHealth, PERMISSION_LABELS, VISIBILITY_META } from '../../core
 import { ApiService, errorMessage } from '../../core/api.service';
 import type { CopilotApplyNavigationState, CopilotApplyResult, CopilotProposal } from '../../core/copilot.models';
 import { AuthService } from '../../core/auth.service';
-import type { Agent, CatalogModel, Connector, Effort, OrgUnitOption, ProviderInfo } from '../../core/models';
+import type { Agent, CatalogModel, Connector, Effort, Operation, OrgUnitOption, ProviderInfo } from '../../core/models';
 import { StudioApi } from '../../core/studio.api';
 import { type AgentProfile, EMPTY_PROFILE, type KnowledgeBase, normalizeProfile, type Skill } from '../../core/studio.models';
 import { ToastService } from '../../core/toast.service';
@@ -15,6 +15,7 @@ import { ShareAudienceComponent } from '../../shared/agent-badges.component';
 import { canManageAgentOwnership, canWriteAgent } from '../../shared/agent-permissions';
 import { IconComponent } from '../../shared/icon.component';
 import { formatUsd, NumberPipe } from '../../shared/usd.pipe';
+import { MarkdownPipe } from '../../shared/markdown.pipe';
 import { DEFAULT_TARGET_SCORE } from '../../core/training.models';
 import { AgentChatFeedbackComponent } from './agent-chat-feedback.component';
 import { AgentExamplesComponent } from './agent-examples.component';
@@ -59,6 +60,7 @@ const MAX_FALLBACKS = 3;
     RouterLink,
     IconComponent,
     NumberPipe,
+    MarkdownPipe,
     AgentProfileComponent,
     AgentExamplesComponent,
     AgentRoutinesComponent,
@@ -421,6 +423,53 @@ export class AgentDetailPage implements OnInit {
   }
 
   // ----- Herramientas, skills y conocimiento -----
+
+  /** Filtro de operaciones (por nombre, descripción o clave) para no tener que desplazarse entre muchas. */
+  readonly toolFilter = signal('');
+  /** Grupos (conectores) plegados/desplegados manualmente; sin entrada, se usa el estado por defecto. */
+  private readonly groupOverride = signal(new Map<string, boolean>());
+
+  /** Operaciones del conector que pasan el filtro actual (todas si no hay filtro). */
+  filteredOps(c: Connector): Operation[] {
+    const q = this.toolFilter().trim().toLowerCase();
+    const ops = c.operations ?? [];
+    if (!q) return ops;
+    return ops.filter((op) => `${op.name} ${op.description ?? ''} ${op.key}`.toLowerCase().includes(q));
+  }
+
+  /** Operaciones de este conector ya seleccionadas (para el contador del encabezado). */
+  selectedCount(c: Connector): number {
+    const sel = this.toolSelection();
+    return (c.operations ?? []).filter((op) => sel.has(op.id)).length;
+  }
+
+  /** ¿El grupo está desplegado? Con filtro, se abre si tiene coincidencias; si no, por override o por defecto. */
+  isGroupOpen(c: Connector): boolean {
+    if (this.toolFilter().trim()) return this.filteredOps(c).length > 0;
+    const override = this.groupOverride().get(c.id);
+    if (override !== undefined) return override;
+    return this.connectors().length <= 2 || this.selectedCount(c) > 0;
+  }
+
+  toggleGroup(c: Connector): void {
+    if (this.toolFilter().trim()) return; // con filtro el estado lo decide la búsqueda
+    const map = new Map(this.groupOverride());
+    map.set(c.id, !this.isGroupOpen(c));
+    this.groupOverride.set(map);
+  }
+
+  /** Marca o desmarca todas las operaciones visibles (filtradas) del conector. */
+  selectAllInGroup(c: Connector, on: boolean): void {
+    const map = new Map(this.toolSelection());
+    for (const op of this.filteredOps(c)) {
+      if (on) {
+        if (!map.has(op.id)) map.set(op.id, false);
+      } else {
+        map.delete(op.id);
+      }
+    }
+    this.toolSelection.set(map);
+  }
 
   toggleTool(opId: string, on: boolean) {
     const map = new Map(this.toolSelection());

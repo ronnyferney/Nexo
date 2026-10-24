@@ -219,26 +219,49 @@
                   }
                 </div>
 
-                <div class="section-title"><nx-icon name="plug" [size]="16" /><h3>Operaciones de conectores</h3></div>
+                <div class="section-title"><nx-icon name="plug" [size]="16" /><h3>Operaciones de conectores</h3>
+                  @if (toolSelection().size) { <span class="spacer"></span><span class="badge primary">{{ toolSelection().size }} activas</span> }
+                </div>
+                @if (connectors().length) {
+                  <div class="tool-filter">
+                    <nx-icon name="search" [size]="15" />
+                    <input type="search" placeholder="Filtrar operaciones por nombre…" [ngModel]="toolFilter()" (ngModelChange)="toolFilter.set($event)" />
+                    @if (toolFilter()) { <button class="btn sm" (click)="toolFilter.set('')">Limpiar</button> }
+                  </div>
+                }
                 @for (c of connectors(); track c.id) {
-                  <div class="connector-group card">
-                    <div class="card-title"><div class="icon-tile {{ c.type }}"><nx-icon name="plug" [size]="16" /></div><h3>{{ c.name }}</h3><span class="badge">{{ c.type }}</span></div>
-                    @if (c.account) {
-                      @if (c.account.label) {
-                        <p class="account-id muted small m0"><nx-icon name="user" [size]="14" />El agente actúa como <strong>{{ c.account.label }}</strong></p>
-                      } @else {
+                  <div class="connector-group card" [class.open]="isGroupOpen(c)">
+                    <button type="button" class="group-head" (click)="toggleGroup(c)" [attr.aria-expanded]="isGroupOpen(c)">
+                      <span class="chev" aria-hidden="true"></span>
+                      <div class="icon-tile {{ c.type }}"><nx-icon name="plug" [size]="16" /></div>
+                      <span class="group-meta">
+                        <strong>{{ c.name }}</strong>
+                        @if (c.account?.label) { <span class="muted small block"><nx-icon name="user" [size]="12" />{{ c.account!.label }}</span> }
+                        @else if (c.account && !c.account.label) { <span class="warn small block"><nx-icon name="alert" [size]="12" />Sin cuenta conectada</span> }
+                      </span>
+                      @if (selectedCount(c)) { <span class="badge primary">{{ selectedCount(c) }}</span> }
+                      <span class="badge">{{ filteredOps(c).length }}</span>
+                    </button>
+                    @if (isGroupOpen(c)) {
+                      @if (c.account && !c.account.label) {
                         <p class="account-id warn small m0"><nx-icon name="alert" [size]="14" />Sin cuenta conectada: vincúlela en <a routerLink="/integrations">Apps conectadas</a> antes de usarla.</p>
                       }
+                      @if (canEditAgent() && filteredOps(c).length) {
+                        <div class="group-actions">
+                          <button class="btn sm" (click)="selectAllInGroup(c, true)">Seleccionar todo</button>
+                          <button class="btn sm" (click)="selectAllInGroup(c, false)">Ninguno</button>
+                        </div>
+                      }
+                      @for (op of filteredOps(c); track op.id) {
+                        <div class="op-row">
+                          <input type="checkbox" [id]="'op-' + op.id" [disabled]="!canEditAgent()" [checked]="toolSelection().has(op.id)" (change)="toggleTool(op.id, $any($event.target).checked)" />
+                          <label class="name" [for]="'op-' + op.id"><strong>{{ op.name }}</strong><span class="muted small block">{{ op.description || op.key }}</span></label>
+                          @if (toolSelection().has(op.id)) {
+                            <label class="checkbox small"><input type="checkbox" [disabled]="!canEditAgent()" [checked]="toolSelection().get(op.id)" (change)="toggleApproval(op.id, $any($event.target).checked)" />Requiere aprobación</label>
+                          }
+                        </div>
+                      } @empty { <p class="muted small">{{ toolFilter() ? 'Sin coincidencias en este conector.' : 'Este conector no tiene operaciones.' }}</p> }
                     }
-                    @for (op of c.operations; track op.id) {
-                      <div class="op-row">
-                        <input type="checkbox" [id]="'op-' + op.id" [disabled]="!canEditAgent()" [checked]="toolSelection().has(op.id)" (change)="toggleTool(op.id, $any($event.target).checked)" />
-                        <label class="name" [for]="'op-' + op.id"><strong>{{ op.name }}</strong><span class="muted small block">{{ op.description || op.key }}</span></label>
-                        @if (toolSelection().has(op.id)) {
-                          <label class="checkbox small"><input type="checkbox" [disabled]="!canEditAgent()" [checked]="toolSelection().get(op.id)" (change)="toggleApproval(op.id, $any($event.target).checked)" />Requiere aprobación</label>
-                        }
-                      </div>
-                    } @empty { <p class="muted small">Este conector no tiene operaciones.</p> }
                   </div>
                 } @empty {
                   <div class="card empty"><h3>No hay conectores</h3><p><a routerLink="/connectors">Cree un conector</a> para dar herramientas a este agente.</p></div>
@@ -305,7 +328,7 @@
             @switch (item.kind) {
               @case ('user') { <div class="msg user">{{ item.text }}</div> }
               @case ('assistant') {
-                <div class="msg assistant">{{ item.text }}</div>
+                <div class="msg assistant md" [innerHTML]="item.text | markdown"></div>
                 @if (item.final && item.response) {
                   <nx-agent-chat-feedback [agentId]="a.id" [conversationId]="conversationId" [userMessage]="item.userMessage!" [agentResponse]="item.response" />
                 }
