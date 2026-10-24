@@ -19,6 +19,8 @@ export interface CatalogCredentialField {
   default?: string;
   /** Expresión regular que debe cumplir el valor (evita, p. ej., subdominios con rutas). */
   pattern?: string;
+  /** Explicación que acompaña el error cuando el valor no cumple `pattern` (el error típico al copiarlo). */
+  invalidHint?: string;
 }
 
 /** Operación prediseñada: se crea como `ConnectorOperation` y se expone como tool para agentes. */
@@ -95,4 +97,6 @@ export const PATTERNS = {
   timeZone: String.raw`^[A-Za-z0-9_+/ ().,:-]{1,100}$`,
   /** GUID (id de objeto de usuario de Entra ID). */
   guid: String.raw`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`,
+  /** Cualquier valor que NO sea un GUID (el "Id. de secreto" de Entra es un GUID; el "Valor" del secreto no). */
+  notGuid: String.raw`^(?![0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$).+$`,
 } as const;

@@ -45,9 +45,20 @@ import { isHttpUrl } from '../../shared/safe-url';
           <p class="muted small" style="margin:0">Conecte una cuenta para que los agentes y flujos puedan usar este conector.
             Lo llevaremos a la página del proveedor para que inicie sesión y autorice el acceso; luego volverá aquí.</p>
         }
+        @if (s.app; as app) {
+          @if (app.problem) {
+            <div class="callout danger" role="alert"><nx-icon name="alert" [size]="16" />
+              <span class="grow">No se puede iniciar sesión todavía: {{ app.problem }}</span></div>
+          } @else {
+            <p class="muted small" style="margin:0">
+              App OAuth: <strong>{{ app.kind === 'own' ? 'propia del conector' : 'de la plataforma Nexo' }}</strong>
+              · client ID <code>{{ app.clientIdHint }}</code>.
+              Si el proveedor responde que la aplicación no existe, compare este client ID con el de su app registrada.</p>
+          }
+        }
         @if (auth.canEdit()) {
           <div class="row wrap">
-            <button class="btn" [class.primary]="!s.connected" [disabled]="busy()" (click)="connect()">
+            <button class="btn" [class.primary]="!s.connected" [disabled]="busy() || !!s.app?.problem" (click)="connect()">
               <nx-icon [name]="s.connected ? 'refresh' : 'link'" [size]="16" />{{ busy() === 'start' ? 'Redirigiendo…' : s.connected ? 'Reconectar' : 'Conectar cuenta' }}</button>
             @if (s.connected) {
               <button class="btn danger" [disabled]="busy()" (click)="disconnect()"><nx-icon name="unlink" [size]="16" />{{ busy() === 'disconnect' ? 'Desconectando…' : 'Desconectar' }}</button>

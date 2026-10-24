@@ -93,8 +93,10 @@
                       @if (r.matchedOp) { Incluye la operación «{{ r.matchedOp }}» } @else { {{ e.description }} }
                     </span>
                   </span>
-                  @if (e.installed) {
-                    <span class="act done" title="Instalada"><nx-icon name="check" [size]="16" /></span>
+                  @if (e.pendingAuth) {
+                    <span class="act pending" title="Instalada, pendiente de conectar la cuenta"><nx-icon name="alert" [size]="16" /></span>
+                  } @else if (e.installed) {
+                    <span class="act done" title="Instalada y conectada"><nx-icon name="check" [size]="16" /></span>
                   } @else if (auth.canEdit()) {
                     <span class="act" title="Instalar"><nx-icon name="plus" [size]="16" /></span>
                   }

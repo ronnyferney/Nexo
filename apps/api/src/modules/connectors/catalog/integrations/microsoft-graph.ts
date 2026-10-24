@@ -1,6 +1,14 @@
 import { OAUTH_PROVIDERS } from '../../../oauth/oauth.providers';
 import { PATTERNS, secretRef, type CatalogCredentialField, type CatalogEntry } from '../catalog.types';
 
+/** Formato del client ID de una app de Entra ID y explicación del error más común al copiarlo. */
+export const MICROSOFT_CLIENT_ID_HINT =
+  'El client ID es el "Id. de aplicación (cliente)" de la página Información general de la app en Entra ID ' +
+  '(formato xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)';
+export const MICROSOFT_CLIENT_SECRET_HINT =
+  'El client secret es la columna "Valor" del secreto en Certificados y secretos, no el "Id. de secreto" ' +
+  '(que tiene forma de GUID)';
+
 /**
  * Piezas comunes de las integraciones de Microsoft 365 vía Microsoft Graph v1.0 con OAuth2 de usuario (mismo esquema
  * que `microsoft-outlook.ts`, que no se modifica para no alterar instalaciones existentes).
@@ -39,6 +47,8 @@ export function microsoftAppCredentialFields(scopesHelp: string): CatalogCredent
       secret: false,
       required: false,
       authMethods: ['oauth2_code'],
+      pattern: PATTERNS.guid,
+      invalidHint: MICROSOFT_CLIENT_ID_HINT,
       help: `Vacío = app OAuth de la plataforma Nexo. Con app propia, agregue los permisos delegados: ${scopesHelp}.`,
     },
     {
@@ -47,6 +57,8 @@ export function microsoftAppCredentialFields(scopesHelp: string): CatalogCredent
       secret: true,
       required: false,
       authMethods: ['oauth2_code'],
+      pattern: PATTERNS.notGuid,
+      invalidHint: MICROSOFT_CLIENT_SECRET_HINT,
     },
   ];
 }

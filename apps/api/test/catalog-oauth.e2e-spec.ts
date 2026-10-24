@@ -6,6 +6,7 @@ import type { AddressInfo } from 'node:net';
 import { bindingTag } from '../src/common/oauth/browser-binding';
 import { SingleUseService } from '../src/infrastructure/redis/single-use.service';
 import { OAuthStateService } from '../src/modules/oauth/oauth-state.service';
+import { maskClientId } from '../src/modules/oauth/oauth.service';
 import { SecretsService } from '../src/modules/workspaces/secrets.service';
 import { Api, createTestApp, prismaOf } from './utils/app';
 import { addMember, registerOwner, type Session } from './utils/fixtures';
@@ -129,6 +130,7 @@ interface CatalogItem {
   credentialFields: { key: string; required: boolean; secret: boolean }[];
   operations: { key: string; write: boolean }[];
   installed: number;
+  pendingAuth: number;
 }
 interface InstalledConnector {
   id: string;
@@ -274,6 +276,34 @@ describe('Catálogo de conectores y OAuth2 de usuario (E2E, ADR 0005)', () => {
       expect((await catalog(owner)).find((i) => i.id === 'pipedrive')!.installed).toBe(0);
     });
 
+    it('Microsoft: rechaza un client ID que no es GUID y el "Id. de secreto" en lugar del Valor, explicando el error', async () => {
+      const guid = '0a1b2c3d-1111-2222-3333-444455556666';
+      const notGuid = await owner.api
+        .post('/connector-catalog/microsoft-mail/install', {
+          authMethod: 'oauth2_code',
+          credentials: { clientId: 'no-es-un-guid', clientSecret: 'Abc~valor.del.secreto_123' },
+        })
+        .expect(400);
+      expect(JSON.stringify(notGuid.body)).toContain('Id. de aplicación (cliente)');
+      const secretId = await owner.api
+        .post('/connector-catalog/microsoft-mail/install', {
+          authMethod: 'oauth2_code',
+          credentials: { clientId: guid, clientSecret: '9f9f9f9f-aaaa-bbbb-cccc-ddddeeeeffff' },
+        })
+        .expect(400);
+      expect(JSON.stringify(secretId.body)).toContain('no el \\"Id. de secreto\\"');
+      expect((await catalog(owner)).find((i) => i.id === 'microsoft-mail')!.installed).toBe(0);
+    });
+
+    it('sin app propia ni app de la plataforma: el estado explica el problema y no se intenta el inicio de sesión', async () => {
+      const res = await owner.api
+        .post('/connector-catalog/microsoft-todo/install', { authMethod: 'oauth2_code', credentials: {} })
+        .expect(400);
+      expect(JSON.stringify(res.body)).toContain('OAUTH_MICROSOFT_CLIENT_ID');
+      // No queda una instalación a medias que se vea como "instalada".
+      expect((await catalog(owner)).find((i) => i.id === 'microsoft-todo')!.installed).toBe(0);
+    });
+
     it('un VIEWER no puede instalar ni crear el kit comercial', async () => {
       await viewer.api.post('/connector-catalog/slack/install', { credentials: { botToken: 'x' } }).expect(403);
       await viewer.api.post('/connector-catalog/starter-kit/commercial').expect(403);
@@ -360,7 +390,17 @@ describe('Catálogo de conectores y OAuth2 de usuario (E2E, ADR 0005)', () => {
       searchOpId = hubspot.operations.find((o) => o.key === 'search_contacts')!.id;
 
       const status = await owner.api.get(`/connectors/${hubspot.id}/oauth`).expect(200);
-      expect(status.body).toEqual({ connected: false, accountLabel: null, scope: null, expiresAt: null });
+      // La app que usará el inicio de sesión se informa con su client ID abreviado (el secreto nunca).
+      expect(status.body).toEqual({
+        connected: false,
+        accountLabel: null,
+        scope: null,
+        expiresAt: null,
+        app: { kind: 'own', clientIdHint: maskClientId(provider.clientId), problem: null },
+      });
+      expect(JSON.stringify(status.body)).not.toContain(provider.clientSecret);
+      // Instalada pero sin cuenta conectada: el catálogo la marca pendiente, no como lista para usar.
+      expect((await catalog(owner)).find((i) => i.id === 'hubspot')).toMatchObject({ installed: 1, pendingAuth: 1 });
       const inv = await invoke(owner, hubspot.id, searchOpId, { query: 'ana' }).expect(400);
       expect(JSON.stringify(inv.body)).toContain('Conecte la cuenta OAuth del conector');
     });
@@ -394,6 +434,7 @@ describe('Catálogo de conectores y OAuth2 de usuario (E2E, ADR 0005)', () => {
         scope: 'oauth crm.objects.contacts.read',
       });
       expect(new Date(status.expiresAt as string).getTime()).toBeGreaterThan(Date.now() + 60_000);
+      expect((await catalog(owner)).find((i) => i.id === 'hubspot')).toMatchObject({ installed: 1, pendingAuth: 0 });
       expect(JSON.stringify(status)).not.toContain(provider.accessToken);
 
       const cred = await prismaOf(app).oAuthCredential.findUnique({ where: { connectorId: hubspot.id } });

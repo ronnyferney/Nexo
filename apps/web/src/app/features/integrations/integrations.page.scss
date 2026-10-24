@@ -34,8 +34,9 @@
 .int-desc { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .act { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0;
   border: 1px solid var(--border); color: var(--text); background: var(--surface); transition: all 0.15s; }
-.int-row:hover .act:not(.done) { background: var(--primary-solid); border-color: var(--primary-solid); color: var(--on-primary); }
+.int-row:hover .act:not(.done):not(.pending) { background: var(--primary-solid); border-color: var(--primary-solid); color: var(--on-primary); }
 .act.done { background: var(--success-50); border-color: transparent; color: var(--success); }
+.act.pending { background: var(--warning-50); border-color: transparent; color: var(--warning); }
 
 .more { margin: 8px 0 0 12px; padding: 4px 0; border: 0; background: none; font: inherit; font-weight: 600; color: var(--primary);
   cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }

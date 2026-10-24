@@ -110,6 +110,49 @@ export function secretWeaknesses(env: Record<string, unknown>): string[] {
   return issues;
 }
 
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Apps OAuth de la plataforma (`OAUTH_<PROVEEDOR>_CLIENT_ID` / `_CLIENT_SECRET`): se definen en pareja y, en Microsoft
+ * (Entra ID), el ID es un GUID y el secreto es el "Valor", no el "Id. de secreto" (también un GUID). Detectarlo al
+ * arrancar evita que el error aparezca recién en la pantalla de inicio de sesión del proveedor.
+ */
+export function oauthAppIssues(env: Record<string, unknown>): string[] {
+  const issues: string[] = [];
+  const val = (k: string) => {
+    const v = env[k];
+    return typeof v === 'string' ? v.trim() : '';
+  };
+  const providers = new Set(
+    Object.keys(env)
+      .map((k) => /^OAUTH_([A-Z0-9_]+)_CLIENT_(?:ID|SECRET)$/.exec(k)?.[1])
+      .filter((p): p is string => !!p && !p.startsWith('LLM_')),
+  );
+  for (const p of providers) {
+    const id = val(`OAUTH_${p}_CLIENT_ID`);
+    const secret = val(`OAUTH_${p}_CLIENT_SECRET`);
+    if (!!id !== !!secret) {
+      issues.push(
+        `OAUTH_${p}_CLIENT_ID y OAUTH_${p}_CLIENT_SECRET se definen juntos (falta ${id ? 'el secreto' : 'el ID'})`,
+      );
+    }
+  }
+  const msId = val('OAUTH_MICROSOFT_CLIENT_ID');
+  const msSecret = val('OAUTH_MICROSOFT_CLIENT_SECRET');
+  if (msId && !GUID.test(msId)) {
+    issues.push('OAUTH_MICROSOFT_CLIENT_ID debe ser el "Id. de aplicación (cliente)" de Entra ID (formato GUID)');
+  }
+  if (msSecret && GUID.test(msSecret)) {
+    issues.push(
+      'OAUTH_MICROSOFT_CLIENT_SECRET parece el "Id. de secreto": use la columna "Valor" del secreto en Entra ID',
+    );
+  }
+  if (msId && msSecret && msId.toLowerCase() === msSecret.toLowerCase()) {
+    issues.push('OAUTH_MICROSOFT_CLIENT_ID y OAUTH_MICROSOFT_CLIENT_SECRET tienen el mismo valor');
+  }
+  return issues;
+}
+
 export function validateEnv(env: Record<string, unknown>): Record<string, unknown> {
   const parsed = schema
     .refine((e) => !e.SMTP_URL?.trim() || !!e.MAIL_FROM?.trim(), {
@@ -117,7 +160,7 @@ export function validateEnv(env: Record<string, unknown>): Record<string, unknow
       path: ['MAIL_FROM'],
     })
     .safeParse(env);
-  const keyringErrors = parseKeyring(env).errors;
+  const keyringErrors = [...parseKeyring(env).errors, ...oauthAppIssues(env)];
   if (!parsed.success || keyringErrors.length) {
     const issues = [
       ...(parsed.success ? [] : parsed.error.issues.map((i) => `  - ${i.path.join('.')}: ${i.message}`)),

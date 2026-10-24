@@ -18,6 +18,11 @@ import { createPkce, OAuthStateService } from './oauth-state.service';
 /** Renovar si el access token expira en menos de este margen. */
 export const REFRESH_MARGIN_MS = 60_000;
 
+/** Client ID abreviado para mostrarlo (no es secreto, pero basta con reconocerlo): `caac…e5a6`. */
+export function maskClientId(id: string): string {
+  return id.length > 12 ? `${id.slice(0, 4)}…${id.slice(-4)}` : id;
+}
+
 /** Cookie de ligadura al navegador del OAuth de conectores (M1b): solo viaja al callback `/api/oauth/callback`. */
 export const CONNECTOR_OAUTH_COOKIE = browserBindingCookie('nexo_connector_oauth', '/api/oauth');
 
@@ -176,7 +181,27 @@ export class OAuthService {
       accountLabel: cred?.accountLabel ?? null,
       scope: cred?.scope ?? null,
       expiresAt: cred?.expiresAt ?? null,
+      app: await this.appSummary(workspaceId, connectorId),
     };
+  }
+
+  /**
+   * Qué app OAuth usará el inicio de sesión (la de la plataforma o una propia) con su client ID abreviado, o el motivo
+   * por el que no se puede usar. Permite diagnosticar en Nexo un client ID equivocado antes de que el proveedor lo
+   * rechace en su pantalla (p. ej. AADSTS700016 en Microsoft). El client ID no es secreto; el secreto nunca se expone.
+   */
+  private async appSummary(
+    workspaceId: string,
+    connectorId: string,
+  ): Promise<{ kind: 'platform' | 'own' | null; clientIdHint: string | null; problem: string | null }> {
+    let own = false;
+    try {
+      const { auth, app } = await this.load(workspaceId, connectorId);
+      own = !!str(auth.clientIdRef);
+      return { kind: own ? 'own' : 'platform', clientIdHint: maskClientId(app.clientId), problem: null };
+    } catch (err) {
+      return { kind: null, clientIdHint: null, problem: (err as Error).message };
+    }
   }
 
   async disconnect(workspaceId: string, connectorId: string) {

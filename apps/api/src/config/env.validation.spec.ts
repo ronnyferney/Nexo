@@ -1,5 +1,5 @@
 import { Logger } from '@nestjs/common';
-import { secretWeaknesses, validateEnv } from './env.validation';
+import { oauthAppIssues, secretWeaknesses, validateEnv } from './env.validation';
 
 const STRONG_JWT = 'f3a9c1d27be84f6a90c5e1b2d7a4c8e9b1f0a3d5c7e9f2b4a6c8d0e1f3a5b7c9';
 const STRONG_KEY = '6b1f9e2c4a7d3e8f0c5b9a1d2e4f6a8c7b3d5e9f1a2c4e6b8d0f3a5c7e9b1d2f';
@@ -159,5 +159,38 @@ describe('validateEnv · anillo de claves de cifrado (B7)', () => {
     expect(() =>
       validateEnv(env({ NODE_ENV: 'production', ENCRYPTION_KEYS: keys, ENCRYPTION_ACTIVE_KID: 'k1' })),
     ).toThrow(message);
+  });
+});
+
+describe('validateEnv · apps OAuth de la plataforma', () => {
+  const ID = 'caacab14-22dc-4276-a00d-abf0d650e5a6';
+
+  it('acepta una app de Microsoft con el Id. de aplicación y el Valor del secreto', () => {
+    expect(
+      oauthAppIssues({ OAUTH_MICROSOFT_CLIENT_ID: ID, OAUTH_MICROSOFT_CLIENT_SECRET: 'abc8Q~valor.del_secreto' }),
+    ).toEqual([]);
+    expect(oauthAppIssues({ OAUTH_MICROSOFT_CLIENT_ID: '', OAUTH_MICROSOFT_CLIENT_SECRET: '' })).toEqual([]);
+  });
+
+  // Regresión: el "Id. de secreto" (GUID) pegado en lugar del Valor solo fallaba en la pantalla de Microsoft.
+  it('detecta el Id. de secreto en lugar del Valor, un client ID que no es GUID y valores repetidos', () => {
+    const secretId = oauthAppIssues({
+      OAUTH_MICROSOFT_CLIENT_ID: ID,
+      OAUTH_MICROSOFT_CLIENT_SECRET: 'd9f3e1dc-f7ed-4ea3-8ac8-72b2c6680000',
+    });
+    expect(secretId.join(' ')).toMatch(/parece el "Id. de secreto"/);
+    expect(
+      oauthAppIssues({ OAUTH_MICROSOFT_CLIENT_ID: 'Nexo', OAUTH_MICROSOFT_CLIENT_SECRET: 'abc8Q~valor' }).join(' '),
+    ).toMatch(/Id. de aplicación \(cliente\)/);
+    expect(oauthAppIssues({ OAUTH_MICROSOFT_CLIENT_ID: ID, OAUTH_MICROSOFT_CLIENT_SECRET: ID }).join(' ')).toMatch(
+      /mismo valor/,
+    );
+  });
+
+  it('exige el ID y el secreto juntos para cualquier proveedor', () => {
+    expect(oauthAppIssues({ OAUTH_GOOGLE_CLIENT_ID: 'x.apps.googleusercontent.com' })).toEqual([
+      'OAUTH_GOOGLE_CLIENT_ID y OAUTH_GOOGLE_CLIENT_SECRET se definen juntos (falta el secreto)',
+    ]);
+    expect(() => validateEnv(env({ OAUTH_HUBSPOT_CLIENT_SECRET: 's3cr3t' }))).toThrow(/falta el ID/);
   });
 });

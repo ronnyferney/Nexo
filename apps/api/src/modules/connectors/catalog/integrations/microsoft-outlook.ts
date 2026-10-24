@@ -1,5 +1,6 @@
 import { OAUTH_PROVIDERS } from '../../../oauth/oauth.providers';
 import { PATTERNS, secretRef, WRITE_NOTICE, type CatalogEntry } from '../catalog.types';
+import { MICROSOFT_CLIENT_ID_HINT, MICROSOFT_CLIENT_SECRET_HINT } from './microsoft-graph';
 
 const SLUG = 'OUTLOOK';
 
@@ -37,6 +38,8 @@ export const microsoftOutlook: CatalogEntry = {
       secret: false,
       required: false,
       authMethods: ['oauth2_code'],
+      pattern: PATTERNS.guid,
+      invalidHint: MICROSOFT_CLIENT_ID_HINT,
       help: 'Vacío = app OAuth de la plataforma Nexo.',
     },
     {
@@ -45,6 +48,8 @@ export const microsoftOutlook: CatalogEntry = {
       secret: true,
       required: false,
       authMethods: ['oauth2_code'],
+      pattern: PATTERNS.notGuid,
+      invalidHint: MICROSOFT_CLIENT_SECRET_HINT,
     },
   ],
   operations: [

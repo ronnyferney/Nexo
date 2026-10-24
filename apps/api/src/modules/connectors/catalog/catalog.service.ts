@@ -36,13 +36,20 @@ export class CatalogService {
   ) {}
 
   async list(workspaceId: string) {
-    const counts = await this.prisma.connector.groupBy({
-      by: ['catalogId'],
+    const rows = await this.prisma.connector.findMany({
       where: { workspaceId, catalogId: { not: null } },
-      _count: { _all: true },
+      select: { catalogId: true, auth: true, oauth: { select: { id: true } } },
     });
-    const installed = new Map(counts.map((c) => [c.catalogId, c._count._all]));
-    return CATALOG.map((e) => this.view(e, installed.get(e.id) ?? 0));
+    // Una instalación OAuth sin credencial guardada no está conectada: el inicio de sesión no terminó (o el proveedor
+    // lo rechazó). Se informa aparte para no mostrarla como lista para usar.
+    const installed = new Map<string, { total: number; pendingAuth: number }>();
+    for (const r of rows) {
+      const c = installed.get(r.catalogId!) ?? { total: 0, pendingAuth: 0 };
+      c.total++;
+      if ((r.auth as { type?: string } | null)?.type === 'oauth2_code' && !r.oauth) c.pendingAuth++;
+      installed.set(r.catalogId!, c);
+    }
+    return CATALOG.map((e) => this.view(e, installed.get(e.id) ?? { total: 0, pendingAuth: 0 }));
   }
 
   /**
@@ -177,6 +184,7 @@ export class CatalogService {
     const values: Record<string, string> = {};
     const missing: string[] = [];
     const invalid: string[] = [];
+    const hints: string[] = [];
     for (const f of entry.credentialFields) {
       if (f.authMethods && !f.authMethods.includes(method)) continue;
       const raw = credentials[f.key];
@@ -191,12 +199,15 @@ export class CatalogService {
       }
       if (value.length > MAX_CREDENTIAL_LENGTH || (f.pattern && !new RegExp(f.pattern).test(value))) {
         invalid.push(f.label);
+        if (f.invalidHint) hints.push(f.invalidHint);
         continue;
       }
       values[f.key] = value;
     }
     if (missing.length) throw new BadRequestException(`Faltan credenciales requeridas: ${missing.join(', ')}`);
-    if (invalid.length) throw new BadRequestException(`Credenciales con formato inválido: ${invalid.join(', ')}`);
+    if (invalid.length) {
+      throw new BadRequestException([`Credenciales con formato inválido: ${invalid.join(', ')}`, ...hints].join('. '));
+    }
     return values;
   }
 
@@ -220,7 +231,7 @@ export class CatalogService {
     return auth;
   }
 
-  private view(e: CatalogEntry, installed: number) {
+  private view(e: CatalogEntry, { total: installed, pendingAuth }: { total: number; pendingAuth: number }) {
     return {
       id: e.id,
       name: e.name,
@@ -243,6 +254,7 @@ export class CatalogService {
       verified: e.verified,
       ...(e.verificationNotes ? { verificationNotes: e.verificationNotes } : {}),
       installed,
+      pendingAuth,
     };
   }
 }

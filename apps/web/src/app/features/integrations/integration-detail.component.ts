@@ -41,13 +41,22 @@ import { oauthProvider } from './integration-logos';
               } @else if (e.verified) {
                 <span class="badge info"><nx-icon name="shield" [size]="12" />Verificada</span>
               }
-              @if (e.installed) {
-                <span class="badge success"><nx-icon name="check" [size]="12" />{{ e.installed }} {{ e.installed === 1 ? 'instalada' : 'instaladas' }}</span>
+              @if (e.installed - (e.pendingAuth || 0) > 0) {
+                <span class="badge success"><nx-icon name="check" [size]="12" />{{ e.installed - (e.pendingAuth || 0) }} {{ e.installed - (e.pendingAuth || 0) === 1 ? 'conectada' : 'conectadas' }}</span>
+              }
+              @if (e.pendingAuth) {
+                <span class="badge warning"><nx-icon name="alert" [size]="12" />{{ e.pendingAuth }} pendiente{{ e.pendingAuth === 1 ? '' : 's' }} de conectar</span>
               }
             </div>
           </div>
         </div>
         <p id="idt-desc" class="desc">{{ e.description }}</p>
+        @if (e.pendingAuth) {
+          <div class="callout warning" role="status"><nx-icon name="alert" [size]="16" />
+            <span class="grow">El inicio de sesión no terminó: la integración está instalada pero sin cuenta conectada, así que los
+              agentes no pueden usarla. Abra <strong>Mis conectores</strong>, revise la app OAuth que se usará y pulse
+              <strong>Conectar cuenta</strong>.</span></div>
+        }
 
         <section aria-labelledby="idt-auth">
           <h3 id="idt-auth">Autenticación</h3>

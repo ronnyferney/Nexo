@@ -40,6 +40,8 @@ export interface CatalogEntry {
   operations: CatalogOperation[];
   /** Conectores ya instalados desde esta definición en el workspace. */
   installed: number;
+  /** De ellos, los de OAuth cuyo inicio de sesión no terminó (no conectados todavía). */
+  pendingAuth: number;
 }
 
 /** Cuerpo de `POST /connector-catalog/:id/install`. */
@@ -66,6 +68,8 @@ export interface OAuthStatus {
   accountLabel: string | null;
   scope: string | null;
   expiresAt: string | null;
+  /** App OAuth que usa el inicio de sesión: de la plataforma o propia, con su client ID abreviado (o el problema). */
+  app?: { kind: 'platform' | 'own' | null; clientIdHint: string | null; problem: string | null };
 }
 
 // ===== Conector de base de datos (ADR 0005 D4) =====
