@@ -13,15 +13,16 @@ iteración · **P3** higiene.
 | ID | Sev. | Prio. | Hallazgo | Corrección | Estado |
 |---|---|---|---|---|---|
 | C1 | Crítica | P0 | Registro y alta de miembros sin verificar el correo: alguien crea de antemano la cuenta de un correo ajeno y recibe la membresía cuando el cliente lo agrega (`auth.service.ts`, `org.service.ts` `addMember`) | Verificación de correo; alta de miembros por invitación que acepta el dueño del correo; nunca unir una cuenta no verificada a otro workspace; registro público desactivable | Pendiente |
-| A1 | Alta | P0 | Los SDK de Claude (Anthropic, Vertex, Google Cloud, Foundry) salen sin la protección SSRF y devuelven la respuesta en el error (`drivers/anthropic.driver.ts`) | `fetch` con la política SSRF de Nexo en todos los SDK; solo hosts oficiales por canal o `LLM_PROVIDER_URL_OVERRIDES`; sin cuerpo crudo en errores | Pendiente |
-| A2 | Alta | P0 | `POST/PATCH /admin/llm/connections` aceptan `baseUrl`/`kind` libres: un ADMIN desvía claves y tokens OAuth que no puede ver | `baseUrl`/`kind` inmutables con `providerId`; pedir la clave al cambiar destino; borrar tokens OAuth si cambia | Pendiente |
+| A1 | Alta | P0 | Los SDK de Claude (Anthropic, Vertex, Google Cloud, Foundry) salen sin la protección SSRF y devuelven la respuesta en el error (`drivers/anthropic.driver.ts`) | `fetch` con la política SSRF de Nexo en todos los SDK; solo hosts oficiales por canal o `LLM_PROVIDER_URL_OVERRIDES`; sin cuerpo crudo en errores | En curso: errores sin cuerpo crudo (3f84936); falta el fetch con política SSRF en los SDK |
+| A2 | Alta | P0 | `POST/PATCH /admin/llm/connections` aceptan `baseUrl`/`kind` libres: un ADMIN desvía claves y tokens OAuth que no puede ver | `baseUrl`/`kind` inmutables con `providerId`; pedir la clave al cambiar destino; borrar tokens OAuth si cambia | Hecho (3f84936) |
 | A3 | Alta | P1 | SSRF eludible: IPv6 mapeada en hexadecimal, NAT64 y 6to4 sin bloquear; DNS rebinding (`http-client.service.ts`, adaptadores de BD y MCP) | `net.BlockList` con rangos IPv4/IPv6; resolver una vez y conectar a la IP validada | Pendiente |
 | A4 | Alta | P1 | Un EDITOR o una API key leen cualquier secreto de la bóveda desde un conector (`connectors.service.ts` `resolveAll`) | Secretos permitidos por conector, fijados por un ADMIN | Pendiente |
 | A5 | Alta | P0 | Sin `trust proxy` el throttling usa la IP de nginx: 10 intentos de login por minuto bloquean a todos; almacenamiento en memoria por instancia | `trust proxy` (ALB + nginx), throttling en Redis, límite por cuenta en el login | Pendiente |
-| A6 | Alta | P0 | Cualquier registro gratuito consume la `ANTHROPIC_API_KEY` de la plataforma sin cupo | Cupo mensual de plataforma por workspace (como el Copilot), habilitable por plan | Pendiente |
+| A6 | Alta | P0 | Cualquier registro gratuito consume la `ANTHROPIC_API_KEY` de la plataforma sin cupo | Cupo mensual de plataforma por workspace (como el Copilot), habilitable por plan | Hecho (3f84936): `PLATFORM_LLM_MONTHLY_USD`, por defecto 5 USD |
 | A7 | Alta (cond.) | P0 | `PLATFORM_ADMIN_EMAILS` se apropia registrando un correo listado sin cuenta | Correo verificado (C1) y aviso en el arranque de correos sin cuenta | Pendiente |
 | A8 | Alta (cond.) | P0 | `docker-compose.yml` publica PostgreSQL (`nexo/nexo`) y Redis sin contraseña en 0.0.0.0 | Enlazar a 127.0.0.1 o quitar `ports`; `requirepass`; contraseña obligatoria | Pendiente |
-| M1 | Media | P1 | `state` OAuth no ligado al navegador: phishing de consentimiento y de código de dispositivo | Cookie HttpOnly con nonce comprobada en el callback; mostrar la cuenta autorizada | Pendiente |
+| M1 | Media | P1 | `state` OAuth no ligado al navegador: phishing de consentimiento y de código de dispositivo | Cookie HttpOnly con nonce comprobada en el callback; mostrar la cuenta autorizada | Hecho para OAuth web (92b45a1); pendiente: código de dispositivo y OAuth de conectores (M1b) |
+| M1b | Media | P1 | El OAuth de conectores (ADR 0005) tampoco liga el `state` al navegador; el código de dispositivo no admite cookie | Misma cookie de ligadura en conectores; en código de dispositivo, mostrar la cuenta autorizada antes de activar | Pendiente |
 | M2 | Media | P1 | `/api/mcp` sin `@MinRole`: un VIEWER ejecuta flujos | `@MinRole('EDITOR')` | Pendiente |
 | M3 | Media | P1 | Un ADMIN se asciende a OWNER y saca al fundador | Solo un OWNER otorga o retira OWNER | Pendiente |
 | M4 | Media | P1 | Valores del LLM sin codificar en ruta y query de conectores REST | `encodeURIComponent`; rechazar `..`, `?`, `#` y URL absolutas | Pendiente |
@@ -38,9 +39,9 @@ iteración · **P3** higiene.
 | B6 | Baja | P2 | ReDoS por `pattern` del `inputSchema` | Ajv con RE2 o límite de longitud | Pendiente |
 | B7 | Baja | P2 | AES-GCM sin AAD ni versión de clave (rotación imposible) | Prefijo de versión + AAD; rotación con KMS (ADR 0008 fase 2) | Pendiente |
 | B8 | Baja | P2 | Redis sin AUTH/TLS; RDS sin protección contra borrado; ECS Exec activo | Endurecer la infraestructura | Pendiente |
-| B9 | Baja | P2 | El Copilot guarda agentes con modelos fuera del catálogo | Reusar `LlmUsageService.assertAgentModels` | Pendiente |
+| B9 | Baja | P2 | El Copilot guarda agentes con modelos fuera del catálogo | Reusar `LlmUsageService.assertAgentModels` | Hecho (3f84936) |
 | B10 | Baja | P2 | Swagger público en producción | Solo fuera de producción o autenticado | Pendiente |
-| I1 | Info | P2 | El simulador LLM depende de `NODE_ENV=production` | No registrar el controlador fuera de desarrollo + prueba del bloqueo | Pendiente |
+| I1 | Info | P2 | El simulador LLM depende de `NODE_ENV=production` | No registrar el controlador fuera de desarrollo + prueba del bloqueo | Hecho (3f84936): exige `NODE_ENV=development` o `test` |
 | I2 | Info | P3 | `npm audit`: 9 altas y 2 moderadas en la API, 3 altas en Edge (hoy no explotables) | Actualizar en el ciclo normal | Pendiente |
 | I3 | Info | P3 | `/auth/me` y `/auth/switch-workspace` con API key responden 500 | 403 explícito | Pendiente |
 
