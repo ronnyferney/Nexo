@@ -17,6 +17,7 @@ import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { errorMessage } from '../../core/api.service';
 import { IntegrationsApi } from '../../core/integrations.api';
+import { PlatformApi } from '../../core/platform.api';
 import type { CatalogAuthMethod, CatalogEntry } from '../../core/integrations.models';
 import { ToastService } from '../../core/toast.service';
 import { IconComponent } from '../../shared/icon.component';
@@ -67,8 +68,15 @@ import { AUTH_METHOD_META, categoryLabel } from './catalog-meta';
                 Inicio de sesión gestionado por Nexo. No necesita registrar nada ni copiar claves.</p>
             } @else {
               <div class="callout warning" role="alert"><nx-icon name="alert" [size]="16" />
-                <span class="grow">Esta integración aún no tiene configurada su app de inicio de sesión. Un administrador de
-                  Nexo debe configurarla una vez en <strong>Consola de plataforma → Apps de inicio de sesión</strong>.</span></div>
+                <div class="grow"><p style="margin:0">Esta integración aún no tiene configurada su app de inicio de sesión.</p>
+                  @if (platform.isPlatformAdmin()) {
+                    <button type="button" class="btn sm" style="margin-top:8px" (click)="goToConsole()">
+                      <nx-icon name="plug" [size]="14" />Configurarla ahora</button>
+                  } @else {
+                    <p class="small" style="margin:4px 0 0">Pida a un administrador de Nexo que la configure una vez en
+                      <strong>Consola de plataforma → Apps de inicio de sesión</strong>.</p>
+                  }
+                </div></div>
             }
           }
 
@@ -142,6 +150,7 @@ export class InstallWizardComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly toast = inject(ToastService);
   private readonly document = inject(DOCUMENT);
+  protected readonly platform = inject(PlatformApi);
   private readonly dialog = viewChild.required<ElementRef<HTMLDialogElement>>('dlg');
 
   readonly entry = input.required<CatalogEntry>();
@@ -193,6 +202,11 @@ export class InstallWizardComponent implements OnInit {
 
   toggleReveal(key: string) {
     this.revealed.update((r) => ({ ...r, [key]: !r[key] }));
+  }
+
+  goToConsole() {
+    this.close();
+    void this.router.navigate(['/platform/oauth-apps']);
   }
 
   onCancel(ev: Event) {

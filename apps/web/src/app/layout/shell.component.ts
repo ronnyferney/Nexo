@@ -146,6 +146,7 @@ export class ShellComponent implements OnInit {
   protected readonly platformNav = [
     { path: '/platform', label: 'Éxito de clientes', icon: 'trophy', exact: true },
     { path: '/platform/copilot-quality', label: 'Calidad del Copilot', icon: 'sparkles', exact: false },
+    { path: '/platform/oauth-apps', label: 'Apps de inicio de sesión', icon: 'plug', exact: false },
   ];
 
   ngOnInit() {
