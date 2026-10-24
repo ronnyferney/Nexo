@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { SingleUseModule } from '../../infrastructure/redis/single-use.module';
 import { OAuthController } from './oauth.controller';
 import { OAuthService } from './oauth.service';
 import { OAuthStateService } from './oauth-state.service';
@@ -8,6 +9,7 @@ import { OAuthStateService } from './oauth-state.service';
  * No depende de ConnectorsModule: ConnectorsModule lo importa para resolver tokens en `AuthResolverService`.
  */
 @Module({
+  imports: [SingleUseModule],
   controllers: [OAuthController],
   providers: [OAuthService, OAuthStateService],
   exports: [OAuthService, OAuthStateService],

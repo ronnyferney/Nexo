@@ -53,6 +53,11 @@ export interface LlmRunRequest {
   /** Se invoca después de cada llamada con los tokens reales (medición). */
   onUsage?: (usage: TurnUsage) => Promise<void>;
   signal?: AbortSignal;
+  /**
+   * Ámbito de los marcadores de DataGuard (ADR 0008 D2): el id de la conversación o sesión, para que un mismo dato
+   * tenga el mismo marcador en todos sus turnos (caché de prompts). Sin ámbito, cada ejecución usa uno aleatorio.
+   */
+  privacyScope?: string;
 }
 
 export interface LlmRunResult {

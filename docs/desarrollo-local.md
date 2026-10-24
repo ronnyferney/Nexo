@@ -22,7 +22,7 @@ En **Administración → Proveedores IA** aparece «Proveedor simulado (desarrol
 |---|---|
 | Iniciar sesión (OAuth 2.0 + PKCE S256) | Pulse «+» en la fila: se abre la pantalla de consentimiento del simulador → «Autorizar». |
 | Consentimiento denegado | En la pantalla de consentimiento pulse «Denegar»: la web muestra el error y no crea conexión. |
-| Código de dispositivo (RFC 8628) | «Conectar con un código (simulado)»: abra la página que indica Nexo, pegue el código y autorice. |
+| Código de dispositivo (RFC 8628) | «Conectar con un código (simulado)»: abra la página que indica Nexo, pegue el código y autorice; vuelva a Nexo y confirme la cuenta autorizada (M1b). Escriba otra cuenta en la página del simulador para probar «No es mi cuenta». |
 | Usar la conexión en un agente | Pestaña «Modelo» del agente → proveedor simulado → `sim-rapido` o `sim-experto`. Responde con eco; `/tool <nombre> <json>` invoca una herramienta del agente. |
 | Renovación automática | El access token dura 2 minutos: siga conversando y Nexo lo renueva con el refresh token. |
 | Sesión revocada en el proveedor | En la pantalla de consentimiento pulse «Revocar todas las sesiones». En la siguiente renovación la conexión queda como «Sesión cerrada» y el agente usa su modelo de respaldo, si lo tiene. |

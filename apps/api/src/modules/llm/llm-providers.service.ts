@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
+import { CipherContexts } from '../../common/crypto/cipher-context';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import type { ConnectProviderDto } from './dto/llm-providers.dto';
@@ -502,14 +503,16 @@ export class LlmProvidersService {
         apiKeyCipher: keyless
           ? null
           : oauth
-            ? this.crypto.encrypt(oauth.accessToken)
+            ? this.crypto.encrypt(oauth.accessToken, CipherContexts.llmApiKey(workspaceId))
             : validated.apiKey
-              ? this.crypto.encrypt(validated.apiKey)
+              ? this.crypto.encrypt(validated.apiKey, CipherContexts.llmApiKey(workspaceId))
               : null,
         ...(oauth
           ? {
               credentialType: 'OAUTH' as const,
-              oauthRefreshCipher: oauth.refreshToken ? this.crypto.encrypt(oauth.refreshToken) : null,
+              oauthRefreshCipher: oauth.refreshToken
+                ? this.crypto.encrypt(oauth.refreshToken, CipherContexts.llmRefresh(workspaceId))
+                : null,
               oauthExpiresAt: oauth.expiresAt,
               oauthScope: oauth.scope,
             }

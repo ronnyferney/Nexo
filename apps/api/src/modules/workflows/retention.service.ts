@@ -4,6 +4,10 @@ import { ConfigService } from '@nestjs/config';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import {
+  ConversationRetentionService,
+  type ConversationPurgeResult,
+} from '../data-protection/conversation-retention.service';
+import {
   JOB_RETENTION,
   RETENTION_PATTERN,
   RETENTION_SCHEDULER_ID,
@@ -15,6 +19,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /**
  * Retención de ejecuciones (práctica n8n): borra a diario las ejecuciones terminadas y el historial de rutinas
  * (`RoutineRun`) con más de EXECUTIONS_RETENTION_DAYS días. Las ejecuciones en cola o en curso nunca se borran.
+ * El mismo job aplica la retención de conversaciones por workspace (ADR 0008 D7, `ConversationRetentionService`).
  */
 @Injectable()
 export class RetentionService implements OnModuleInit {
@@ -25,6 +30,7 @@ export class RetentionService implements OnModuleInit {
     private readonly prisma: PrismaService,
     @InjectQueue(WORKFLOW_QUEUE) private readonly queue: Queue,
     config: ConfigService,
+    private readonly conversations: ConversationRetentionService,
   ) {
     this.retentionDays = config.get<number>('executions.retentionDays') ?? 30;
   }
@@ -45,7 +51,7 @@ export class RetentionService implements OnModuleInit {
   async purge(
     now = new Date(),
     workspaceId?: string,
-  ): Promise<{ executions: number; routineRuns: number; cutoff: Date }> {
+  ): Promise<{ executions: number; routineRuns: number; cutoff: Date; conversations: ConversationPurgeResult | null }> {
     const cutoff = new Date(now.getTime() - this.retentionDays * DAY_MS);
     const executions = await this.prisma.execution.deleteMany({
       where: { status: { in: ['SUCCEEDED', 'FAILED', 'CANCELLED'] }, createdAt: { lt: cutoff }, workspaceId },
@@ -56,6 +62,12 @@ export class RetentionService implements OnModuleInit {
     this.logger.log(
       `Retención (${this.retentionDays} días): ${executions.count} ejecuciones y ${routineRuns.count} corridas de rutinas eliminadas`,
     );
-    return { executions: executions.count, routineRuns: routineRuns.count, cutoff };
+    let conversations: ConversationPurgeResult | null = null;
+    try {
+      conversations = await this.conversations.purge(now, workspaceId);
+    } catch (err) {
+      this.logger.error(`Falló la retención de conversaciones: ${(err as Error).message}`);
+    }
+    return { executions: executions.count, routineRuns: routineRuns.count, cutoff, conversations };
   }
 }

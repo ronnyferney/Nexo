@@ -8,6 +8,7 @@ import { LlmAdminController, LlmCatalogController } from './llm-admin.controller
 import { OAuthModule } from '../oauth/oauth.module';
 import { LlmAuthFlowsService } from './llm-auth-flows.service';
 import { LlmGatewayService } from './llm-gateway.service';
+import { DataGuardService } from './data-guard/data-guard.service';
 import { LLM_DRIVERS } from './llm-provider';
 import { LlmOAuthCallbackController, LlmProvidersController } from './llm-providers.controller';
 import { LlmProvidersService } from './llm-providers.service';
@@ -36,6 +37,7 @@ const DRIVERS = [AnthropicDriver, OpenAiCompatibleDriver, MockDriver];
   providers: [
     ...DRIVERS,
     LlmTokenService,
+    DataGuardService,
     LlmGatewayService,
     LlmProvidersService,
     OpenRouterOAuthService,
@@ -46,6 +48,6 @@ const DRIVERS = [AnthropicDriver, OpenAiCompatibleDriver, MockDriver];
     AwsRoleService,
     { provide: LLM_DRIVERS, useFactory: (...d: unknown[]) => d, inject: DRIVERS },
   ],
-  exports: [LlmGatewayService, LlmTokenService, LlmUsageService],
+  exports: [LlmGatewayService, LlmTokenService, LlmUsageService, DataGuardService],
 })
 export class LlmModule {}

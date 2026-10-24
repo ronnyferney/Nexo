@@ -103,3 +103,61 @@ describe('validateEnv · secretos débiles (M9)', () => {
     expect(() => validateEnv(env({ SMTP_URL: 'http://correo', MAIL_FROM: 'x@nexo.co' }))).toThrow(/SMTP_URL/);
   });
 });
+
+describe('validateEnv · anillo de claves de cifrado (B7)', () => {
+  const K1 = '9c2e4b6a8d0f1e3c5a7b9d2f4e6c8a0b1d3f5e7c9a2b4d6f8e0c1a3b5d7f9e2c';
+  const K2 = '41d7a9c3e5f7b1d3a5c7e9f2b4d6a8c0e1f3b5d7a9c2e4f6b8d0a1c3e5f7b9d2';
+  let warn: jest.SpyInstance;
+  beforeEach(() => {
+    warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+  });
+  afterEach(() => warn.mockRestore());
+
+  it('acepta ENCRYPTION_KEY sola, con claves adicionales y kid activo, o solo ENCRYPTION_KEYS', () => {
+    const prod = { NODE_ENV: 'production' };
+    expect(() => validateEnv(env(prod))).not.toThrow();
+    expect(() =>
+      validateEnv(env({ ...prod, ENCRYPTION_KEYS: `k2026a:${K1}, k2026b:${K2}`, ENCRYPTION_ACTIVE_KID: 'k2026b' })),
+    ).not.toThrow();
+    expect(() => validateEnv(env({ ...prod, ENCRYPTION_KEYS: `k1:${K1}`, ENCRYPTION_ACTIVE_KID: 'k0' }))).not.toThrow();
+    expect(() => validateEnv(env({ ...prod, ENCRYPTION_KEY: undefined, ENCRYPTION_KEYS: `k1:${K1}` }))).not.toThrow();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['sin ninguna clave', { ENCRYPTION_KEY: undefined }, /Defina ENCRYPTION_KEY/],
+    ['ENCRYPTION_KEY sin formato hexadecimal', { ENCRYPTION_KEY: 'corta' }, /ENCRYPTION_KEY debe ser 32 bytes/],
+    ['varias claves sin kid activo', { ENCRYPTION_KEYS: `k1:${K1}` }, /Defina ENCRYPTION_ACTIVE_KID/],
+    ['un kid activo inexistente', { ENCRYPTION_KEYS: `k1:${K1}`, ENCRYPTION_ACTIVE_KID: 'k9' }, /no corresponde/],
+    ['el kid reservado k0', { ENCRYPTION_KEYS: `k0:${K1}`, ENCRYPTION_ACTIVE_KID: 'k0' }, /reservado/],
+    [
+      'un kid repetido',
+      { ENCRYPTION_KEYS: `k1:${K1},k1:${K2}`, ENCRYPTION_ACTIVE_KID: 'k1' },
+      /el kid k1 está repetido/,
+    ],
+    ['un kid inválido', { ENCRYPTION_KEYS: `clave nueva:${K1}`, ENCRYPTION_ACTIVE_KID: 'k0' }, /kid:clave/],
+    ['una clave no hexadecimal', { ENCRYPTION_KEYS: 'k1:xyz', ENCRYPTION_ACTIVE_KID: 'k1' }, /la clave k1 debe ser/],
+    [
+      'dos kid con la misma clave',
+      { ENCRYPTION_KEYS: `k1:${K1},k2:${K1.toUpperCase()}`, ENCRYPTION_ACTIVE_KID: 'k1' },
+      /misma clave/,
+    ],
+    ['ENCRYPTION_LEGACY_READS inválido', { ENCRYPTION_LEGACY_READS: 'no' }, /ENCRYPTION_LEGACY_READS/],
+  ])('rechaza %s (en cualquier entorno)', (_case, over, message) => {
+    expect(() => validateEnv(env(over))).toThrow(message);
+  });
+
+  it.each([
+    ['una clave de ejemplo en ceros', `k1:${'0'.repeat(64)}`, /ENCRYPTION_KEYS \(k1\) es un valor de ejemplo/],
+    [
+      'una clave de baja entropía',
+      `k1:${'0123456789abcdef'.repeat(4)}`,
+      /ENCRYPTION_KEYS \(k1\) tiene muy baja entropía/,
+    ],
+    ['una clave igual a JWT_SECRET', `k1:${STRONG_JWT}`, /JWT_SECRET y ENCRYPTION_KEYS \(k1\) no pueden ser el mismo/],
+  ])('en producción rechaza en ENCRYPTION_KEYS %s', (_case, keys, message) => {
+    expect(() =>
+      validateEnv(env({ NODE_ENV: 'production', ENCRYPTION_KEYS: keys, ENCRYPTION_ACTIVE_KID: 'k1' })),
+    ).toThrow(message);
+  });
+});

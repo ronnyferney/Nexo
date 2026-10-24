@@ -11,6 +11,7 @@ const DEV_SIM_OAUTH: OAuthAppSpec = {
   tokenUrl: `${DEV_SIM_PATH}/token`,
   deviceUrl: `${DEV_SIM_PATH}/device/code`,
   revokeUrl: `${DEV_SIM_PATH}/revoke`,
+  userinfoUrl: `${DEV_SIM_PATH}/userinfo`,
   scopes: ['inference'],
   clientAuth: 'post',
   secretRequired: false,

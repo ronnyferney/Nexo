@@ -40,6 +40,12 @@ export interface OAuthAppSpec {
   deviceUrl?: string;
   /** Endpoint de revocación documentado (RFC 7009); sin él, desconectar solo borra los tokens de Nexo. */
   revokeUrl?: string;
+  /**
+   * Endpoint de usuario documentado (OIDC UserInfo o equivalente, GET con el access token como Bearer). El código de
+   * dispositivo lo usa para mostrar la cuenta autorizada antes de activar la conexión (M1b) cuando el token no trae
+   * `id_token`.
+   */
+  userinfoUrl?: string;
   scopes: string[];
   /** Parámetros fijos adicionales de la URL de autorización (p. ej. `access_type=offline` de Google). */
   authorizeParams?: Record<string, string>;

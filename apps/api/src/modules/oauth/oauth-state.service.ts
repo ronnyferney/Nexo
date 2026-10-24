@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { createHash, randomBytes } from 'node:crypto';
+import { CipherContexts } from '../../common/crypto/cipher-context';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import type { ReplayGuard } from '../../infrastructure/redis/single-use.service';
 
@@ -63,13 +64,18 @@ export class OAuthStateService {
   }
 
   sign(payload: OAuthStatePayload, ttlSeconds = STATE_TTL_SECONDS): Promise<string> {
+    const jti = randomBytes(12).toString('base64url');
     const claims: StateClaims = {
       typ: 'oauth_state',
       ws: payload.workspaceId,
       cid: payload.connectorId,
       uid: payload.userId,
-      cv: this.crypto.encrypt(payload.codeVerifier),
-      jti: randomBytes(12).toString('base64url'),
+      // Ligado (AAD) a este `state` y a quien lo inició: no sirve copiado a otro `state` (B7).
+      cv: this.crypto.encrypt(
+        payload.codeVerifier,
+        CipherContexts.oauthStateVerifier(payload.workspaceId, payload.userId, jti),
+      ),
+      jti,
       ...(payload.browserTag ? { bt: payload.browserTag } : {}),
     };
     return this.jwt.signAsync(claims, { secret: this.secret, audience: AUDIENCE, expiresIn: ttlSeconds });
@@ -103,7 +109,10 @@ export class OAuthStateService {
       return null;
     let codeVerifier: string;
     try {
-      codeVerifier = this.crypto.decrypt(claims.cv);
+      codeVerifier = this.crypto.decrypt(
+        claims.cv,
+        CipherContexts.oauthStateVerifier(claims.ws, claims.uid, claims.jti),
+      );
     } catch {
       return null;
     }

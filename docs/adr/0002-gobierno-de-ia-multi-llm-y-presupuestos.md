@@ -141,6 +141,13 @@ Diseño:
   `connectorId = 'llm-provider:<proveedor>:<flujo>'`; flujo y `state` son de un solo uso. El sondeo de dispositivo
   respeta el `interval` del proveedor (si la web sondea antes responde `pending` sin llamarlo) y reclama el turno de forma
   atómica.
+- **Confirmación de la cuenta en el código de dispositivo (auditoría M1b):** el código no se puede ligar al navegador
+  (quien lo escribe en la página del proveedor puede ser otra persona, en su propia cuenta). Cuando el proveedor entrega
+  los tokens, el flujo pasa a `confirm`: los tokens quedan cifrados en el flujo (`deviceCodeCipher`, contexto
+  `llm-auth-flow.pending-tokens`) y la web muestra la cuenta autorizada (`id_token` con audiencia = app de Nexo o el
+  `userinfoUrl` documentado del proveedor; si no la informa, lo dice). Solo el ADMIN que inició el flujo la ve y la
+  confirma (`POST device/confirm`) o la rechaza (`POST device/cancel`, que revoca los tokens si hay `revokeUrl`); el plazo
+  es de 10 minutos y vencido se descarta igual.
 - **Verificación tolerante** (`verifyMode: 'lenient'`, Vertex, Azure, Cohere, Perplexity y Ollama Cloud): la API v1 de
   Azure, el endpoint de Vertex y la API de compatibilidad de Cohere no documentan `/models` (Perplexity lo expone en
   `/v1/models`, que usa como `verifyPath`; Ollama Cloud lista modelos en `/api/tags`); un 404/405 ahí no impide conectar,

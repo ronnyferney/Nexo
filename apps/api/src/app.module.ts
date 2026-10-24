@@ -16,6 +16,7 @@ import { ThrottlerStorageModule } from './infrastructure/throttler/throttler-sto
 import { AgentAccessModule } from './modules/agent-access/agent-access.module';
 import { AgentsModule } from './modules/agents/agents.module';
 import { CopilotModule } from './modules/copilot/copilot.module';
+import { DataProtectionModule } from './modules/data-protection/data-protection.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ConnectorsModule } from './modules/connectors/connectors.module';
 import { EdgeModule } from './modules/edge/edge.module';
@@ -71,6 +72,7 @@ import { WorkspacesModule } from './modules/workspaces/workspaces.module';
     HttpClientModule,
     AuthModule,
     WorkspacesModule,
+    DataProtectionModule,
     LlmModule,
     GovernanceModule,
     GroupsModule,

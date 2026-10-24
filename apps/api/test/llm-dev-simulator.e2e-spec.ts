@@ -1,6 +1,7 @@
 import type { INestApplication } from '@nestjs/common';
 import { createServer } from 'node:net';
 import request from 'supertest';
+import { DevLlmSimulatorService } from '../src/modules/llm/dev-simulator/dev-llm-simulator.service';
 import { createTestApp, llmOAuthCookie, prismaOf } from './utils/app';
 import { chat, createAgent, registerOwner, type Session } from './utils/fixtures';
 
@@ -152,7 +153,8 @@ describe('Simulador local de proveedor IA con inicio de sesión (E2E)', () => {
     await owner.api.post(`/agents/${agentId}/chat`, { message: 'Hola' }).expect(400);
   });
 
-  it('código de dispositivo: pendiente → autorizado en la página del simulador → conectado', async () => {
+  /** Inicia un código de dispositivo, lo autoriza en la página del simulador con `account` y sondea hasta `confirm`. */
+  async function deviceAuthorized(account?: string) {
     const start = (await owner.api.post('/admin/llm/providers/nexo-simulado/device/start', {}).expect(200)).body as {
       flowId: string;
       userCode: string;
@@ -166,16 +168,50 @@ describe('Simulador local de proveedor IA con inicio de sesión (E2E)', () => {
       .expect(200);
     expect(pending.body).toMatchObject({ status: 'pending' });
 
-    await http().get('/api/dev/llm-sim/device').query({ user_code: start.userCode }).expect(200);
+    const page = await http().get('/api/dev/llm-sim/device').query({ user_code: start.userCode }).expect(200);
+    expect(page.text).toContain('name="account"');
     await http()
       .post('/api/dev/llm-sim/device/decision')
       .type('form')
-      .send({ user_code: start.userCode, decision: 'allow' })
+      .send({ user_code: start.userCode, decision: 'allow', ...(account ? { account } : {}) })
       .expect(200);
     await new Promise((r) => setTimeout(r, start.interval * 1000 + 100));
-    const done = await owner.api
+    const awaiting = await owner.api
       .post('/admin/llm/providers/nexo-simulado/device/poll', { flowId: start.flowId })
       .expect(200);
+    return { start, awaiting: awaiting.body as Record<string, any> };
+  }
+
+  it('código de dispositivo: autorizado → muestra la cuenta (userinfo) → el ADMIN confirma → conectado', async () => {
+    const connections = () => prismaOf(app).llmConnection.count({ where: { workspaceId: owner.workspaceId } });
+    const before = await connections();
+    const { start, awaiting } = await deviceAuthorized();
+    // M1b: la conexión no se activa hasta que el ADMIN confirma la cuenta que autorizó el código.
+    expect(awaiting).toMatchObject({
+      status: 'confirm',
+      account: { available: true, source: 'userinfo', email: 'dev@nexo.local', name: 'Cuenta simulada' },
+    });
+    expect(await connections()).toBe(before);
+
+    const done = await owner.api
+      .post('/admin/llm/providers/nexo-simulado/device/confirm', { flowId: start.flowId })
+      .expect(200);
     expect(done.body).toMatchObject({ status: 'connected', connection: { providerId: 'nexo-simulado' } });
+    expect(await connections()).toBe(before + 1);
+  });
+
+  it('código de dispositivo autorizado con otra cuenta: «No es mi cuenta» lo descarta y revoca el token', async () => {
+    const before = await prismaOf(app).llmConnection.count({ where: { workspaceId: owner.workspaceId } });
+    const { start, awaiting } = await deviceAuthorized('atacante@evil.test');
+    expect(awaiting).toMatchObject({ status: 'confirm', account: { email: 'atacante@evil.test' } });
+    const sim = app.get(DevLlmSimulatorService);
+    const revokedBefore = sim.revoked.length;
+    const res = await owner.api
+      .post('/admin/llm/providers/nexo-simulado/device/cancel', { flowId: start.flowId })
+      .expect(200);
+    expect(res.body).toEqual({ status: 'cancelled' });
+    expect(sim.revoked.length).toBe(revokedBefore + 1);
+    expect(sim.revoked.at(-1)).toMatch(/^sim-rt-/);
+    expect(await prismaOf(app).llmConnection.count({ where: { workspaceId: owner.workspaceId } })).toBe(before);
   });
 });

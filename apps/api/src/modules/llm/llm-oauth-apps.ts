@@ -33,6 +33,7 @@ export interface ResolvedLlmOAuthApp {
   tokenUrl: string;
   deviceUrl?: string;
   revokeUrl?: string;
+  userinfoUrl?: string;
   scopes: string[];
   authorizeParams: Record<string, string>;
   scopeOnTokenRequest: boolean;
@@ -102,6 +103,7 @@ export function resolveLlmOAuthApp(
     tokenUrl: url(override.tokenUrl ?? spec.tokenUrl)!,
     deviceUrl: url(override.deviceUrl ?? spec.deviceUrl),
     revokeUrl: url(override.revokeUrl ?? spec.revokeUrl),
+    userinfoUrl: url(override.userinfoUrl ?? spec.userinfoUrl),
     scopes: spec.scopes,
     authorizeParams: spec.authorizeParams ?? {},
     scopeOnTokenRequest: !!spec.scopeOnTokenRequest,

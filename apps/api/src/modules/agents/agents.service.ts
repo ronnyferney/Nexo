@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { randomBytes } from 'node:crypto';
 import { Prisma, type Agent, type AgentVisibility } from '@prisma/client';
 import type { AuthContext } from '../../common/decorators/current-user.decorator';
 import { LlmUsageService } from '../llm/llm-usage.service';
@@ -368,6 +369,9 @@ export class AgentsService {
     const userId = auth.via === 'jwt' ? auth.userId : undefined;
     const agent = await this.get(workspaceId, agentId);
     let conversation = input.conversationId ? await this.conversation(auth, agentId, input.conversationId) : null;
+    // El id de una conversación nueva se fija antes del primer turno: es el ámbito de los marcadores de DataGuard
+    // (ADR 0008), que así coinciden desde el primer turno y no rompen la caché de prompts en el segundo.
+    const conversationId = conversation?.id ?? newConversationId();
 
     const result = await this.runtime.run(agent, {
       history: (conversation?.messages as unknown[]) ?? [],
@@ -376,14 +380,21 @@ export class AgentsService {
       approvedTools: input.approvedTools,
       onEvent,
       signal,
-      context: { source: 'CHAT', userId, conversationId: conversation?.id },
+      context: { source: 'CHAT', userId, conversationId },
     });
     const messages = result.history as Prisma.InputJsonValue;
     const provider = result.providerId;
     conversation = conversation
       ? await this.prisma.conversation.update({ where: { id: conversation.id }, data: { messages, provider } })
       : await this.prisma.conversation.create({
-          data: { agentId, provider, messages, title: input.message.slice(0, 60), userId: userId ?? null },
+          data: {
+            id: conversationId,
+            agentId,
+            provider,
+            messages,
+            title: input.message.slice(0, 60),
+            userId: userId ?? null,
+          },
         });
 
     return {
@@ -409,6 +420,14 @@ export class AgentsService {
       usage: { ...r.usage, costUsd: r.costUsd },
     };
   }
+}
+
+/** Identificador con la forma de un cuid (`c` + 24 caracteres en base 36), generado antes de crear la fila. */
+export function newConversationId(): string {
+  const bytes = randomBytes(24);
+  let id = 'c';
+  for (const b of bytes) id += (b % 36).toString(36);
+  return id;
 }
 
 /**

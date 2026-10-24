@@ -214,9 +214,23 @@ export interface DeviceStartResult {
   flowId: string;
 }
 
-export type DevicePollStatus = 'pending' | 'slow_down' | 'connected' | 'expired' | 'denied';
+/**
+ * `confirm`: el proveedor ya autorizó y Nexo espera que el ADMIN que inició el flujo confirme la cuenta (M1b) con
+ * `device/confirm`; `cancelled`: la rechazó con `device/cancel`.
+ */
+export type DevicePollStatus = 'pending' | 'slow_down' | 'confirm' | 'connected' | 'expired' | 'denied' | 'cancelled';
 
-/** `POST /admin/llm/providers/:id/device/poll` `{ flowId }`. */
+/** Cuenta que autorizó el código según el proveedor (`available: false` si no la informa). */
+export interface AuthorizedAccount {
+  available: boolean;
+  source: 'id_token' | 'userinfo' | null;
+  subject?: string;
+  email?: string;
+  name?: string;
+  username?: string;
+}
+
+/** `POST /admin/llm/providers/:id/device/poll|confirm|cancel` `{ flowId }`. */
 export interface DevicePollResult {
   status: DevicePollStatus;
   /** Nuevo intervalo sugerido (segundos) tras `slow_down`. */
@@ -224,6 +238,10 @@ export interface DevicePollResult {
   message?: string;
   /** Conexión creada (con sus modelos) cuando `status` es `connected`. */
   connection?: LlmConnection;
+  /** Con `status: 'confirm'`: cuenta autorizada que el ADMIN debe confirmar. */
+  account?: AuthorizedAccount;
+  /** Con `status: 'confirm'`: segundos para confirmar antes de que se descarte la autorización. */
+  confirmExpiresIn?: number;
 }
 
 /** `DELETE /admin/llm/connections/:id`: `revoked` indica si también se revocó el acceso en el proveedor. */

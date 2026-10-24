@@ -1,15 +1,25 @@
 import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject, input, OnInit, output, signal } from '@angular/core';
 import { errorMessage } from '../../core/api.service';
 import { LlmProvidersApi } from '../../core/llm-providers.api';
-import type { DevicePollResult, DeviceStartResult, ProviderMechanism, ProviderView } from '../../core/llm-providers.models';
+import type {
+  AuthorizedAccount,
+  DevicePollResult,
+  DeviceStartResult,
+  ProviderMechanism,
+  ProviderView,
+} from '../../core/llm-providers.models';
 import { IconComponent } from '../../shared/icon.component';
 import { isHttpUrl } from '../../shared/safe-url';
 
-type State = 'idle' | 'starting' | 'waiting' | 'expired' | 'denied' | 'error';
+type State = 'idle' | 'starting' | 'waiting' | 'confirm' | 'confirming' | 'expired' | 'denied' | 'cancelled' | 'error';
 
 /**
  * Inicio de sesión con código de dispositivo (RFC 8628, p. ej. Hugging Face): muestra el código grande y copiable,
  * el enlace de verificación y una cuenta regresiva, y sondea `device/poll` cada `interval` segundos.
+ *
+ * M1b: cuando el proveedor autoriza, la conexión no se activa sola. Se muestra la cuenta que autorizó el código (o que
+ * el proveedor no la informa) y el ADMIN confirma con `device/confirm` o la rechaza con `device/cancel`: el código pudo
+ * escribirlo otra persona en su propia cuenta.
  */
 @Component({
   selector: 'nx-device-code',
@@ -42,8 +52,34 @@ type State = 'idle' | 'starting' | 'waiting' | 'expired' | 'denied' | 'error';
           <span>{{ slow() ? brand() + ' pidió verificar con menos frecuencia. Seguimos esperando…' : 'Esperando la autorización…' }}</span>
           <span class="timer" role="timer" aria-live="off">Vence en {{ remainingLabel() }}</span>
         </div>
+      } @else if (st === 'confirm' || st === 'confirming') {
+        <section class="confirm" aria-labelledby="dc-confirm-title">
+          <h3 id="dc-confirm-title">Confirme la cuenta autorizada</h3>
+          @if (account(); as acc) {
+            @if (acc.available) {
+              <p class="small muted">{{ brand() }} informa que el código se autorizó con esta cuenta:</p>
+              <dl class="account">
+                @if (acc.name) { <dt>Nombre</dt><dd>{{ acc.name }}</dd> }
+                @if (acc.email) { <dt>Correo</dt><dd>{{ acc.email }}</dd> }
+                @if (acc.username) { <dt>Usuario</dt><dd>{{ acc.username }}</dd> }
+                @if (acc.subject && !acc.email && !acc.username) { <dt>Identificador</dt><dd class="mono">{{ acc.subject }}</dd> }
+              </dl>
+            } @else {
+              <div class="callout warning" role="note"><nx-icon name="alert" [size]="16" />
+                <span>{{ brand() }} no informa qué cuenta autorizó el código. Confirme solo si usted mismo lo ingresó en {{ brand() }} hace un momento.</span></div>
+            }
+          }
+          <p class="small muted">Si no reconoce la cuenta, elija «No es mi cuenta»: Nexo descarta la autorización sin crear la conexión.</p>
+          <div class="actions">
+            <button type="button" class="btn primary pill" [disabled]="st === 'confirming'" (click)="confirm()">
+              @if (st === 'confirming') { <span class="spin" aria-hidden="true"></span>Activando… } @else { <nx-icon name="checkCircle" [size]="16" />Sí, activar la conexión }
+            </button>
+            <button type="button" class="btn pill" [disabled]="st === 'confirming'" (click)="cancel()"><nx-icon name="x" [size]="16" />No es mi cuenta</button>
+          </div>
+          <span class="timer small" role="timer" aria-live="off">Confirme en {{ remainingLabel() }}</span>
+        </section>
       } @else {
-        <div class="callout" [class.warning]="st === 'expired'" [class.danger]="st !== 'expired'" role="alert">
+        <div class="callout" [class.warning]="st === 'expired' || st === 'cancelled'" [class.danger]="st !== 'expired' && st !== 'cancelled'" role="alert">
           <nx-icon name="alert" [size]="16" /><span>{{ problem() }}</span></div>
         <button type="button" class="btn primary pill wide again" (click)="start()"><nx-icon name="refresh" [size]="16" />Generar otro código</button>
       }
@@ -68,6 +104,13 @@ type State = 'idle' | 'starting' | 'waiting' | 'expired' | 'denied' | 'error';
     .wait { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; border-radius: 10px; background: var(--info-50); font-size: 13px; }
     .timer { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
     .again { margin-top: -2px; }
+    .confirm { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
+    .confirm h3 { margin: 0; font-size: 15px; }
+    .account { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; }
+    .account dt { color: var(--muted); font-size: 13px; }
+    .account dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+    .account .mono { font-family: var(--mono); font-weight: 500; }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; }
     .spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.4); border-top-color: #fff; animation: spin 0.7s linear infinite; flex-shrink: 0; }
     .spin.dark { border-color: var(--border); border-top-color: var(--info); }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -91,6 +134,8 @@ export class DeviceCodeComponent implements OnInit {
   readonly announce = signal('');
   readonly copied = signal(false);
   readonly slow = signal(false);
+  /** Cuenta que autorizó el código (estado `confirm`, M1b). */
+  readonly account = signal<AuthorizedAccount | null>(null);
   private readonly now = signal(Date.now());
   private expiresAt = 0;
   private interval = 5;
@@ -136,6 +181,7 @@ export class DeviceCodeComponent implements OnInit {
     const run = ++this.run;
     this.state.set('starting');
     this.flow.set(null);
+    this.account.set(null);
     this.slow.set(false);
     this.copied.set(false);
     this.failures = 0;
@@ -154,7 +200,7 @@ export class DeviceCodeComponent implements OnInit {
         this.now.set(Date.now());
         const r = this.remaining();
         if (r === 60) this.announce.set('Queda un minuto para usar el código.');
-        if (r === 0) this.finish('expired');
+        if (r === 0 && this.state() !== 'confirming') this.finish('expired');
       }, 1000);
       this.schedule(run);
     } catch (e) {
@@ -188,13 +234,15 @@ export class DeviceCodeComponent implements OnInit {
       if (run !== this.run) return;
       this.failures = 0;
       switch (r.status) {
+        case 'confirm':
+          this.awaitConfirmation(r);
+          return;
         case 'connected':
-          this.stop();
-          this.announce.set(`Sesión iniciada en ${this.brand()}.`);
-          this.connected.emit(r);
+          this.done(r);
           return;
         case 'expired':
         case 'denied':
+        case 'cancelled':
           this.finish(r.status, r.message);
           return;
         case 'slow_down':
@@ -214,13 +262,70 @@ export class DeviceCodeComponent implements OnInit {
     }
   }
 
-  private finish(status: 'expired' | 'denied', message?: string) {
+  /** El proveedor autorizó: se detiene el sondeo y se pide confirmar la cuenta antes de activar (M1b). */
+  private awaitConfirmation(r: DevicePollResult) {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    this.account.set(r.account ?? { available: false, source: null });
+    this.expiresAt = Date.now() + Math.max(10, r.confirmExpiresIn ?? 600) * 1000;
+    this.now.set(Date.now());
+    this.state.set('confirm');
+    const acc = this.account()!;
+    const who = acc.available ? acc.email || acc.username || acc.name || acc.subject : null;
+    this.announce.set(
+      who
+        ? `${this.brand()} autorizó el código con la cuenta ${who}. Confirme si es la suya.`
+        : `${this.brand()} autorizó el código pero no informa la cuenta. Confirme solo si usted lo ingresó.`,
+    );
+  }
+
+  async confirm() {
+    const f = this.flow();
+    if (!f || this.state() !== 'confirm') return;
+    const run = this.run;
+    this.state.set('confirming');
+    this.announce.set('Activando la conexión…');
+    try {
+      const r = await this.api.deviceConfirm(this.provider().id, f.flowId);
+      if (run !== this.run) return;
+      if (r.status === 'connected') this.done(r);
+      else this.finish(r.status === 'expired' ? 'expired' : 'denied', r.message);
+    } catch (e) {
+      if (run !== this.run) return;
+      this.fail(errorMessage(e));
+    }
+  }
+
+  async cancel() {
+    const f = this.flow();
+    if (!f || this.state() !== 'confirm') return;
+    const run = this.run;
+    this.state.set('confirming');
+    try {
+      await this.api.deviceCancel(this.provider().id, f.flowId);
+      if (run !== this.run) return;
+      this.finish('cancelled');
+    } catch (e) {
+      if (run !== this.run) return;
+      this.fail(errorMessage(e));
+    }
+  }
+
+  private done(r: DevicePollResult) {
+    this.stop();
+    this.announce.set(`Sesión iniciada en ${this.brand()}.`);
+    this.connected.emit(r);
+  }
+
+  private finish(status: 'expired' | 'denied' | 'cancelled', message?: string) {
     this.stop();
     this.state.set(status);
     const text =
       status === 'expired'
-        ? 'El código venció antes de que se autorizara. Genere otro para intentarlo de nuevo.'
-        : message || `Se rechazó la autorización en ${this.brand()}. Si fue un error, genere otro código.`;
+        ? 'El código o el plazo para confirmar la cuenta venció. Genere otro para intentarlo de nuevo.'
+        : status === 'cancelled'
+          ? `Se descartó la autorización: no se creó ninguna conexión. Genere otro código e ingréselo con su cuenta de ${this.brand()}.`
+          : message || `Se rechazó la autorización en ${this.brand()}. Si fue un error, genere otro código.`;
     this.problem.set(text);
     this.announce.set(text);
   }

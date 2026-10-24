@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { LlmConnection } from '@prisma/client';
+import { CipherContexts } from '../../common/crypto/cipher-context';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import type { HttpClientService, HttpRequest, HttpResponse } from '../../common/http/http-client.service';
 import type { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -147,15 +148,18 @@ describe('LlmTokenService', () => {
       llm: { oauthEndpointOverrides: {} },
     });
   const crypto = new CryptoService(config());
+  const API_KEY = CipherContexts.llmApiKey('ws1');
+  const REFRESH = CipherContexts.llmRefresh('ws1');
 
   const vertexRow = (over: Partial<LlmConnection> = {}): Partial<LlmConnection> => ({
     id: 'c1',
+    workspaceId: 'ws1',
     name: 'Vertex',
     providerId: 'vertex',
     credentialType: 'OAUTH',
     providerFields: { projectId: 'mi-proyecto-123', region: 'global' },
-    apiKeyCipher: crypto.encrypt('ya29.viejo'),
-    oauthRefreshCipher: crypto.encrypt('1//refresh'),
+    apiKeyCipher: crypto.encrypt('ya29.viejo', API_KEY),
+    oauthRefreshCipher: crypto.encrypt('1//refresh', REFRESH),
     oauthExpiresAt: new Date(Date.now() + 10_000),
     ...over,
   });
@@ -185,9 +189,9 @@ describe('LlmTokenService', () => {
       client_secret: 'secreto-vertex',
     });
     expect(state.updates).toBe(1);
-    expect(crypto.decrypt(state.row.apiKeyCipher!)).toBe('ya29.nuevo');
+    expect(crypto.decrypt(state.row.apiKeyCipher!, API_KEY)).toBe('ya29.nuevo');
     // Sin refresh token nuevo se conserva el anterior.
-    expect(crypto.decrypt(state.row.oauthRefreshCipher!)).toBe('1//refresh');
+    expect(crypto.decrypt(state.row.oauthRefreshCipher!, REFRESH)).toBe('1//refresh');
     expect(state.row.oauthExpiresAt!.getTime()).toBeGreaterThan(Date.now() + 3_500_000);
   });
 
@@ -199,7 +203,7 @@ describe('LlmTokenService', () => {
       vertexRow({
         providerId: 'azure-openai',
         providerFields: { resource: 'r', deployment: 'd', tenantId: 'contoso' },
-        oauthRefreshCipher: crypto.encrypt('rt-1'),
+        oauthRefreshCipher: crypto.encrypt('rt-1', REFRESH),
       }),
     );
     const c = config({ OAUTH_LLM_AZURE_OPENAI_CLIENT_ID: 'id', OAUTH_LLM_AZURE_OPENAI_CLIENT_SECRET: 's' });
@@ -209,7 +213,7 @@ describe('LlmTokenService', () => {
     expect(new URLSearchParams(http.requests[0].body).get('scope')).toBe(
       'https://ai.azure.com/.default offline_access',
     );
-    expect(crypto.decrypt(state.row.oauthRefreshCipher!)).toBe('rt-2');
+    expect(crypto.decrypt(state.row.oauthRefreshCipher!, REFRESH)).toBe('rt-2');
   });
 
   it('Entra ID: una conexión creada con el scope de Cognitive Services lo conserva al renovar', async () => {

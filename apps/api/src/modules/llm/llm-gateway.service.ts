@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { LlmConnection, LlmKind, LlmModel } from '@prisma/client';
+import { CipherContexts } from '../../common/crypto/cipher-context';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import {
@@ -17,6 +18,7 @@ import { parseKeyless, type KeylessOptions } from './keyless/keyless-options';
 import { OidcIssuerService } from './keyless/oidc-issuer.service';
 import { quotaPeriod } from '../copilot/copilot-quota.service';
 import { ConnectionUnavailableException } from './llm-errors';
+import { DataGuardService } from './data-guard/data-guard.service';
 import {
   longContextPricing,
   SYSTEM_ANTHROPIC_MODELS,
@@ -131,6 +133,7 @@ export class LlmGatewayService {
     private readonly tokens: LlmTokenService,
     private readonly oidc: OidcIssuerService,
     private readonly awsRoles: AwsRoleService,
+    private readonly dataGuard: DataGuardService,
   ) {
     this.drivers = new Map(drivers.map((d) => [d.kind, d]));
     this.anthropicKey = config.get<string>('llm.anthropicApiKey');
@@ -227,7 +230,8 @@ export class LlmGatewayService {
 
   /**
    * Proveedor y modelo listos para llamar. `platformQuota: false` solo para el Copilot, que tiene su propio cupo
-   * (ADR 0006 D2) y no consume el de la conexión «Incluido por Nexo».
+   * (ADR 0006 D2) y no consume el de la conexión «Incluido por Nexo». El cliente devuelto lleva DataGuard (ADR 0008):
+   * es el único camino de agentes, flujos, rutinas, evaluaciones, servidor MCP y Copilot hacia un proveedor.
    */
   async resolve(
     workspaceId: string,
@@ -249,7 +253,10 @@ export class LlmGatewayService {
         kind,
         model,
         pricing: withLongContext(model, entry),
-        client: this.client(`system:${providerId}`, kind, { apiKey: this.anthropicKey }),
+        client: this.dataGuard.wrap(
+          workspaceId,
+          this.client(`system:${providerId}`, kind, { apiKey: this.anthropicKey }),
+        ),
       };
     }
 
@@ -283,7 +290,7 @@ export class LlmGatewayService {
       kind: connection.kind,
       model,
       pricing: withLongContext(model, toCatalogModel(row)),
-      client: this.clientFor(connection),
+      client: this.dataGuard.wrap(workspaceId, this.clientFor(connection)),
     };
   }
 
@@ -307,7 +314,11 @@ export class LlmGatewayService {
         ? this.keylessCredentials(c.workspaceId, keyless)
         : oauth
           ? { getAccessToken: () => this.tokens.accessToken(c.id) }
-          : { apiKey: c.apiKeyCipher ? this.crypto.decrypt(c.apiKeyCipher) : undefined }),
+          : {
+              apiKey: c.apiKeyCipher
+                ? this.crypto.decrypt(c.apiKeyCipher, CipherContexts.llmApiKey(c.workspaceId))
+                : undefined,
+            }),
       baseUrl: c.baseUrl ?? undefined,
       ...connectionDriverOptions(c),
     });

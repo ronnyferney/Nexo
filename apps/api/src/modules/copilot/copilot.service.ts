@@ -162,6 +162,7 @@ export class CopilotService {
       maxTurns: COPILOT_MAX_TURNS,
       onEvent,
       signal,
+      privacyScope: `copilot:${session.id}`,
       beforeTurn: () => this.quota.assertAvailable(ws),
       onUsage: async (usage) => {
         const cost = costUsd(usage, resolved.pricing);

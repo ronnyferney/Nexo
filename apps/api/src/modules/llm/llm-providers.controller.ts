@@ -100,7 +100,26 @@ export class LlmProvidersController {
   @HttpCode(200)
   @Post(':id/device/poll')
   devicePoll(@CurrentAuth() a: AuthContext, @Param('id') id: string, @Body() dto: DevicePollDto) {
-    return this.flows.devicePoll(a.workspaceId, id, dto.flowId);
+    return this.flows.devicePoll(a.workspaceId, a.userId, id, dto.flowId);
+  }
+
+  /**
+   * M1b: activa la conexión tras revisar la cuenta que autorizó el código (`status: 'confirm'` del sondeo). Solo el
+   * ADMIN que inició el flujo.
+   */
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post(':id/device/confirm')
+  deviceConfirm(@CurrentAuth() a: AuthContext, @Param('id') id: string, @Body() dto: DevicePollDto) {
+    return this.flows.deviceConfirm(a.workspaceId, a.userId, id, dto.flowId);
+  }
+
+  /** M1b: «No es mi cuenta»: descarta la autorización (y la revoca si el proveedor lo permite). */
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post(':id/device/cancel')
+  deviceCancel(@CurrentAuth() a: AuthContext, @Param('id') id: string, @Body() dto: DevicePollDto) {
+    return this.flows.deviceCancel(a.workspaceId, a.userId, id, dto.flowId);
   }
 
   /** Detecta un servidor local (Ollama / LM Studio) y lista sus modelos sin guardar nada. */

@@ -1,8 +1,15 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { LlmConnection } from '@prisma/client';
+import { CipherContexts } from '../../common/crypto/cipher-context';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { HttpClientService } from '../../common/http/http-client.service';
+import {
+  accountFromIdToken,
+  accountFromUserinfo,
+  ACCOUNT_UNAVAILABLE,
+  type AuthorizedAccount,
+} from './llm-authorized-account';
 import { ConnectionUnavailableException } from './llm-errors';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { LlmOAuthAppError, resolveLlmOAuthApp, type ResolvedLlmOAuthApp } from './llm-oauth-apps';
@@ -141,7 +148,7 @@ export class LlmTokenService {
   async accessToken(connectionId: string): Promise<string> {
     const c = await this.prisma.llmConnection.findUnique({ where: { id: connectionId } });
     if (!c?.apiKeyCipher) throw new ConnectionUnavailableException(SIGNED_OUT_MESSAGE, 'signed_out');
-    if (!this.expiringSoon(c)) return this.crypto.decrypt(c.apiKeyCipher);
+    if (!this.expiringSoon(c)) return this.crypto.decrypt(c.apiKeyCipher, CipherContexts.llmApiKey(c.workspaceId));
     const inflight = this.refreshing.get(connectionId);
     if (inflight) return inflight;
     const p = this.refresh(connectionId).finally(() => this.refreshing.delete(connectionId));
@@ -156,7 +163,7 @@ export class LlmTokenService {
   private async refresh(connectionId: string): Promise<string> {
     const c = await this.prisma.llmConnection.findUnique({ where: { id: connectionId } });
     if (!c?.apiKeyCipher) throw new ConnectionUnavailableException(SIGNED_OUT_MESSAGE, 'signed_out');
-    if (!this.expiringSoon(c)) return this.crypto.decrypt(c.apiKeyCipher);
+    if (!this.expiringSoon(c)) return this.crypto.decrypt(c.apiKeyCipher, CipherContexts.llmApiKey(c.workspaceId));
     const entry = c.providerId ? findProvider(c.providerId) : undefined;
     const spec = entry ? this.oauthSpec(entry) : undefined;
     const name = entry?.name ?? c.name;
@@ -174,7 +181,7 @@ export class LlmTokenService {
     try {
       token = await this.token(app, {
         grant_type: 'refresh_token',
-        refresh_token: this.crypto.decrypt(c.oauthRefreshCipher),
+        refresh_token: this.crypto.decrypt(c.oauthRefreshCipher, CipherContexts.llmRefresh(c.workspaceId)),
       });
     } catch (err) {
       const detail = err instanceof OAuthTokenError ? ` (HTTP ${err.status}${err.code ? `, ${err.code}` : ''})` : '';
@@ -200,14 +207,56 @@ export class LlmTokenService {
     await this.prisma.llmConnection.update({
       where: { id: connectionId },
       data: {
-        apiKeyCipher: this.crypto.encrypt(t.accessToken),
-        // Entra ID puede rotar el refresh token: se reemplaza si llega uno nuevo.
-        ...(t.refreshToken ? { oauthRefreshCipher: this.crypto.encrypt(t.refreshToken) } : {}),
+        apiKeyCipher: this.crypto.encrypt(t.accessToken, CipherContexts.llmApiKey(c.workspaceId)),
+        // Entra ID puede rotar el refresh token: se reemplaza si llega uno nuevo; si no, se conserva (re-cifrado con la
+        // clave activa si hace falta, B7).
+        oauthRefreshCipher: t.refreshToken
+          ? this.crypto.encrypt(t.refreshToken, CipherContexts.llmRefresh(c.workspaceId))
+          : this.crypto.reencrypt(c.oauthRefreshCipher, CipherContexts.llmRefresh(c.workspaceId)),
         oauthExpiresAt: t.expiresAt,
         ...(t.scope ? { oauthScope: t.scope } : {}),
       },
     });
     return t.accessToken;
+  }
+
+  /**
+   * Identidad de la cuenta que autorizó los tokens (M1b): `id_token` del endpoint de token (audiencia = app de Nexo) o,
+   * si no viene, el endpoint de usuario documentado del proveedor. Nunca lanza: sin identidad devuelve
+   * `available: false` y la consola lo indica.
+   */
+  async authorizedAccount(app: ResolvedLlmOAuthApp, token: OAuthTokenResponse): Promise<AuthorizedAccount> {
+    const fromIdToken = accountFromIdToken(token.id_token, app.clientId);
+    if (fromIdToken.available || !app.userinfoUrl) return fromIdToken;
+    try {
+      const res = await this.http.request({
+        url: app.userinfoUrl,
+        headers: { authorization: `Bearer ${token.access_token}`, accept: 'application/json' },
+        timeoutMs: 10_000,
+      });
+      return res.ok ? accountFromUserinfo(res.body) : ACCOUNT_UNAVAILABLE;
+    } catch (err) {
+      this.logger.warn(`Endpoint de usuario de ${app.idpName} no disponible: ${(err as Error).message}`);
+      return ACCOUNT_UNAVAILABLE;
+    }
+  }
+
+  /** Revoca un token suelto (p. ej. al descartar una autorización no confirmada). Nunca lanza. */
+  async revokeToken(app: ResolvedLlmOAuthApp, token: string): Promise<boolean> {
+    if (!app.revokeUrl) return false;
+    try {
+      const res = await this.http.request({
+        url: app.revokeUrl,
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ token }).toString(),
+        timeoutMs: 10_000,
+      });
+      return res.ok;
+    } catch (err) {
+      this.logger.warn(`Revocación OAuth fallida en ${app.idpName}: ${(err as Error).message}`);
+      return false;
+    }
   }
 
   /**
@@ -219,15 +268,18 @@ export class LlmTokenService {
     const entry = findProvider(c.providerId);
     const spec = entry ? this.oauthSpec(entry) : undefined;
     if (!entry || !spec?.revokeUrl) return false;
-    const cipher = c.oauthRefreshCipher ?? c.apiKeyCipher;
-    if (!cipher) return false;
+    if (!c.oauthRefreshCipher && !c.apiKeyCipher) return false;
     try {
       const app = resolveLlmOAuthApp(this.config, entry, spec, stringValues(c.providerFields));
       const res = await this.http.request({
         url: app.revokeUrl!,
         method: 'POST',
         headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ token: this.crypto.decrypt(cipher) }).toString(),
+        body: new URLSearchParams({
+          token: c.oauthRefreshCipher
+            ? this.crypto.decrypt(c.oauthRefreshCipher, CipherContexts.llmRefresh(c.workspaceId))
+            : this.crypto.decrypt(c.apiKeyCipher!, CipherContexts.llmApiKey(c.workspaceId)),
+        }).toString(),
         timeoutMs: 10_000,
       });
       if (!res.ok) this.logger.warn(`Revocación OAuth de la conexión LLM ${c.id}: HTTP ${res.status}`);

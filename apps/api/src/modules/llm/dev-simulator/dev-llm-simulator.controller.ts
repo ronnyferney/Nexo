@@ -3,7 +3,13 @@ import { ApiExcludeController } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { Response } from 'express';
 import { Public } from '../../../common/decorators/public.decorator';
-import { DevLlmSimulatorService, SIM_MODELS, SimOAuthError, simulatedCompletion } from './dev-llm-simulator.service';
+import {
+  DevLlmSimulatorService,
+  SIM_DEFAULT_ACCOUNT,
+  SIM_MODELS,
+  SimOAuthError,
+  simulatedCompletion,
+} from './dev-llm-simulator.service';
 
 const str = (v: unknown) => (typeof v === 'string' && v.length <= 4096 ? v : '');
 const esc = (s: string) =>
@@ -138,6 +144,8 @@ export class DevLlmSimulatorController {
         'Conectar dispositivo',
         `<h1>Conectar Nexo con un código</h1><p>Ingrese el código que muestra Nexo y autorice el acceso.</p>
 <form method="post" action="${esc(this.sim.base)}/device/decision"><input name="user_code" value="${esc(str(userCode))}" placeholder="XXXX-XXXX" aria-label="Código" required>
+<p><small>Cuenta simulada que autoriza (pruebe otra para ver la confirmación de cuenta en Nexo):</small></p>
+<input name="account" type="email" value="${esc(SIM_DEFAULT_ACCOUNT)}" aria-label="Cuenta" style="text-transform:none;letter-spacing:0">
 <div class="row"><button class="primary" name="decision" value="allow">Autorizar</button><button name="decision" value="deny">Denegar</button></div></form>`,
       ),
     );
@@ -147,7 +155,7 @@ export class DevLlmSimulatorController {
   deviceDecision(@Body() b: Record<string, unknown>, @Res() res: Response) {
     this.sim.assertEnabled();
     const allow = str(b.decision) === 'allow';
-    const ok = this.sim.decideDevice(str(b.user_code), allow);
+    const ok = this.sim.decideDevice(str(b.user_code), allow, str(b.account));
     this.html(
       res,
       ok ? 200 : 400,
@@ -155,7 +163,7 @@ export class DevLlmSimulatorController {
       page(
         'Simulador',
         ok
-          ? `<h1>${allow ? 'Acceso autorizado' : 'Acceso denegado'}</h1><p>Vuelva a Nexo: ${allow ? 'la conexión se completa sola.' : 'verá que se denegó.'}</p>`
+          ? `<h1>${allow ? 'Acceso autorizado' : 'Acceso denegado'}</h1><p>Vuelva a Nexo: ${allow ? 'confirme allí la cuenta autorizada para activar la conexión.' : 'verá que se denegó.'}</p>`
           : '<h1>Código no válido</h1><p>El código no existe, ya se usó o venció.</p>',
       ),
     );
@@ -181,6 +189,15 @@ export class DevLlmSimulatorController {
         '<h1>Sesiones revocadas</h1><p>La próxima renovación de Nexo recibirá invalid_grant y la conexión quedará con la sesión cerrada.</p>',
       ),
     );
+  }
+
+  /** OIDC UserInfo simulado: la cuenta que autorizó el access token (M1b). */
+  @Get('userinfo')
+  userinfo(@Headers('authorization') auth: string | undefined) {
+    this.sim.assertEnabled();
+    const account = this.sim.userinfo(auth);
+    if (!account) throw new UnauthorizedException({ error: 'invalid_token' });
+    return account;
   }
 
   @Get('v1/models')

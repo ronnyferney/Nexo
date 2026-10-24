@@ -328,6 +328,12 @@ export class AgentRuntimeService {
       maxTurns: agent.maxTurns,
       onEvent: opts.onEvent,
       signal: opts.signal,
+      // Marcadores de DataGuard estables en todos los turnos de la conversación (o de la ejecución del flujo).
+      privacyScope: opts.context.conversationId
+        ? `conversation:${opts.context.conversationId}`
+        : opts.context.executionId
+          ? `execution:${opts.context.executionId}`
+          : undefined,
       beforeTurn: () => this.budgets.assertCanSpend(ws, orgUnitId),
       onUsage: async (usage) => {
         const cost = costUsd(usage, resolved.pricing);

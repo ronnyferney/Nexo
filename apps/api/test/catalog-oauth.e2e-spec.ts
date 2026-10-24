@@ -4,6 +4,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { bindingTag } from '../src/common/oauth/browser-binding';
+import { SingleUseService } from '../src/infrastructure/redis/single-use.service';
 import { OAuthStateService } from '../src/modules/oauth/oauth-state.service';
 import { SecretsService } from '../src/modules/workspaces/secrets.service';
 import { Api, createTestApp, prismaOf } from './utils/app';
@@ -560,5 +561,101 @@ describe('Catálogo de conectores y OAuth2 de usuario (E2E, ADR 0005)', () => {
       const inv = await invoke(owner, hubspot.id, searchOpId, { query: 'ana' }).expect(400);
       expect(JSON.stringify(inv.body)).toContain('Conecte la cuenta OAuth del conector');
     });
+  });
+});
+
+describe('B2 · uso único del state OAuth de conectores entre réplicas (E2E, Redis)', () => {
+  let a: INestApplication;
+  let b: INestApplication;
+  let provider: OAuthProviderMock;
+  let owner: Session;
+  let connectorId: string;
+  let webUrl: string;
+
+  const callback = (app: INestApplication, query: Record<string, string>, cookie: string) =>
+    new Api(app)
+      .get(`/oauth/callback?${new URLSearchParams(query).toString()}`)
+      .set('Cookie', cookie)
+      .redirects(0);
+  const start = async () => {
+    const res = await owner.api.post(`/connectors/${connectorId}/oauth/start`).expect(200);
+    const cookies = ([] as string[]).concat((res.headers['set-cookie'] as string[] | string | undefined) ?? []);
+    const cookie = cookies.find(
+      (c) => c.startsWith('nexo_connector_oauth=') && !c.startsWith('nexo_connector_oauth=;'),
+    );
+    return {
+      ...provider.authorize((res.body as { authorizeUrl: string }).authorizeUrl),
+      cookie: cookie!.split(';')[0],
+    };
+  };
+
+  beforeAll(async () => {
+    provider = await new OAuthProviderMock().start();
+    // Dos instancias de la API con la misma base de datos y el mismo Redis, como dos réplicas detrás del balanceador.
+    a = await createTestApp();
+    b = await createTestApp();
+    webUrl = a.get(ConfigService).get<string>('webUrl')!;
+    owner = await registerOwner(a, 'oauth-replicas');
+    const installed = (
+      await owner.api
+        .post('/connector-catalog/hubspot/install', {
+          authMethod: 'oauth2_code',
+          credentials: { clientId: provider.clientId, clientSecret: provider.clientSecret },
+        })
+        .expect(201)
+    ).body as InstalledConnector;
+    connectorId = installed.id;
+    await owner.api
+      .patch(`/connectors/${connectorId}`, {
+        config: { baseUrl: provider.origin },
+        auth: { ...installed.auth, authorizeUrl: `${provider.origin}/authorize`, tokenUrl: `${provider.origin}/token` },
+      })
+      .expect(200);
+  });
+
+  afterAll(async () => {
+    await a?.close();
+    await b?.close();
+    await provider?.stop();
+  });
+
+  it('el state consumido en una réplica se rechaza en la otra (sin volver a canjear el código)', async () => {
+    const { code, state, cookie } = await start();
+    const issued = provider.issued;
+    const first = await callback(a, { code, state }, cookie).expect(302);
+    expect(first.headers.location).toBe(`${webUrl}/connectors/${connectorId}?oauth=ok`);
+    const replay = await callback(b, { code, state }, cookie).expect(302);
+    expect(replay.headers.location).toBe(`${webUrl}/connectors?oauth=error&reason=invalid_state`);
+    expect(provider.issued).toBe(issued + 1);
+  });
+
+  it('dos callbacks simultáneos con el mismo state en réplicas distintas: solo uno conecta', async () => {
+    const { code, state, cookie } = await start();
+    const issued = provider.issued;
+    const results = await Promise.all([callback(a, { code, state }, cookie), callback(b, { code, state }, cookie)]);
+    const locations = results.map((r) => r.headers.location as string).sort();
+    expect(locations).toEqual([
+      `${webUrl}/connectors/${connectorId}?oauth=ok`,
+      `${webUrl}/connectors?oauth=error&reason=invalid_state`,
+    ]);
+    expect(provider.issued).toBe(issued + 1);
+  });
+
+  it('falla cerrado: sin Redis el state se rechaza y no se canjea el código', async () => {
+    const { code, state, cookie } = await start();
+    const issued = provider.issued;
+    const before = await prismaOf(a).oAuthCredential.findUnique({ where: { connectorId } });
+    const redis = (a.get(SingleUseService) as unknown as { redis: { set: (...args: unknown[]) => Promise<unknown> } })
+      .redis;
+    const spy = jest.spyOn(redis, 'set').mockRejectedValue(new Error('ECONNREFUSED'));
+    try {
+      const res = await callback(a, { code, state }, cookie).expect(302);
+      expect(res.headers.location).toBe(`${webUrl}/connectors?oauth=error&reason=invalid_state`);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(provider.issued).toBe(issued);
+    const after = await prismaOf(a).oAuthCredential.findUnique({ where: { connectorId } });
+    expect(after?.accessTokenCipher).toBe(before?.accessTokenCipher);
   });
 });

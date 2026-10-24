@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { CipherContexts } from '../../common/crypto/cipher-context';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 
@@ -19,7 +20,7 @@ export class SecretsService {
   }
 
   async upsert(workspaceId: string, name: string, value: string) {
-    const ciphertext = this.crypto.encrypt(value);
+    const ciphertext = this.crypto.encrypt(value, CipherContexts.secret(workspaceId, name));
     const s = await this.prisma.secret.upsert({
       where: { workspaceId_name: { workspaceId, name } },
       create: { workspaceId, name, ciphertext },
@@ -36,12 +37,16 @@ export class SecretsService {
   async resolveMany(workspaceId: string, names: string[]): Promise<Record<string, string>> {
     if (!names.length) return {};
     const rows = await this.prisma.secret.findMany({ where: { workspaceId, name: { in: names } } });
-    return Object.fromEntries(rows.map((r) => [r.name, this.crypto.decrypt(r.ciphertext)]));
+    return Object.fromEntries(
+      rows.map((r) => [r.name, this.crypto.decrypt(r.ciphertext, CipherContexts.secret(workspaceId, r.name))]),
+    );
   }
 
   /** Mapa NOMBRE -> valor en claro, para el contexto `secrets` de las plantillas. */
   async resolveAll(workspaceId: string): Promise<Record<string, string>> {
     const rows = await this.prisma.secret.findMany({ where: { workspaceId } });
-    return Object.fromEntries(rows.map((r) => [r.name, this.crypto.decrypt(r.ciphertext)]));
+    return Object.fromEntries(
+      rows.map((r) => [r.name, this.crypto.decrypt(r.ciphertext, CipherContexts.secret(workspaceId, r.name))]),
+    );
   }
 }

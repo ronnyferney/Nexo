@@ -18,6 +18,7 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json --runInBand",
     "copilot:eval": "ts-node --transpile-only src/modules/copilot/eval/copilot-eval.cli.ts",
+    "crypto:rotate": "ts-node --transpile-only src/common/crypto/crypto-rotate.cli.ts",
     "postinstall": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",

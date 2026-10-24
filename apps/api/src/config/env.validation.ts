@@ -1,17 +1,27 @@
 import { Logger } from '@nestjs/common';
 import { z } from 'zod';
+import { keyringValues, parseKeyring } from '../common/crypto/keyring';
 import { trustProxyError } from './trust-proxy';
 
 const schema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL es obligatorio'),
   JWT_SECRET: z.string().min(32, 'JWT_SECRET debe tener al menos 32 caracteres'),
-  ENCRYPTION_KEY: z
+  // Formato y coherencia de ENCRYPTION_KEY / ENCRYPTION_KEYS / ENCRYPTION_ACTIVE_KID: `parseKeyring` (B7).
+  ENCRYPTION_KEY: z.string().optional(),
+  ENCRYPTION_KEYS: z.string().optional(),
+  ENCRYPTION_ACTIVE_KID: z.string().optional(),
+  ENCRYPTION_LEGACY_READS: z
     .string()
-    .regex(/^[0-9a-fA-F]{64}$/, 'ENCRYPTION_KEY debe ser 32 bytes en hexadecimal (64 caracteres)'),
+    .regex(/^(true|false)?$/i, 'ENCRYPTION_LEGACY_READS debe ser true o false')
+    .optional(),
   PORT: z.coerce.number().optional(),
   REDIS_HOST: z.string().optional(),
   REDIS_PORT: z.coerce.number().optional(),
   EXECUTIONS_RETENTION_DAYS: z.coerce.number().int().min(1, 'EXECUTIONS_RETENTION_DAYS debe ser al menos 1').optional(),
+  CONVERSATIONS_RETENTION_DAYS: z
+    .string()
+    .regex(/^(\d+)?$/, 'CONVERSATIONS_RETENTION_DAYS debe ser un número de días (vacío = sin límite)')
+    .optional(),
   TRUST_PROXY: z
     .string()
     .optional()
@@ -68,7 +78,7 @@ function isPeriodic(value: string): boolean {
 }
 
 function weakness(name: string, value: string, minDistinct: number, minBits: number): string | null {
-  const normalized = name === 'ENCRYPTION_KEY' ? value.toLowerCase() : value;
+  const normalized = name.startsWith('ENCRYPTION_KEY') ? value.toLowerCase() : value;
   if (KNOWN_EXAMPLES.has(normalized) || PLACEHOLDER.test(normalized)) {
     return `${name} es un valor de ejemplo del repositorio: genere uno con openssl rand -hex 32`;
   }
@@ -87,13 +97,15 @@ function weakness(name: string, value: string, minDistinct: number, minBits: num
 export function secretWeaknesses(env: Record<string, unknown>): string[] {
   const issues: string[] = [];
   const jwt = typeof env.JWT_SECRET === 'string' ? env.JWT_SECRET : '';
-  const key = typeof env.ENCRYPTION_KEY === 'string' ? env.ENCRYPTION_KEY : '';
   const jwtIssue = jwt && weakness('JWT_SECRET', jwt, 6, 64);
-  const keyIssue = key && weakness('ENCRYPTION_KEY', key, 8, 128);
   if (jwtIssue) issues.push(jwtIssue);
-  if (keyIssue) issues.push(keyIssue);
-  if (jwt && key && jwt.toLowerCase() === key.toLowerCase()) {
-    issues.push('JWT_SECRET y ENCRYPTION_KEY no pueden ser el mismo valor');
+  // Cada clave del anillo (ENCRYPTION_KEY y las de ENCRYPTION_KEYS) con el mismo criterio (B7).
+  for (const { name, value } of keyringValues(env)) {
+    const keyIssue = weakness(name, value, 8, 128);
+    if (keyIssue) issues.push(keyIssue);
+    if (jwt && jwt.toLowerCase() === value.toLowerCase()) {
+      issues.push(`JWT_SECRET y ${name} no pueden ser el mismo valor`);
+    }
   }
   return issues;
 }
@@ -105,8 +117,12 @@ export function validateEnv(env: Record<string, unknown>): Record<string, unknow
       path: ['MAIL_FROM'],
     })
     .safeParse(env);
-  if (!parsed.success) {
-    const issues = parsed.error.issues.map((i) => `  - ${i.path.join('.')}: ${i.message}`).join('\n');
+  const keyringErrors = parseKeyring(env).errors;
+  if (!parsed.success || keyringErrors.length) {
+    const issues = [
+      ...(parsed.success ? [] : parsed.error.issues.map((i) => `  - ${i.path.join('.')}: ${i.message}`)),
+      ...keyringErrors.map((e) => `  - ${e}`),
+    ].join('\n');
     throw new Error(`Configuración inválida:\n${issues}`);
   }
   const weak = secretWeaknesses(env);

@@ -107,7 +107,9 @@ El primer despliegue tarda ~20–30 min (sobre todo RDS).
 - **Eliminar el piloto:** la base de datos tiene **protección contra borrado** (B8). Para eliminar el entorno a
   propósito: `aws rds modify-db-instance --db-instance-identifier <id> --no-deletion-protection --apply-immediately`
   y luego `npx cdk destroy NexoPilot` (la base de datos deja un snapshot final).
-- **Nunca rotar `ENCRYPTION_KEY`:** cifra los secretos y tokens de los clientes; rotarla requiere un proceso de recifrado.
+- **No reemplace `ENCRYPTION_KEY`:** cifra los secretos y tokens de los clientes. Para rotar, agregue una clave nueva en
+  `ENCRYPTION_KEYS`, actívela con `ENCRYPTION_ACTIVE_KID` y re-cifre con `npm run crypto:rotate` (B7); el procedimiento
+  completo está en [`docs/rotacion-de-claves.md`](rotacion-de-claves.md). Hoy el stack solo inyecta `ENCRYPTION_KEY`.
 
 ## Actualizar un piloto desplegado antes del endurecimiento (M7 y B8)
 

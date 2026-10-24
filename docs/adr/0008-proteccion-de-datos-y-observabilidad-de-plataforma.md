@@ -100,3 +100,108 @@ Módulo puro y determinista (sin IA, sin red) que analiza texto y estructuras JS
 | Auditoría, telemetría, retención, borrado, acceso de soporte, endpoints de plataforma | nexo-backend-platform |
 | Panel "Protección de datos", política, prueba de política, clasificación en conexiones/conectores, telemetría web | nexo-frontend-ui + nexo-frontend-core |
 | Pruebas por categoría, de reversión y de no filtración de contenido | nexo-qa-api |
+
+## Estado de la implementación
+
+### M8/P6 — D1, D2 (por workspace) y D7 (2026-10-24, nexo-backend-ai)
+
+**Implementado**
+- **DataGuard (D1)** — `apps/api/src/modules/llm/data-guard/detector.ts`: detector puro y determinista (sin IA ni red)
+  con expresiones acotadas (sin ReDoS) que devuelve `{ category, kind, start, end, confidence }` sin valores.
+  Categorías: `EMAIL`; `PHONE` (móvil y fijo de Colombia, España, internacional con `+`, y con contexto «teléfono»,
+  «celular», «WhatsApp»…); `PAYMENT_CARD` (Luhn + prefijo de emisor); `BANK_ACCOUNT` (IBAN con longitud por país y
+  mod 97; número de cuenta con contexto); `NATIONAL_ID` (DNI y NIE de España con letra de control, NIT con dígito de
+  verificación, CPF, RUT chileno, CURP y RFC mexicanos; cédula colombiana, DNI de Perú/Argentina, CI, pasaporte… solo con
+  la palabra de contexto, porque no tienen dígito de control); `CREDENTIAL` (valores de la bóveda y su base64, llaves de
+  API conocidas, JWT, llaves privadas, contraseña de cadenas de conexión, `Bearer`/`Basic`, contraseñas en contexto).
+- **Punto único de aplicación** — `LlmGatewayService.resolve` envuelve todo cliente con `DataGuardService.wrap`
+  (`guarded-client.ts`): agentes (chat, flujos, rutinas, servidor MCP), evaluaciones/optimizador y Copilot pasan por ahí
+  sin condicionales repartidos. Se aplica al mensaje del usuario, al historial y a los resultados de herramientas; el
+  system prompt y las descripciones de herramientas solo se limpian de credenciales (los datos de contacto que el
+  administrador escribe en las instrucciones son deliberados).
+- **Política por workspace (D2, versión inicial)** — modos `off | mask | block`, por defecto **`mask`** (política base
+  «enmascarar con reversión»):
+  - `mask`: cada valor se reemplaza por un marcador `[CORREO_1a2b3c4d]`, `[TELEFONO_…]`, `[DOCUMENTO_…]`, `[TARJETA_…]`,
+    `[CUENTA_…]`. Las entradas de las herramientas, los eventos SSE (`text`, `tool_call`, `tool_result`) y la respuesta
+    se restituyen antes de ejecutar o mostrar (también si el marcador llega partido entre fragmentos del stream).
+  - `block`: un mensaje del usuario con datos personales se rechaza con 422 (evento `error` en SSE) sin llamar al
+    modelo; un resultado de herramienta con datos personales se sustituye por un error (`is_error`) que no los contiene.
+  - `off`: los datos personales pasan tal cual.
+  - **Credenciales: siempre bloqueadas, en cualquier modo (no configurable).** Se reemplazan por `[CREDENCIAL_OCULTA]`,
+    que es irreversible: no se restituyen ni en la respuesta ni en lo que se guarda. Decisión: en el mensaje del usuario
+    se oculta la credencial y se avisa (`notice`) en lugar de rechazar todo el mensaje; el valor nunca sale igual.
+  - Cada enmascarado emite un `notice` con conteos por categoría, nunca valores. **Protocolo SSE sin cambios** (mismos
+    tipos de evento; solo hay avisos nuevos y un 422 nuevo en el modo `block`).
+- **Marcadores deterministas sin tabla persistida.** Desviación respecto de «tabla cifrada en la conversación»: el
+  marcador es `HMAC(clave de la conversación, categoría + valor normalizado)` (8 hex). La clave deriva del secreto de la
+  plataforma (`ENCRYPTION_KEY`/`JWT_SECRET`), del workspace y del ámbito (`conversation:<id>`, `copilot:<id>`,
+  `execution:<id>`; aleatorio en ejecuciones sin estado). Así el mismo dato tiene el mismo marcador en todos los turnos
+  (el historial reenviado es idéntico byte a byte y **no rompe la caché de prompts**), difiere entre conversaciones, no se
+  puede invertir por fuerza bruta (una cédula tiene pocos dígitos) y no hay que guardar ni cifrar ninguna tabla: la
+  tabla marcador → valor vive solo en memoria y se reconstruye en cada turno desde el historial guardado (dos pasadas:
+  primero aprende todos los valores, luego reemplaza también sus apariciones sin contexto). El id de una conversación
+  nueva se fija antes del primer turno para que el ámbito sea el mismo desde el principio.
+- **Historial append-only en formato nativo.** Lo guardado conserva el prefijo previo tal cual y agrega los turnos
+  nuevos con los valores restituidos (el proveedor nunca los vio); los bloques `thinking`/`redacted_thinking` y
+  `reasoning_content` se reenvían sin tocar (firmas). Ids, roles y nombres de herramienta no se transforman.
+- **Retención (D7)** — `ConversationRetentionService` (módulo `data-protection`) se ejecuta en el job diario existente
+  `executions-retention` de la cola de flujos (03:17 UTC, `RetentionService.purge`); el reconciliador de programadores
+  (`schedule-reconciler*`) no lo toca porque solo gestiona los prefijos de flujos y rutinas. Borra, por workspace y con
+  los días configurados: `Conversation` sin actividad (`updatedAt`), `CopilotSession` (en cascada sus mensajes,
+  propuestas y calificaciones, incluida la conversación compartida con Nexo) y `MessageFeedback` (copia mensaje y
+  respuesta). Sin retención configurada no se borra nada, salvo que la plataforma fije `CONVERSATIONS_RETENTION_DAYS`
+  para los workspaces que no eligieron. Solo se registran conteos, nunca contenido.
+- **API (solo ADMIN/OWNER del cliente)** — `GET/PUT /admin/data-protection/policy`
+  `{ dataGuardMode, conversationRetentionDays }` y `POST /admin/data-protection/test { text }` → hallazgos (posiciones,
+  sin valores) y la vista enmascarada. Desviación: `conversationRetentionDays` vive en la política de protección de
+  datos (misma pantalla) y no en `/workspace/settings`. La consola de plataforma no tiene acceso a estos endpoints ni al
+  contenido.
+- **Web** — «Administración → Ajustes» incluye la tarjeta «Protección de datos»: modo, retención y prueba de detección.
+
+**Persistencia provisional (pendiente de esquema).** El esquema no tiene columnas para estos ajustes y su dueño es otro
+agente: `PrivacySettingsService` los guarda en el Redis de la aplicación (hash `nexo:privacy:settings`, sin expiración).
+Si Redis no responde, se aplica `mask` (el dato nunca sale en claro) y la purga se omite (no se borra con una política
+desconocida). Migración propuesta (solo cambia `PrivacySettingsService`):
+
+```prisma
+enum DataGuardMode {
+  OFF
+  MASK
+  BLOCK
+}
+
+model Workspace {
+  // …
+  /// Política de DataGuard hacia los modelos de IA (ADR 0008 D2).
+  dataGuardMode             DataGuardMode @default(MASK)
+  /// Días que se conservan conversaciones y mensajes (ADR 0008 D7). Null = sin límite.
+  conversationRetentionDays Int?
+  /// Null = el workspace nunca guardó su política: rige `CONVERSATIONS_RETENTION_DAYS` de la plataforma.
+  privacySettingsUpdatedAt  DateTime?
+}
+
+model Conversation {
+  // …
+  @@index([updatedAt])            // purga diaria
+}
+
+model CopilotSession {
+  // …
+  @@index([workspaceId, updatedAt]) // purga diaria
+}
+```
+Al aplicarla: copiar una vez el hash de Redis a las columnas y luego reemplazar las lecturas/escrituras de
+`PrivacySettingsService`.
+
+**Pendiente (fuera de este alcance)**
+- Política por categoría y cadena agente → unidad → empresa (`DataPolicy`), acción `ALERT`, categorías `ADDRESS`,
+  `HEALTH`, `MINOR` y `CUSTOM` (patrones del cliente validados contra ReDoS) — D1/D2.
+- Auditoría `DataProtectionEvent` y panel «Protección de datos» (D5): hoy solo hay avisos en el chat y logs sin valores.
+- D3, D4, D6 y el resto de D7 (borrado por usuario, exportación, cifrado con llave por workspace).
+
+**Límites conocidos**
+- Los nombres propios y los datos sin patrón reconocible no se detectan.
+- Un documento sin dígito de control solo se reconoce con su palabra de contexto; en los turnos siguientes de la misma
+  conversación también se oculta donde aparece sin ella.
+- Si el modelo altera el marcador (p. ej. sin corchetes), el usuario lo ve tal cual.
+- Los bloques de razonamiento firmados de turnos hechos con el modo `off` no se pueden modificar y se reenvían igual.

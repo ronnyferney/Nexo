@@ -1,12 +1,14 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Connector, OAuthCredential } from '@prisma/client';
+import { CipherContexts } from '../../common/crypto/cipher-context';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { bindingMatches, browserBindingCookie, newBrowserBinding } from '../../common/oauth/browser-binding';
 import { ROLE_RANK } from '../../common/decorators/roles.decorator';
 import { HttpClientService } from '../../common/http/http-client.service';
 import { getPath, render } from '../../common/template/template.engine';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { SingleUseService } from '../../infrastructure/redis/single-use.service';
 import type { OAuth2CodeAuth } from '../connectors/domain/connector.types';
 import { assertSecretRefsAllowed, collectSecretRefs } from '../connectors/domain/secret-refs';
 import { SecretsService } from '../workspaces/secrets.service';
@@ -76,6 +78,8 @@ export class OAuthService {
     private readonly secrets: SecretsService,
     private readonly state: OAuthStateService,
     private readonly config: ConfigService,
+    /** Uso único del `state` compartido entre réplicas (Redis, falla cerrado; B2). */
+    private readonly singleUse: SingleUseService,
   ) {
     this.publicUrl = config.get<string>('publicUrl') ?? 'http://localhost:3000';
     this.webUrl = config.get<string>('webUrl') ?? 'http://localhost:4200';
@@ -125,7 +129,8 @@ export class OAuthService {
    * @param browserNonce valor de la cookie `CONNECTOR_OAUTH_COOKIE` que presentó el navegador.
    */
   async callback(query: { code?: string; state?: string; error?: string }, browserNonce?: string): Promise<string> {
-    const payload = query.state ? await this.state.consume(query.state) : null;
+    // B2: el `jti` se reclama en Redis para todas las réplicas; si Redis no responde, el `state` se rechaza.
+    const payload = query.state ? await this.state.consume(query.state, { replayGuard: this.singleUse }) : null;
     if (!payload) return this.webRedirect(null, 'invalid_state');
     const { workspaceId, connectorId, userId, codeVerifier } = payload;
     // El consentimiento debe volver al mismo navegador que lo inició (M1b); el `state` ya quedó consumido.
@@ -192,9 +197,17 @@ export class OAuthService {
    * @param auth autenticación `oauth2_code` ya renderizada con los secretos del workspace.
    */
   async accessToken(connectorId: string, auth: OAuth2CodeAuth): Promise<string> {
-    const cred = await this.prisma.oAuthCredential.findUnique({ where: { connectorId } });
+    const cred = await this.prisma.oAuthCredential.findUnique({
+      where: { connectorId },
+      include: { connector: { select: { workspaceId: true } } },
+    });
     if (!cred) throw new BadRequestException('Conecte la cuenta OAuth del conector');
-    if (!this.expiringSoon(cred)) return this.crypto.decrypt(cred.accessTokenCipher);
+    if (!this.expiringSoon(cred)) {
+      return this.crypto.decrypt(
+        cred.accessTokenCipher,
+        CipherContexts.oauthAccess(cred.connector.workspaceId, connectorId),
+      );
+    }
 
     const inflight = this.refreshing.get(connectorId);
     if (inflight) return inflight;
@@ -209,7 +222,10 @@ export class OAuthService {
       include: { connector: true },
     });
     if (!cred) throw new BadRequestException('Conecte la cuenta OAuth del conector');
-    if (!this.expiringSoon(cred)) return this.crypto.decrypt(cred.accessTokenCipher);
+    const workspaceId = cred.connector.workspaceId;
+    if (!this.expiringSoon(cred)) {
+      return this.crypto.decrypt(cred.accessTokenCipher, CipherContexts.oauthAccess(workspaceId, connectorId));
+    }
     if (!cred.refreshTokenCipher) {
       throw new BadRequestException(
         'La sesión OAuth expiró y el proveedor no entregó refresh token: vuelva a conectar la cuenta',
@@ -220,7 +236,10 @@ export class OAuthService {
     try {
       token = await this.tokenRequest(app, {
         grant_type: 'refresh_token',
-        refresh_token: this.crypto.decrypt(cred.refreshTokenCipher),
+        refresh_token: this.crypto.decrypt(
+          cred.refreshTokenCipher,
+          CipherContexts.oauthRefresh(workspaceId, connectorId),
+        ),
       });
     } catch (err) {
       const status = err instanceof TokenEndpointError ? ` (HTTP ${err.status})` : '';
@@ -320,16 +339,23 @@ export class OAuthService {
   ): Promise<void> {
     const expiresIn = Number(token.expires_in ?? auth.defaultExpiresIn ?? NaN);
     const expiresAt = Number.isFinite(expiresIn) && expiresIn > 0 ? new Date(Date.now() + expiresIn * 1000) : null;
+    const refreshContext = CipherContexts.oauthRefresh(connector.workspaceId, connector.id);
+    // Si no llega un refresh token nuevo se conserva el anterior, re-cifrado con la clave activa si hace falta (B7).
     const refreshTokenCipher = token.refresh_token
-      ? this.crypto.encrypt(token.refresh_token)
-      : (previous?.refreshTokenCipher ?? null);
+      ? this.crypto.encrypt(token.refresh_token, refreshContext)
+      : previous?.refreshTokenCipher
+        ? this.crypto.reencrypt(previous.refreshTokenCipher, refreshContext)
+        : null;
 
     let accountLabel = previous?.accountLabel ?? null;
     const instance = await this.applyInstanceUrl(connector, auth, token);
     if (!previous) accountLabel = (await this.fetchAccountLabel(auth, token)) ?? instance ?? null;
 
     const data = {
-      accessTokenCipher: this.crypto.encrypt(token.access_token),
+      accessTokenCipher: this.crypto.encrypt(
+        token.access_token,
+        CipherContexts.oauthAccess(connector.workspaceId, connector.id),
+      ),
       refreshTokenCipher,
       expiresAt,
       scope:
@@ -396,7 +422,9 @@ export class OAuthService {
       return;
     }
     if (!app.revokeUrl) return;
-    const token = this.crypto.decrypt(cred.refreshTokenCipher ?? cred.accessTokenCipher);
+    const token = cred.refreshTokenCipher
+      ? this.crypto.decrypt(cred.refreshTokenCipher, CipherContexts.oauthRefresh(connector.workspaceId, connector.id))
+      : this.crypto.decrypt(cred.accessTokenCipher, CipherContexts.oauthAccess(connector.workspaceId, connector.id));
     await this.http.request({
       url: app.revokeUrl,
       method: 'POST',

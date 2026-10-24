@@ -2,6 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { createHash } from 'node:crypto';
+import { CipherContexts } from '../../common/crypto/cipher-context';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { bindingTag } from '../../common/oauth/browser-binding';
 import { slack, SLACK_BOT_SCOPES } from '../connectors/catalog/integrations/slack';
@@ -94,7 +95,15 @@ describe('OAuthService.resolveApp', () => {
     scopes: ['oauth'],
   };
   const service = (env: Record<string, string> = {}) =>
-    new OAuthService(null as never, null as never, null as never, null as never, null as never, config(env));
+    new OAuthService(
+      null as never,
+      null as never,
+      null as never,
+      null as never,
+      null as never,
+      config(env),
+      null as never,
+    );
 
   it('usa la app propia del cliente con sus URLs', () => {
     const app = service().resolveApp({
@@ -150,7 +159,7 @@ describe('OAuthService con Slack (OAuth v2, "Agregar a Slack")', () => {
       },
       membership: { findUnique: () => Promise.resolve({ role: 'OWNER' }) },
       oAuthCredential: {
-        findUnique: () => Promise.resolve(stored),
+        findUnique: () => Promise.resolve(stored && { ...stored, connector: { workspaceId: 'ws1' } }),
         upsert: ({ create }: { create: Record<string, unknown> }) => {
           stored = create;
           return Promise.resolve(create);
@@ -177,6 +186,7 @@ describe('OAuthService con Slack (OAuth v2, "Agregar a Slack")', () => {
       secrets as never,
       state as never,
       config({ publicUrl: 'https://api.nexo.test', webUrl: 'https://app.nexo.test' }),
+      { claim: () => Promise.resolve(true) } as never,
     );
     return { svc, httpCalls, secrets, stored: () => stored };
   };
@@ -258,7 +268,9 @@ describe('OAuthService con Slack (OAuth v2, "Agregar a Slack")', () => {
     });
     await svc.callback({ code: 'codigo', state: 'state-firmado' }, NONCE);
     const cred = stored()!;
-    expect(crypto.decrypt(cred.refreshTokenCipher as string)).toBe('xoxe-1-refresh');
+    expect(crypto.decrypt(cred.refreshTokenCipher as string, CipherContexts.oauthRefresh('ws1', 'c1'))).toBe(
+      'xoxe-1-refresh',
+    );
     expect((cred.expiresAt as Date).getTime()).toBeGreaterThan(Date.now() + 43_000_000);
   });
 

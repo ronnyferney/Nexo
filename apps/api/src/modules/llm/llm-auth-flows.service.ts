@@ -1,15 +1,24 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { LlmAuthFlow } from '@prisma/client';
+import { CipherContexts } from '../../common/crypto/cipher-context';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { ROLE_RANK } from '../../common/decorators/roles.decorator';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { SingleUseService } from '../../infrastructure/redis/single-use.service';
 import { createPkce, OAuthStateService, STATE_TTL_SECONDS } from '../oauth/oauth-state.service';
+import type { AuthorizedAccount } from './llm-authorized-account';
 import { bindingMatches, newBrowserBinding } from './llm-browser-binding';
 import { LlmProvidersService } from './llm-providers.service';
 import { serializeConnection } from './llm-serializers';
-import { LlmTokenService, OAuthTokenError, stringValues, tokensFrom, type OAuthTokens } from './llm-token.service';
+import {
+  LlmTokenService,
+  OAuthTokenError,
+  stringValues,
+  tokensFrom,
+  type OAuthTokenResponse,
+  type OAuthTokens,
+} from './llm-token.service';
 import { findMechanism, type OAuthAppSpec, type ProviderCatalogEntry, type ValidatedFields } from './providers';
 
 /** Prefijo del `connectorId` del `state` firmado: `llm-provider:<proveedor>:<flujo>` (ADR 0002 D8, ADR 0005 D3). */
@@ -26,7 +35,11 @@ export type LlmOAuthErrorReason =
   | 'verification_failed'
   | 'browser_mismatch';
 
-export type DeviceFlowStatus = 'pending' | 'slow_down' | 'connected' | 'expired' | 'denied';
+/**
+ * `confirm`: el proveedor ya entregó los tokens y el flujo espera que el ADMIN que lo inició confirme la cuenta
+ * autorizada (M1b). `cancelled`: el ADMIN la rechazó (los tokens se descartan y, si el proveedor lo permite, se revocan).
+ */
+export type DeviceFlowStatus = 'pending' | 'slow_down' | 'confirm' | 'connected' | 'expired' | 'denied' | 'cancelled';
 
 export interface FlowInput {
   name?: string;
@@ -53,12 +66,24 @@ export interface DevicePollResult {
   /** Detalle en español cuando la conexión no se pudo completar. */
   message?: string;
   connection?: ReturnType<typeof serializeConnection>;
+  /** Con `status: 'confirm'`: cuenta que autorizó el código según el proveedor (o `available: false`). */
+  account?: AuthorizedAccount;
+  /** Con `status: 'confirm'`: segundos que quedan para confirmar antes de descartar la autorización. */
+  confirmExpiresIn?: number;
+}
+
+/** Tokens emitidos y cuenta autorizada mientras se espera la confirmación (cifrados en `deviceCodeCipher`). */
+interface PendingAuthorization {
+  tokens: { accessToken: string; refreshToken?: string; expiresAt: string | null; scope: string | null };
+  account: AuthorizedAccount;
 }
 
 /** Intervalo por defecto del flujo de dispositivo (RFC 8628 §3.2) y vida máxima del código. */
 const DEFAULT_INTERVAL_S = 5;
 const DEFAULT_DEVICE_TTL_S = 900;
 const MAX_DEVICE_TTL_S = 1800;
+/** Plazo para confirmar la cuenta autorizada (M1b); vencido, los tokens se descartan. */
+export const DEVICE_CONFIRM_TTL_S = 600;
 
 /**
  * Inicio de sesión con la app OAuth **de Nexo** en el proveedor (ADR 0002, D8): authorization code + PKCE S256 con
@@ -256,7 +281,7 @@ export class LlmAuthFlowsService {
         fields: validated.values,
         models: input.models ?? [],
         connectionId: target?.id ?? null,
-        deviceCodeCipher: this.crypto.encrypt(deviceCode),
+        deviceCodeCipher: this.crypto.encrypt(deviceCode, CipherContexts.llmDeviceCode(workspaceId, userId)),
         intervalSec: interval,
         nextPollAt: new Date(Date.now() + interval * 1000),
         expiresAt: new Date(Date.now() + expiresIn * 1000),
@@ -275,12 +300,17 @@ export class LlmAuthFlowsService {
   /**
    * Consulta el estado del flujo. Respeta el `interval` del proveedor: si la web sondea antes, responde `pending` sin
    * llamar al proveedor. El reclamo del turno de sondeo es atómico (dos sondeos simultáneos no canjean dos veces).
+   *
+   * M1b: cuando el proveedor entrega los tokens la conexión **no** se activa: el flujo pasa a `confirm` con la cuenta
+   * autorizada y espera `deviceConfirm` del mismo ADMIN que lo inició. Solo ese usuario consulta el flujo.
    */
-  async devicePoll(workspaceId: string, providerId: string, flowId: string): Promise<DevicePollResult> {
-    const flow = await this.prisma.llmAuthFlow.findFirst({
-      where: { id: flowId, workspaceId, providerId, type: 'DEVICE_CODE' },
-    });
-    if (!flow) throw new NotFoundException('Flujo de conexión no encontrado');
+  async devicePoll(
+    workspaceId: string,
+    userId: string | undefined,
+    providerId: string,
+    flowId: string,
+  ): Promise<DevicePollResult> {
+    const flow = await this.deviceFlow(workspaceId, userId, providerId, flowId);
     const interval = flow.intervalSec ?? DEFAULT_INTERVAL_S;
     if (flow.status === 'connected' && flow.connectionId) {
       const row = await this.prisma.llmConnection.findFirst({
@@ -289,11 +319,16 @@ export class LlmAuthFlowsService {
       });
       return row ? { status: 'connected', connection: serializeConnection(row) } : { status: 'expired' };
     }
-    if (flow.status === 'expired' || flow.status === 'denied') return { status: flow.status };
+    if (flow.status === 'expired' || flow.status === 'denied' || flow.status === 'cancelled') {
+      return { status: flow.status };
+    }
+    // Confirmación en curso (otra pestaña): se sigue mostrando la cuenta hasta que termine.
+    if (flow.status === 'confirming' && flow.deviceCodeCipher) return this.confirmView(flow);
     if (flow.expiresAt.getTime() < Date.now()) {
-      await this.finish(flow.id, 'expired');
+      await this.discard(flow, 'expired');
       return { status: 'expired' };
     }
+    if (flow.status === 'confirm') return this.confirmView(flow);
 
     const now = new Date();
     const claimed = await this.prisma.llmAuthFlow.updateMany({
@@ -305,14 +340,15 @@ export class LlmAuthFlowsService {
     const entry = this.providers.provider(providerId);
     const values = (flow.fields ?? {}) as Record<string, string>;
     const app = this.tokens.app(entry, this.spec(entry, 'DEVICE_CODE'), values);
-    let tokens: OAuthTokens;
+    let response: OAuthTokenResponse;
     try {
-      tokens = tokensFrom(
-        await this.tokens.token(app, {
-          grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-          device_code: this.crypto.decrypt(flow.deviceCodeCipher!),
-        }),
-      );
+      response = await this.tokens.token(app, {
+        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+        device_code: this.crypto.decrypt(
+          flow.deviceCodeCipher!,
+          CipherContexts.llmDeviceCode(flow.workspaceId, flow.userId),
+        ),
+      });
     } catch (err) {
       if (!(err instanceof OAuthTokenError)) throw err;
       switch (err.code) {
@@ -342,8 +378,70 @@ export class LlmAuthFlowsService {
       }
     }
 
+    // M1b: se guardan los tokens (cifrados, ligados al flujo) y la cuenta autorizada hasta la confirmación del ADMIN.
+    const tokens = tokensFrom(response);
+    const pending: PendingAuthorization = {
+      tokens: {
+        accessToken: tokens.accessToken,
+        ...(tokens.refreshToken ? { refreshToken: tokens.refreshToken } : {}),
+        expiresAt: tokens.expiresAt?.toISOString() ?? null,
+        scope: tokens.scope,
+      },
+      account: await this.tokens.authorizedAccount(app, response),
+    };
+    const expiresAt = new Date(Date.now() + DEVICE_CONFIRM_TTL_S * 1000);
+    await this.prisma.llmAuthFlow.update({
+      where: { id: flow.id },
+      data: {
+        status: 'confirm',
+        deviceCodeCipher: this.crypto.encrypt(
+          JSON.stringify(pending),
+          CipherContexts.llmPendingTokens(flow.workspaceId, flow.userId),
+        ),
+        nextPollAt: null,
+        expiresAt,
+      },
+    });
+    return { status: 'confirm', account: pending.account, confirmExpiresIn: DEVICE_CONFIRM_TTL_S };
+  }
+
+  /**
+   * Confirma la cuenta autorizada y activa la conexión (M1b). Solo el ADMIN que inició el flujo, mientras siga siendo
+   * ADMIN y dentro del plazo. El reclamo es atómico: dos confirmaciones simultáneas no crean dos conexiones.
+   */
+  async deviceConfirm(
+    workspaceId: string,
+    userId: string | undefined,
+    providerId: string,
+    flowId: string,
+  ): Promise<DevicePollResult> {
+    const flow = await this.deviceFlow(workspaceId, userId, providerId, flowId);
+    if (!(await this.isAdmin(flow.userId, workspaceId))) {
+      throw new ForbiddenException('Solo un administrador del workspace puede activar la conexión');
+    }
+    if (flow.status !== 'confirm') {
+      throw new BadRequestException('La autorización no está pendiente de confirmación: genere un código nuevo');
+    }
+    if (flow.expiresAt.getTime() < Date.now()) {
+      await this.discard(flow, 'expired');
+      return { status: 'expired' };
+    }
+    const claimed = await this.prisma.llmAuthFlow.updateMany({
+      where: { id: flow.id, status: 'confirm' },
+      data: { status: 'confirming' },
+    });
+    if (!claimed.count) {
+      throw new BadRequestException('La autorización ya se está confirmando o se descartó');
+    }
+    const pending = this.pending(flow);
+    const entry = this.providers.provider(providerId);
     try {
-      const saved = await this.save(flow, entry, tokens);
+      const saved = await this.save(flow, entry, {
+        accessToken: pending.tokens.accessToken,
+        ...(pending.tokens.refreshToken ? { refreshToken: pending.tokens.refreshToken } : {}),
+        expiresAt: pending.tokens.expiresAt ? new Date(pending.tokens.expiresAt) : null,
+        scope: pending.tokens.scope,
+      });
       await this.prisma.llmAuthFlow.update({
         where: { id: flow.id },
         data: { status: 'connected', connectionId: saved.id, deviceCodeCipher: null },
@@ -355,7 +453,79 @@ export class LlmAuthFlowsService {
     }
   }
 
+  /**
+   * «No es mi cuenta»: descarta la autorización pendiente (o el código aún sin autorizar) y, si el proveedor documenta
+   * revocación, revoca los tokens emitidos. Solo el ADMIN que inició el flujo.
+   */
+  async deviceCancel(
+    workspaceId: string,
+    userId: string | undefined,
+    providerId: string,
+    flowId: string,
+  ): Promise<DevicePollResult> {
+    const flow = await this.deviceFlow(workspaceId, userId, providerId, flowId);
+    if (flow.status === 'connected') {
+      throw new BadRequestException('La conexión ya está activa: use «Cerrar sesión» o «Desconectar»');
+    }
+    if (flow.status === 'confirming') throw new BadRequestException('La conexión se está activando en este momento');
+    if (flow.status !== 'pending' && flow.status !== 'confirm') return { status: flow.status as DeviceFlowStatus };
+    await this.discard(flow, 'cancelled');
+    return { status: 'cancelled' };
+  }
+
   // ---------- Internos ----------
+  /** Flujo de código de dispositivo del workspace iniciado por `userId` (otro usuario recibe 404). */
+  private async deviceFlow(workspaceId: string, userId: string | undefined, providerId: string, flowId: string) {
+    const flow = userId
+      ? await this.prisma.llmAuthFlow.findFirst({
+          where: { id: flowId, workspaceId, providerId, userId, type: 'DEVICE_CODE' },
+        })
+      : null;
+    if (!flow) throw new NotFoundException('Flujo de conexión no encontrado');
+    return flow;
+  }
+
+  private pending(flow: LlmAuthFlow): PendingAuthorization {
+    return JSON.parse(
+      this.crypto.decrypt(flow.deviceCodeCipher!, CipherContexts.llmPendingTokens(flow.workspaceId, flow.userId)),
+    ) as PendingAuthorization;
+  }
+
+  private confirmView(flow: LlmAuthFlow): DevicePollResult {
+    return {
+      status: 'confirm',
+      account: this.pending(flow).account,
+      confirmExpiresIn: Math.max(0, Math.round((flow.expiresAt.getTime() - Date.now()) / 1000)),
+    };
+  }
+
+  /**
+   * Cierra un flujo sin conexión. Si ya había tokens sin confirmar, los revoca en el proveedor (si lo documenta) antes
+   * de borrarlos: una autorización rechazada o vencida no debe quedar viva en la cuenta de quien escribió el código.
+   */
+  private async discard(flow: LlmAuthFlow, status: 'expired' | 'cancelled'): Promise<void> {
+    if (flow.status === 'confirm' && flow.deviceCodeCipher) {
+      try {
+        const pending = this.pending(flow);
+        const entry = this.providers.provider(flow.providerId);
+        const app = this.tokens.app(
+          entry,
+          this.spec(entry, 'DEVICE_CODE'),
+          (flow.fields ?? {}) as Record<string, string>,
+        );
+        await this.tokens.revokeToken(app, pending.tokens.refreshToken ?? pending.tokens.accessToken);
+      } catch (err) {
+        this.logger.warn(
+          `No se pudo revocar la autorización descartada del flujo ${flow.id}: ${(err as Error).message}`,
+        );
+      }
+    }
+    await this.prisma.llmAuthFlow.updateMany({
+      where: { id: flow.id, status: flow.status },
+      data: { status, deviceCodeCipher: null },
+    });
+  }
+
   /**
    * Conexión OAuth del workspace y del mismo proveedor sobre la que se vuelve a iniciar sesión. Se reutilizan sus campos
    * guardados (proyecto, región, recurso) para que la sesión nueva apunte al mismo destino.
@@ -384,8 +554,10 @@ export class LlmAuthFlowsService {
       const renewed = await this.prisma.llmConnection.updateMany({
         where: { id: flow.connectionId, workspaceId: flow.workspaceId, providerId: entry.id, credentialType: 'OAUTH' },
         data: {
-          apiKeyCipher: this.crypto.encrypt(tokens.accessToken),
-          oauthRefreshCipher: tokens.refreshToken ? this.crypto.encrypt(tokens.refreshToken) : null,
+          apiKeyCipher: this.crypto.encrypt(tokens.accessToken, CipherContexts.llmApiKey(flow.workspaceId)),
+          oauthRefreshCipher: tokens.refreshToken
+            ? this.crypto.encrypt(tokens.refreshToken, CipherContexts.llmRefresh(flow.workspaceId))
+            : null,
           oauthExpiresAt: tokens.expiresAt,
           oauthScope: tokens.scope,
         },
@@ -407,7 +579,7 @@ export class LlmAuthFlowsService {
     return { ...saved.connection, models: saved.models };
   }
 
-  private async finish(flowId: string, status: 'expired' | 'denied'): Promise<void> {
+  private async finish(flowId: string, status: 'expired' | 'denied' | 'cancelled'): Promise<void> {
     await this.prisma.llmAuthFlow.update({ where: { id: flowId }, data: { status, deviceCodeCipher: null } });
   }
 

@@ -4,11 +4,15 @@ import type { WorkspaceSettings } from '../../core/agents-scope.models';
 import { errorMessage } from '../../core/api.service';
 import { ToastService } from '../../core/toast.service';
 import { IconComponent } from '../../shared/icon.component';
+import { DataProtectionSettingsComponent } from './data-protection-settings.component';
 
-/** Ajustes del workspace (ADR 0007 D3): política de agentes personales. Solo ADMIN/OWNER. */
+/**
+ * Ajustes del workspace: política de agentes personales (ADR 0007 D3) y protección de datos hacia los modelos y
+ * retención de conversaciones (ADR 0008). Solo ADMIN/OWNER.
+ */
 @Component({
   selector: 'nx-admin-workspace-settings',
-  imports: [IconComponent],
+  imports: [IconComponent, DataProtectionSettingsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page">
@@ -45,6 +49,8 @@ import { IconComponent } from '../../shared/icon.component';
           </div>
         </div>
       }
+
+      <nx-data-protection-settings />
     </div>
   `,
 })

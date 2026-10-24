@@ -11,6 +11,8 @@ import { LlmGatewayService } from './llm-gateway.service';
 import type { AwsRoleService } from './keyless/aws-role.service';
 import type { OidcIssuerService } from './keyless/oidc-issuer.service';
 import type { LlmTokenService } from './llm-token.service';
+import type { DataGuardService } from './data-guard/data-guard.service';
+import type { LlmClient } from './llm-provider';
 
 describe('A2 · las credenciales no se redirigen a otro destino', () => {
   const catalog = {
@@ -78,6 +80,7 @@ describe('A6 · cupo mensual de la conexión de plataforma', () => {
       {} as LlmTokenService,
       {} as OidcIssuerService,
       {} as AwsRoleService,
+      { wrap: (_ws: string, client: LlmClient) => client } as unknown as DataGuardService,
     );
     return { g, aggregate };
   }

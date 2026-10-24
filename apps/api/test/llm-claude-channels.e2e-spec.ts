@@ -1,5 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { CipherContexts } from '../src/common/crypto/cipher-context';
 import { CryptoService } from '../src/common/crypto/crypto.service';
 import { createTestApp, prismaOf } from './utils/app';
 import { chat, createAgent, registerOwner, type Session } from './utils/fixtures';
@@ -51,7 +52,7 @@ describe('Claude en Microsoft Foundry (E2E)', () => {
       providerId: 'claude-foundry',
       driverOptions: { claude: { channel: 'foundry', resource: 'mi-recurso' } },
     });
-    expect(app.get(CryptoService).decrypt(row.apiKeyCipher!)).toBe(KEY);
+    expect(app.get(CryptoService).decrypt(row.apiKeyCipher!, CipherContexts.llmApiKey(row.workspaceId))).toBe(KEY);
     // Foundry factura con las tarifas de la API de Anthropic.
     expect(row.models[0]).toMatchObject({ modelId: 'claude-opus-5-5', needsPricing: false });
     expect(Number(row.models[0].inputUsdPerMTok)).toBe(4);

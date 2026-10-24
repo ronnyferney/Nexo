@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { LlmConnection } from '@prisma/client';
+import { CipherContexts } from '../../common/crypto/cipher-context';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { CurrentAuth, type AuthContext } from '../../common/decorators/current-user.decorator';
 import { MinRole } from '../../common/decorators/roles.decorator';
@@ -97,7 +98,11 @@ export class LlmAdminController {
   async create(@CurrentAuth() a: AuthContext, @Body() dto: CreateLlmConnectionDto) {
     const { apiKey, ...rest } = dto;
     const row = await this.prisma.llmConnection.create({
-      data: { ...rest, workspaceId: a.workspaceId, apiKeyCipher: apiKey ? this.crypto.encrypt(apiKey) : null },
+      data: {
+        ...rest,
+        workspaceId: a.workspaceId,
+        apiKeyCipher: apiKey ? this.crypto.encrypt(apiKey, CipherContexts.llmApiKey(a.workspaceId)) : null,
+      },
       include: { models: true },
     });
     return serializeConnection(row);
@@ -110,7 +115,10 @@ export class LlmAdminController {
     assertSafeDestinationChange(c, dto);
     const row = await this.prisma.llmConnection.update({
       where: { id },
-      data: { ...rest, ...(apiKey ? { apiKeyCipher: this.crypto.encrypt(apiKey) } : {}) },
+      data: {
+        ...rest,
+        ...(apiKey ? { apiKeyCipher: this.crypto.encrypt(apiKey, CipherContexts.llmApiKey(a.workspaceId)) } : {}),
+      },
       include: { models: { orderBy: { label: 'asc' } } },
     });
     return serializeConnection(row);

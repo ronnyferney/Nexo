@@ -35,6 +35,12 @@ export class LlmProvidersApi {
     firstValueFrom(this.http.post<DeviceStartResult>(`${this.url(id)}/device/start`, data));
   devicePoll = (id: string, flowId: string) =>
     firstValueFrom(this.http.post<DevicePollResult>(`${this.url(id)}/device/poll`, { flowId }));
+  /** M1b: activa la conexión tras revisar la cuenta autorizada (solo el ADMIN que inició el flujo). */
+  deviceConfirm = (id: string, flowId: string) =>
+    firstValueFrom(this.http.post<DevicePollResult>(`${this.url(id)}/device/confirm`, { flowId }));
+  /** M1b: «No es mi cuenta»: descarta la autorización (y la revoca si el proveedor lo permite). */
+  deviceCancel = (id: string, flowId: string) =>
+    firstValueFrom(this.http.post<DevicePollResult>(`${this.url(id)}/device/cancel`, { flowId }));
   /** Conexión sin claves: datos del emisor OIDC de Nexo o un ExternalId nuevo con las políticas de IAM sugeridas. */
   prepareKeyless = (id: string, mechanism: KeylessMechanism, fields: Record<string, string> = {}) =>
     firstValueFrom(this.http.post<KeylessSetup>(`${this.url(id)}/keyless/prepare`, { mechanism, fields }));

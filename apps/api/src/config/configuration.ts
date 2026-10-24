@@ -1,3 +1,4 @@
+import { parseKeyring, type EncryptionKeyring } from '../common/crypto/keyring';
 import { parseTrustProxy, type TrustProxy } from './trust-proxy';
 
 export interface AppConfig {
@@ -21,7 +22,14 @@ export interface AppConfig {
    * por la web, doble envío). `cookieSecure` (`SESSION_COOKIE_SECURE`; por defecto, solo en producción) añade `Secure`.
    */
   session: { cookieSecure: boolean };
+  /** Clave legacy (`ENCRYPTION_KEY`, kid `k0`). Se conserva por compatibilidad; el cifrado usa `encryption`. */
   encryptionKey: string;
+  /**
+   * Anillo de claves de cifrado (B7, `common/crypto/keyring.ts`): `ENCRYPTION_KEY` (legacy, kid `k0`),
+   * `ENCRYPTION_KEYS` (`kid:hex,…`), `ENCRYPTION_ACTIVE_KID` y `ENCRYPTION_LEGACY_READS`. `null` si es inválido (la
+   * validación del entorno ya lo rechazó).
+   */
+  encryption: EncryptionKeyring | null;
   /**
    * Conexión a Redis compartida por BullMQ, el limitador y el bus del Edge. `tls` (opciones de `tls.connect` para
    * ioredis) solo existe con `REDIS_TLS=true` (ElastiCache con cifrado en tránsito); en local se conecta sin TLS.
@@ -39,7 +47,7 @@ export interface AppConfig {
     openrouterAuthUrl: string;
     /**
      * Endpoints OAuth por proveedor del catálogo (`LLM_OAUTH_ENDPOINT_OVERRIDES`, JSON
-     * `{ "vertex": { "tokenUrl": "https://..." } }`; claves `authorizeUrl`, `tokenUrl`, `deviceUrl`, `revokeUrl`):
+     * `{ "vertex": { "tokenUrl": "https://..." } }`; claves `authorizeUrl`, `tokenUrl`, `deviceUrl`, `revokeUrl`, `userinfoUrl`):
      * proxies de identidad corporativos y pruebas. Solo lo define el operador de la plataforma.
      */
     oauthEndpointOverrides: Record<string, OAuthEndpointOverride>;
@@ -72,6 +80,11 @@ export interface AppConfig {
   };
   http: { timeoutMs: number; allowPrivateNetworks: boolean };
   executions: { retentionDays: number };
+  /**
+   * Retención de conversaciones por defecto de la plataforma (ADR 0008 D7, `CONVERSATIONS_RETENTION_DAYS`): aplica a los
+   * workspaces que no fijaron la suya. `null` (sin definir) = sin límite.
+   */
+  conversations: { retentionDays: number | null };
   /** Nexo Copilot (ADR 0006 D2): modelo de plataforma y cupo mensual por workspace pagado por Nexo. */
   copilot: { provider: string; model: string; monthlyQuotaUsd: number };
   /** Usuario maestro del primer arranque (BOOTSTRAP_ADMIN_*). */
@@ -84,6 +97,12 @@ export interface AppConfig {
  * Modelo del Copilot: `COPILOT_PROVIDER`/`COPILOT_MODEL` (por defecto `anthropic`/`claude-opus-5-5`). Sin
  * `ANTHROPIC_API_KEY` (o con un proveedor que no sea de sistema) se usa `mock`/`mock-echo` para desarrollo.
  */
+/** Entero >= 1 o `null` si la variable no está definida o no es válida. */
+export function positiveOrNull(raw: string | undefined): number | null {
+  const n = parseInt(raw ?? '', 10);
+  return Number.isFinite(n) && n >= 1 ? n : null;
+}
+
 export function copilotModelFrom(env: NodeJS.ProcessEnv): { provider: string; model: string } {
   // Solo conexiones de sistema: el Copilot nunca usa (ni cobra a) las conexiones LLM de un workspace.
   const requested = (env.COPILOT_PROVIDER || 'anthropic').trim();
@@ -147,9 +166,10 @@ export interface OAuthEndpointOverride {
   tokenUrl?: string;
   deviceUrl?: string;
   revokeUrl?: string;
+  userinfoUrl?: string;
 }
 
-const OAUTH_ENDPOINT_KEYS = ['authorizeUrl', 'tokenUrl', 'deviceUrl', 'revokeUrl'] as const;
+const OAUTH_ENDPOINT_KEYS = ['authorizeUrl', 'tokenUrl', 'deviceUrl', 'revokeUrl', 'userinfoUrl'] as const;
 
 /** `{ "<providerId>": { tokenUrl, ... } }`; un JSON inválido o valores no http(s) se ignoran. */
 export function parseOAuthEndpointOverrides(raw: string | undefined): Record<string, OAuthEndpointOverride> {
@@ -237,6 +257,7 @@ export default (): AppConfig => ({
   },
   session: { cookieSecure: sessionCookieSecureFrom(process.env) },
   encryptionKey: process.env.ENCRYPTION_KEY ?? '',
+  encryption: parseKeyring(process.env).keyring,
   redis: redisConfigFrom(process.env),
   llm: {
     anthropicApiKey: process.env.ANTHROPIC_API_KEY || undefined,
@@ -271,6 +292,9 @@ export default (): AppConfig => ({
   executions: {
     /** Días que se conservan ejecuciones terminadas e historial de rutinas (limpieza diaria). */
     retentionDays: Math.max(parseInt(process.env.EXECUTIONS_RETENTION_DAYS ?? '30', 10) || 30, 1),
+  },
+  conversations: {
+    retentionDays: positiveOrNull(process.env.CONVERSATIONS_RETENTION_DAYS),
   },
   copilot: {
     ...copilotModelFrom(process.env),

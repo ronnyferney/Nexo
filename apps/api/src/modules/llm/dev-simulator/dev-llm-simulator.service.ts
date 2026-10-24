@@ -12,6 +12,18 @@ export const SIM_MODELS = ['sim-rapido', 'sim-experto'];
 
 type DeviceState = 'pending' | 'approved' | 'denied';
 
+/** Cuenta simulada que autoriza el acceso (la página del código de dispositivo permite elegir otra, M1b). */
+export const SIM_DEFAULT_ACCOUNT = 'dev@nexo.local';
+const accountOf = (email: string) => ({
+  sub: `sim-${createHash('sha256').update(email).digest('hex').slice(0, 12)}`,
+  email,
+  name: email === SIM_DEFAULT_ACCOUNT ? 'Cuenta simulada' : email.split('@')[0],
+});
+const normalizeAccount = (raw: string | undefined) => {
+  const email = (raw ?? '').trim().toLowerCase();
+  return /^[^\s@]{1,64}@[^\s@]{1,128}$/.test(email) ? email : SIM_DEFAULT_ACCOUNT;
+};
+
 /** Error OAuth (RFC 6749 §5.2 / RFC 8628 §3.5) que el controlador responde con 400. */
 export class SimOAuthError extends Error {
   constructor(readonly code: string) {
@@ -30,7 +42,9 @@ export class DevLlmSimulatorService {
   private readonly codes = new Map<string, { challenge: string; redirectUri: string; scope: string; exp: number }>();
   private readonly access = new Map<string, number>();
   private readonly refresh = new Map<string, string>();
-  private readonly devices = new Map<string, { userCode: string; state: DeviceState; exp: number }>();
+  /** Token (access o refresh) → correo de la cuenta simulada que lo autorizó. */
+  private readonly owners = new Map<string, string>();
+  private readonly devices = new Map<string, { userCode: string; state: DeviceState; exp: number; account: string }>();
 
   constructor(private readonly config: ConfigService) {}
 
@@ -76,6 +90,7 @@ export class DevLlmSimulatorService {
     if (scope === undefined) throw new SimOAuthError('invalid_grant');
     const access = token('sim-at-');
     this.access.set(access, Date.now() + SIM_ACCESS_TTL_S * 1000);
+    this.owners.set(access, this.owners.get(refreshToken) ?? SIM_DEFAULT_ACCOUNT);
     return { access_token: access, token_type: 'Bearer', expires_in: SIM_ACCESS_TTL_S, scope };
   }
 
@@ -83,7 +98,12 @@ export class DevLlmSimulatorService {
     const deviceCode = token('sim-dc-');
     const raw = randomBytes(4).toString('hex').toUpperCase();
     const userCode = `${raw.slice(0, 4)}-${raw.slice(4)}`;
-    this.devices.set(deviceCode, { userCode, state: 'pending', exp: Date.now() + DEVICE_TTL_S * 1000 });
+    this.devices.set(deviceCode, {
+      userCode,
+      state: 'pending',
+      exp: Date.now() + DEVICE_TTL_S * 1000,
+      account: SIM_DEFAULT_ACCOUNT,
+    });
     return {
       device_code: deviceCode,
       user_code: userCode,
@@ -94,10 +114,12 @@ export class DevLlmSimulatorService {
     };
   }
 
-  decideDevice(userCode: string, approve: boolean): boolean {
+  /** `account`: correo de la cuenta simulada que autoriza (por defecto `dev@nexo.local`). */
+  decideDevice(userCode: string, approve: boolean, account?: string): boolean {
     for (const d of this.devices.values()) {
       if (d.userCode === userCode.trim().toUpperCase() && d.state === 'pending' && d.exp > Date.now()) {
         d.state = approve ? 'approved' : 'denied';
+        d.account = normalizeAccount(account);
         return true;
       }
     }
@@ -110,13 +132,24 @@ export class DevLlmSimulatorService {
     if (d.state === 'pending') throw new SimOAuthError('authorization_pending');
     this.devices.delete(deviceCode);
     if (d.state === 'denied') throw new SimOAuthError('access_denied');
-    return this.issueTokens('inference');
+    return this.issueTokens('inference', d.account);
   }
 
   /** RFC 7009: revocar un refresh token invalida también sus access tokens (aquí, todos los vigentes). */
   revoke(value: string): void {
     if (this.refresh.delete(value)) this.access.clear();
     this.access.delete(value);
+    this.revoked.push(value);
+  }
+
+  /** Tokens revocados (RFC 7009), para pruebas. */
+  readonly revoked: string[] = [];
+
+  /** Endpoint de usuario (OIDC UserInfo): la cuenta simulada dueña del access token, o `null` si no es válido. */
+  userinfo(authorization: string | undefined) {
+    if (!this.validAccess(authorization)) return null;
+    const t = (authorization ?? '').replace(/^Bearer\s+/i, '');
+    return accountOf(this.owners.get(t) ?? SIM_DEFAULT_ACCOUNT);
   }
 
   /** «Revocar todas las sesiones»: la próxima renovación de Nexo recibe `invalid_grant` (sesión cerrada). */
@@ -131,9 +164,10 @@ export class DevLlmSimulatorService {
     return !!exp && exp > Date.now();
   }
 
-  private issueTokens(scope: string) {
+  private issueTokens(scope: string, account = SIM_DEFAULT_ACCOUNT) {
     const refresh = token('sim-rt-');
     this.refresh.set(refresh, scope);
+    this.owners.set(refresh, account);
     return { ...this.refreshTokens(refresh), refresh_token: refresh };
   }
 }

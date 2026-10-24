@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { CipherContexts } from '../src/common/crypto/cipher-context';
 import { CryptoService } from '../src/common/crypto/crypto.service';
 import { bindingTag } from '../src/modules/llm/llm-browser-binding';
 import { OAuthStateService } from '../src/modules/oauth/oauth-state.service';
@@ -40,6 +41,8 @@ class IdpMock {
   readonly forbiddenProjects = new Set<string>(['sin-permiso-123']);
   readonly issueRefresh = true;
   deviceInterval = 1;
+  /** Claims del `id_token` que acompaña al token del código de dispositivo (null = el proveedor no lo entrega). */
+  deviceIdToken: Record<string, unknown> | null = null;
 
   get origin() {
     return `http://127.0.0.1:${this.port}`;
@@ -130,7 +133,12 @@ class IdpMock {
         const step = steps.length > 1 ? steps.shift()! : steps[0];
         if (step === 'approve') {
           this.devices.delete(form.device_code);
-          return [200, this.issue(28800, false)];
+          const body = this.issue(28800, false);
+          if (this.deviceIdToken) {
+            const part = (v: unknown) => Buffer.from(JSON.stringify(v)).toString('base64url');
+            body.id_token = `${part({ alg: 'RS256' })}.${part(this.deviceIdToken)}.firma`;
+          }
+          return [200, body];
         }
         if (step === 'slow_down') return [400, { error: 'slow_down', interval: this.deviceInterval + 5 }];
         return [400, { error: step }];
@@ -233,6 +241,7 @@ describe('Mecanismos oficiales de conexión de proveedores IA (E2E)', () => {
   let webUrl: string;
   let owner: Session;
   let editor: Session;
+  let admin: Session;
   let other: Session;
 
   const providers = async (s: Session) =>
@@ -288,6 +297,7 @@ describe('Mecanismos oficiales de conexión de proveedores IA (E2E)', () => {
     webUrl = config.get<string>('webUrl')!;
     owner = await registerOwner(app, 'mecanismos');
     editor = await addMember(app, owner, { role: 'EDITOR' });
+    admin = await addMember(app, owner, { role: 'ADMIN' });
     other = await registerOwner(app, 'mecanismos-otro');
   });
 
@@ -401,7 +411,9 @@ describe('Mecanismos oficiales de conexión de proveedores IA (E2E)', () => {
       expect(row.oauthRefreshCipher).toBeTruthy();
       expect(row.oauthExpiresAt!.getTime()).toBeGreaterThan(Date.now() + 3_000_000);
       const crypto = app.get(CryptoService);
-      expect(idp.accessTokens.has(crypto.decrypt(row.apiKeyCipher!))).toBe(true);
+      expect(idp.accessTokens.has(crypto.decrypt(row.apiKeyCipher!, CipherContexts.llmApiKey(row.workspaceId)))).toBe(
+        true,
+      );
       expect(row.models.map((m) => m.modelId)).toEqual(['google/gemini-e2e']);
 
       const models = (await owner.api.get(`/admin/llm/connections/${connectionId}/models`).expect(200)).body as {
@@ -464,14 +476,18 @@ describe('Mecanismos oficiales de conexión de proveedores IA (E2E)', () => {
       expect(after.oauthExpiresAt!.getTime()).toBeGreaterThan(Date.now() + 3_000_000);
       const chats = idp.requests.filter((r) => r.path.endsWith('/chat/completions'));
       const crypto = app.get(CryptoService);
-      expect(chats.at(-1)!.headers.authorization).toBe(`Bearer ${crypto.decrypt(after.apiKeyCipher!)}`);
+      expect(chats.at(-1)!.headers.authorization).toBe(
+        `Bearer ${crypto.decrypt(after.apiKeyCipher!, CipherContexts.llmApiKey(after.workspaceId))}`,
+      );
       await prismaOf(app).agent.delete({ where: { id: agent.id } });
     });
 
     it('cerrar sesión revoca y borra los tokens pero conserva la conexión, sus modelos y los agentes', async () => {
       const agent = await createAgent(owner, { provider: connectionId, model: 'google/gemini-e2e' });
       const row = await prismaOf(app).llmConnection.findUniqueOrThrow({ where: { id: connectionId } });
-      const refresh = app.get(CryptoService).decrypt(row.oauthRefreshCipher!);
+      const refresh = app
+        .get(CryptoService)
+        .decrypt(row.oauthRefreshCipher!, CipherContexts.llmRefresh(row.workspaceId));
       await other.api.post(`/admin/llm/connections/${connectionId}/sign-out`, {}).expect(404);
 
       const res = await owner.api.post(`/admin/llm/connections/${connectionId}/sign-out`, {}).expect(200);
@@ -533,7 +549,9 @@ describe('Mecanismos oficiales de conexión de proveedores IA (E2E)', () => {
 
     it('desconectar revoca el grant en Google y borra la conexión', async () => {
       const row = await prismaOf(app).llmConnection.findUniqueOrThrow({ where: { id: connectionId } });
-      const refresh = app.get(CryptoService).decrypt(row.oauthRefreshCipher!);
+      const refresh = app
+        .get(CryptoService)
+        .decrypt(row.oauthRefreshCipher!, CipherContexts.llmRefresh(row.workspaceId));
       const res = await owner.api.delete(`/admin/llm/connections/${connectionId}`).expect(200);
       expect(res.body).toEqual({ deleted: true, revoked: true });
       expect(idp.revoked).toContain(refresh);
@@ -729,7 +747,31 @@ describe('Mecanismos oficiales de conexión de proveedores IA (E2E)', () => {
       expect(flow.nextPollAt!.getTime()).toBeGreaterThan(Date.now() + 4000);
 
       await advance(start.flowId);
-      const done = (await poll(owner, start.flowId)).body as { status: string; connection: ConnectionView };
+      // M1b: con los tokens emitidos la conexión todavía no existe; se muestra la cuenta (HF sin id_token: no la informa).
+      const connectionsBefore = await prismaOf(app).llmConnection.count({ where: { workspaceId: owner.workspaceId } });
+      const awaiting = (await poll(owner, start.flowId)).body as Record<string, unknown>;
+      expect(awaiting).toMatchObject({ status: 'confirm', account: { available: false, source: null } });
+      expect(awaiting.confirmExpiresIn).toBeGreaterThan(500);
+      expect(JSON.stringify(awaiting)).not.toMatch(/at-[0-9a-f]{12}/);
+      expect(await prismaOf(app).llmConnection.count({ where: { workspaceId: owner.workspaceId } })).toBe(
+        connectionsBefore,
+      );
+      const pendingRow = await prismaOf(app).llmAuthFlow.findUniqueOrThrow({ where: { id: start.flowId } });
+      expect(pendingRow.status).toBe('confirm');
+      expect(pendingRow.deviceCodeCipher).toMatch(/^v2:/);
+      expect(pendingRow.deviceCodeCipher).not.toMatch(/at-[0-9a-f]{12}/);
+      // Solo el ADMIN que inició el flujo lo ve y lo confirma.
+      await admin.api.post('/admin/llm/providers/huggingface/device/poll', { flowId: start.flowId }).expect(404);
+      await admin.api.post('/admin/llm/providers/huggingface/device/confirm', { flowId: start.flowId }).expect(404);
+      await editor.api.post('/admin/llm/providers/huggingface/device/confirm', { flowId: start.flowId }).expect(403);
+      // Seguir sondeando no vuelve a llamar al proveedor.
+      const callsAwaiting = tokenCalls();
+      expect((await poll(owner, start.flowId)).body).toMatchObject({ status: 'confirm' });
+      expect(tokenCalls()).toBe(callsAwaiting);
+
+      const done = (
+        await owner.api.post('/admin/llm/providers/huggingface/device/confirm', { flowId: start.flowId }).expect(200)
+      ).body as { status: string; connection: ConnectionView };
       expect(done.status).toBe('connected');
       expect(done.connection).toMatchObject({
         providerId: 'huggingface',
@@ -750,6 +792,65 @@ describe('Mecanismos oficiales de conexión de proveedores IA (E2E)', () => {
 
       // Aislamiento: otro workspace no ve el flujo.
       await other.api.post('/admin/llm/providers/huggingface/device/poll', { flowId: start.flowId }).expect(404);
+      // Confirmar dos veces no crea otra conexión.
+      await owner.api.post('/admin/llm/providers/huggingface/device/confirm', { flowId: start.flowId }).expect(400);
+    });
+
+    it('M1b: muestra la cuenta del id_token y «No es mi cuenta» descarta los tokens sin crear la conexión', async () => {
+      idp.deviceIdToken = {
+        sub: 'hf-77',
+        aud: 'nexo-hf-app',
+        exp: Math.floor(Date.now() / 1000) + 600,
+        name: 'Ana Pérez',
+        preferred_username: 'ana-hf',
+        email: 'ana@acme.test',
+      };
+      try {
+        const start = await startDevice();
+        idp.devices.set(deviceCodes().pop()!, ['approve']);
+        await advance(start.flowId);
+        const awaiting = (await poll(owner, start.flowId)).body as Record<string, unknown>;
+        expect(awaiting).toMatchObject({
+          status: 'confirm',
+          account: {
+            available: true,
+            source: 'id_token',
+            subject: 'hf-77',
+            email: 'ana@acme.test',
+            name: 'Ana Pérez',
+            username: 'ana-hf',
+          },
+        });
+        const before = await prismaOf(app).llmConnection.count({ where: { workspaceId: owner.workspaceId } });
+        const cancelled = await owner.api
+          .post('/admin/llm/providers/huggingface/device/cancel', { flowId: start.flowId })
+          .expect(200);
+        expect(cancelled.body).toEqual({ status: 'cancelled' });
+        const row = await prismaOf(app).llmAuthFlow.findUniqueOrThrow({ where: { id: start.flowId } });
+        expect(row).toMatchObject({ status: 'cancelled', deviceCodeCipher: null });
+        expect((await poll(owner, start.flowId)).body).toEqual({ status: 'cancelled' });
+        await owner.api.post('/admin/llm/providers/huggingface/device/confirm', { flowId: start.flowId }).expect(400);
+        expect(await prismaOf(app).llmConnection.count({ where: { workspaceId: owner.workspaceId } })).toBe(before);
+      } finally {
+        idp.deviceIdToken = null;
+      }
+    });
+
+    it('M1b: la confirmación vence y descarta la autorización', async () => {
+      const start = await startDevice();
+      idp.devices.set(deviceCodes().pop()!, ['approve']);
+      await advance(start.flowId);
+      expect((await poll(owner, start.flowId)).body).toMatchObject({ status: 'confirm' });
+      await prismaOf(app).llmAuthFlow.update({
+        where: { id: start.flowId },
+        data: { expiresAt: new Date(Date.now() - 1) },
+      });
+      const late = await owner.api
+        .post('/admin/llm/providers/huggingface/device/confirm', { flowId: start.flowId })
+        .expect(200);
+      expect(late.body).toEqual({ status: 'expired' });
+      const row = await prismaOf(app).llmAuthFlow.findUniqueOrThrow({ where: { id: start.flowId } });
+      expect(row).toMatchObject({ status: 'expired', deviceCodeCipher: null });
     });
 
     it('expired (por el proveedor y por tiempo) y denied', async () => {
