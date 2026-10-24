@@ -1,5 +1,6 @@
 import type { ConfigService } from '@nestjs/config';
 import type { CryptoService } from '../../common/crypto/crypto.service';
+import type { HttpClientService } from '../../common/http/http-client.service';
 import configuration from '../../config/configuration';
 import type { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { fallbackModel } from '../copilot/copilot-proposals.service';
@@ -71,7 +72,7 @@ describe('A6 · cupo mensual de la conexión de plataforma', () => {
       prisma,
       {} as CryptoService,
       config,
-      [new AnthropicDriver()],
+      [new AnthropicDriver({ safeFetch: () => fetch } as unknown as HttpClientService)],
       {} as LlmTokenService,
     );
     return { g, aggregate };

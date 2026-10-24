@@ -3,7 +3,11 @@ import { AnthropicFoundry } from '@anthropic-ai/foundry-sdk';
 import { AnthropicGoogleCloud } from '@anthropic-ai/google-cloud-sdk';
 import { AnthropicVertex } from '@anthropic-ai/vertex-sdk';
 import { parseClaudeOptions } from '../llm-gateway.service';
-import { claudeSdkClient, isCustomAnthropicEndpoint, providerErrorMessage } from './anthropic.driver';
+import type { ConfigService } from '@nestjs/config';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { HttpClientService } from '../../../common/http/http-client.service';
+import { AnthropicDriver, claudeSdkClient, isCustomAnthropicEndpoint, providerErrorMessage } from './anthropic.driver';
 
 describe('Driver de Claude por canal', () => {
   const token = () => Promise.resolve('token-google');
@@ -84,5 +88,57 @@ describe('A1 · errores del proveedor sin el cuerpo crudo', () => {
     expect(providerErrorMessage({ status: 500, error: '<html>interno</html>' })).toBe(
       'El proveedor respondió HTTP 500',
     );
+  });
+});
+
+describe('A1 · los SDK de Claude salen por la política de red de Nexo', () => {
+  const strict = new HttpClientService({
+    get: (k: string) => ({ 'http.timeoutMs': 5000, 'http.allowPrivateNetworks': false })[k],
+  } as unknown as ConfigService);
+  const driver = new AnthropicDriver(strict);
+  // Servicio interno real: si el bloqueo fallara, recibiría la petición y su respuesta volvería al usuario.
+  let hits = 0;
+  let port = 0;
+  const server = createServer((_req, res) => {
+    hits++;
+    res.end('{"secreto_interno":"datos-de-red-privada"}');
+  });
+  beforeAll(
+    () =>
+      new Promise<void>((resolve) =>
+        server.listen(0, '127.0.0.1', () => {
+          port = (server.address() as AddressInfo).port;
+          resolve();
+        }),
+      ),
+  );
+  afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
+
+  /** El error del SDK conserva como causa el bloqueo de la política de red. */
+  async function blocked(client: { verify?: () => Promise<void> }) {
+    const err = (await client.verify!().catch((e: unknown) => e)) as Error & { cause?: Error };
+    expect(err).toBeInstanceOf(Error);
+    expect(`${err.message} ${err.cause?.message ?? ''}`).toMatch(/bloquead/i);
+  }
+
+  it('loopback, metadatos de la nube e IPv6 mapeada en hexadecimal: bloqueados sin llegar al servicio', async () => {
+    await blocked(driver.create({ apiKey: 'sk-ant-x', baseUrl: `http://127.0.0.1:${port}/#` }));
+    await blocked(driver.create({ apiKey: 'sk-ant-x', baseUrl: `http://[::ffff:7f00:1]:${port}/` }));
+    await blocked(driver.create({ apiKey: 'sk-ant-x', baseUrl: 'http://169.254.169.254/latest/meta-data/#' }));
+    expect(hits).toBe(0);
+  });
+
+  it('también en los canales de Google y Foundry', async () => {
+    await blocked(
+      driver.create({
+        getAccessToken: () => Promise.resolve('t'),
+        baseUrl: `http://127.0.0.1:${port}/v1`,
+        claude: { channel: 'vertex', project: 'mi-proyecto-123', region: 'global' },
+      }),
+    );
+    await blocked(
+      driver.create({ apiKey: 'k', baseUrl: `http://127.0.0.1:${port}/anthropic`, claude: { channel: 'foundry' } }),
+    );
+    expect(hits).toBe(0);
   });
 });

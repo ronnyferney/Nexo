@@ -3,6 +3,7 @@ import { AnthropicFoundry } from '@anthropic-ai/foundry-sdk';
 import { AnthropicGoogleCloud } from '@anthropic-ai/google-cloud-sdk';
 import { AnthropicVertex } from '@anthropic-ai/vertex-sdk';
 import { Injectable, Logger } from '@nestjs/common';
+import { HttpClientService } from '../../../common/http/http-client.service';
 import { OAuth2Client } from 'google-auth-library';
 import {
   LlmHttpError,
@@ -50,12 +51,16 @@ export function isCustomAnthropicEndpoint(
  * - `foundry`: Claude en Microsoft Foundry con clave del recurso o token de Microsoft Entra ID.
  * Los tokens OAuth se piden en cada llamada para que `LlmTokenService` los renueve antes de expirar.
  */
-export function claudeSdkClient(credentials: LlmCredentials): () => Promise<Anthropic> {
+export function claudeSdkClient(
+  credentials: LlmCredentials,
+  fetch?: typeof globalThis.fetch,
+): () => Promise<Anthropic> {
   const ch = credentials.claude ?? { channel: 'anthropic' as const };
   const baseURL = credentials.baseUrl || undefined;
   const custom = isCustomAnthropicEndpoint(baseURL, ch.channel);
   const token = credentials.getAccessToken ?? (credentials.apiKey ? async () => credentials.apiKey! : undefined);
-  const common = { defaultHeaders: credentials.headers };
+  // `fetch` con la política de red de Nexo (SSRF, IP fijada, sin redirecciones, límite de tamaño): auditoría A1.
+  const common = { defaultHeaders: credentials.headers, ...(fetch ? { fetch } : {}) };
   switch (ch.channel) {
     case 'google-cloud': {
       if (!token) throw new Error('Claude en Google Cloud requiere iniciar sesión con Google');
@@ -130,8 +135,8 @@ class AnthropicClient implements LlmClient {
   /** Fallback server-side: solo en los canales operados por Anthropic y sin proxy de por medio. */
   private readonly serverFallback: boolean;
 
-  constructor(credentials: LlmCredentials) {
-    this.sdk = claudeSdkClient(credentials);
+  constructor(credentials: LlmCredentials, fetch?: typeof globalThis.fetch) {
+    this.sdk = claudeSdkClient(credentials, fetch);
     this.channel = credentials.claude?.channel ?? 'anthropic';
     this.serverFallback =
       (this.channel === 'anthropic' || this.channel === 'google-cloud') &&
@@ -296,7 +301,19 @@ class AnthropicClient implements LlmClient {
 @Injectable()
 export class AnthropicDriver implements LlmDriver {
   readonly kind = 'ANTHROPIC' as const;
+
+  constructor(private readonly http: HttpClientService) {}
+
+  /**
+   * Toda llamada de los SDK de Claude sale por `HttpClientService.safeFetch` (auditoría A1): sin redes internas ni
+   * DNS rebinding, sin seguir redirecciones y con límite de tamaño. Tiempos holgados para respuestas largas en flujo.
+   */
   create(credentials: LlmCredentials): LlmClient {
-    return new AnthropicClient(credentials);
+    const fetch = this.http.safeFetch({
+      timeoutMs: 120_000,
+      idleTimeoutMs: 300_000,
+      maxBodyBytes: 64 * 1024 * 1024,
+    });
+    return new AnthropicClient(credentials, fetch);
   }
 }

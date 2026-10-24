@@ -1,3 +1,4 @@
+import type { HttpClientService } from '../../../common/http/http-client.service';
 import 'reflect-metadata';
 import { existsSync } from 'node:fs';
 import { copilotModelFrom } from '../../../config/configuration';
@@ -25,7 +26,10 @@ async function main() {
   if (!pricing) throw new Error(`Modelo no disponible en ${provider}: ${model}`);
   const client = isMock
     ? new MockDriver().create()
-    : new AnthropicDriver().create({ apiKey: process.env.ANTHROPIC_API_KEY });
+    : // Herramienta local del operador contra la API oficial de Anthropic (host fijo): fetch estándar de Node.
+      new AnthropicDriver({ safeFetch: () => globalThis.fetch } as unknown as HttpClientService).create({
+        apiKey: process.env.ANTHROPIC_API_KEY,
+      });
 
   const filter = process.argv[2];
   const cases = loadEvalCases().filter((c) => !filter || c.id.includes(filter));
