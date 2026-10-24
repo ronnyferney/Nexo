@@ -62,12 +62,12 @@ costos, proveedores, organización) y un **portal de usuarios** (agentes, flujos
 **Decisión de negocio (no negociable):** Nexo **no conecta suscripciones personales** (Claude Pro/Max vía claude.ai,
 ChatGPT Plus, GitHub Copilot u otras): sus términos no permiten que una plataforma de terceros las use y su consumo no
 se puede medir para los presupuestos de D4/D5. Solo se admiten conexiones oficiales:
-- **Clave de API de pago por uso** del proveedor (Anthropic, OpenAI, Gemini, Mistral, xAI, DeepSeek, Moonshot, Groq,
-  Cerebras, Fireworks, Together, NVIDIA, Hugging Face).
+- **Clave de API de pago por uso** del proveedor (Anthropic, OpenAI, Gemini, Mistral, xAI, DeepSeek, Moonshot, Cohere,
+  Perplexity, Groq, Cerebras, Fireworks, Together, NVIDIA, Hugging Face, Ollama Cloud).
 - **Nube empresarial** (Azure OpenAI v1 con cabecera `api-key`; Amazon Bedrock por su endpoint compatible con OpenAI
-  `bedrock-mantle` con clave de API de Bedrock).
-- **Modelos locales** (Ollama, LM Studio): desde la nube requieren Nexo Edge o una red alcanzable; la protección SSRF
-  bloquea redes privadas salvo `CONNECTOR_ALLOW_PRIVATE_NETWORKS=true` (solo on-premise).
+  `bedrock-mantle` con un **token de Bedrock de corta duración**, addendum 2026-10-24: ver «Bedrock» más abajo).
+- **Modelos locales** (Ollama, LM Studio, este último con token opcional): desde la nube requieren Nexo Edge o una red
+  alcanzable; la protección SSRF bloquea redes privadas salvo `CONNECTOR_ALLOW_PRIVATE_NETWORKS=true` (solo on-premise).
 - **OpenRouter** para modelos de terceros, con su **OAuth PKCE oficial** (o clave de API).
 - **Inicio de sesión oficial del proveedor** (addendum 2026-10-23, segunda parte): Google Vertex AI («Iniciar sesión con
   Google»), Azure OpenAI con Microsoft Entra ID («Iniciar sesión con Microsoft») y Hugging Face (OAuth web y código de
@@ -88,7 +88,14 @@ Diseño:
   con el motor de plantillas de Nexo, campos del formulario (solo `apiKey` es secreto), pasos verificados para obtener
   la clave (`keySteps`), prefijo documentado (`keyPrefix`, solo advertencia), modelos sugeridos y
   `pendingVerification` (lo que no se pudo verificar en la fuente oficial).
-- **Precios:** solo los verificados en la fuente oficial (hoy, Anthropic). El resto se importa con precio 0 y
+- **Precios:** solo los verificados en la fuente oficial (hoy, Anthropic). **Tarifa escalonada** (addendum 2026-10-24):
+  `LONG_CONTEXT_PRICING` en `pricing.ts` (tabla en código por id de modelo, sin columnas nuevas) define el umbral y las
+  tarifas altas; hoy solo `claude-haiku-5-5`: si el prompt de **una petición** (entrada + lecturas + escrituras de caché)
+  supera 100.000 tokens, todos sus tokens pagan 0,50 / 2,50 USD por MTok (0,05 la lectura de caché, 0,625 la escritura de
+  5 min) según platform.claude.com/docs/en/about-claude/pricing («Long context pricing»). `LlmGatewayService.resolve`
+  la adjunta (`ModelPricing.longContext`) solo si el modelo conserva las tarifas base estándar de Anthropic (API de
+  Anthropic y Foundry); con tarifas propias del administrador (p. ej. Vertex AI) se respetan las suyas. `costUsd` se
+  calcula por turno, que es la unidad de tarificación. El resto se importa con precio 0 y
   `LlmModel.needsPricing = true`; la consola pide completarlo (fijar una tarifa lo apaga). Los modelos locales no lo
   necesitan. Mientras un modelo tenga precio 0 su consumo no descuenta presupuesto: se recomienda completar la tarifa
   antes de habilitarlo para áreas con presupuesto.
@@ -104,8 +111,11 @@ Diseño:
 - `LLM_PROVIDER_URL_OVERRIDES` (JSON `{ "<providerId>": "<url>" }`) sustituye la URL base de un proveedor (gateways
   corporativos de salida y pruebas); `OPENROUTER_AUTH_URL` sustituye la pantalla de consentimiento.
 - **OAuth de OpenRouter:** `state` firmado de un solo uso con el `code_verifier` cifrado (reutiliza `OAuthStateService`
-  del ADR 0005 con `connectorId = 'llm-provider:openrouter'`). Como OpenRouter no tiene parámetro `state`, viaja en la
-  query del `callback_url`. El callback canjea el código en `POST https://openrouter.ai/api/v1/auth/keys`
+  del ADR 0005 con `connectorId = 'llm-provider:openrouter'`). El `state` viaja en la query del `callback_url`: el SDK
+  oficial `@openrouter/sdk` 1.5.7 no documenta un parámetro `state` propio en `openrouter.ai/auth` (el anuncio del blog de
+  OpenRouter queda en `pendingVerification` hasta leerlo en la documentación) y `usage_limit_type` solo existe en
+  `POST /auth/keys/code`, autenticado con la clave del usuario, por lo que no aplica al flujo del navegador. El SDK sí
+  confirma que `callback_url` admite URLs https y localhost/127.0.0.1 en cualquier puerto. El callback canjea el código en `POST https://openrouter.ai/api/v1/auth/keys`
   (`{ code, code_verifier, code_challenge_method: 'S256' }` → `{ key }`), exige que quien inició siga siendo ADMIN+ y
   redirige siempre a `${WEB_URL}/admin/providers`.
 - **Mecanismos por proveedor** (`ProviderCatalogEntry.mechanisms`, por defecto `API_KEY` o `LOCAL_DETECT` en los locales;
@@ -113,10 +123,11 @@ Diseño:
   | Proveedor | Mecanismos | Detalle verificado (fuente) |
   |---|---|---|
   | Vertex AI (`vertex`) | `OAUTH` | Google OAuth 2.0 web + PKCE, scope `https://www.googleapis.com/auth/cloud-platform`, `access_type=offline` y `prompt=consent` (refresh token), revocación en `oauth2.googleapis.com/revoke` (google-auth-library-nodejs). Endpoint compatible con OpenAI `https://{host}/v1/projects/{proyecto}/locations/{región}/endpoints/openapi`, host `aiplatform.googleapis.com` en `global` o `{región}-aiplatform.googleapis.com` (GoogleCloudPlatform/generative-ai). |
-  | Azure OpenAI (`azure-openai`) | `OAUTH` (principal), `API_KEY` | Entra ID v2 `login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize|token`, PKCE S256, `scope` también en el canje y la renovación, refresh token con `offline_access`, refresh rotado se reemplaza (MicrosoftDocs/entra-docs). Scope `https://cognitiveservices.azure.com/.default` (SDK de Azure). Token como Bearer en la API v1 (openai-node). Entra ID no documenta revocación: se borran los tokens de Nexo. |
+  | Azure OpenAI (`azure-openai`) | `OAUTH` (principal), `API_KEY` | Entra ID v2 `login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize|token`, PKCE S256, `scope` también en el canje y la renovación, refresh token con `offline_access`, refresh rotado se reemplaza (MicrosoftDocs/entra-docs). Scope `https://ai.azure.com/.default` (addendum 2026-10-24: el de la API v1 en openai-node `docs/azure.md`; `cognitiveservices` queda para las versiones con fecha). Las conexiones creadas antes conservan el scope anterior al renovar (`OAuthAppSpec.legacyScopes`). Token como Bearer en la API v1 (openai-node). Roles en recursos de Foundry: «Foundry User» (antes «Azure AI User») o «Cognitive Services User». Entra ID no documenta revocación: se borran los tokens de Nexo. |
+  | Claude en Foundry (`claude-foundry`) | `OAUTH` (principal), `API_KEY` | Misma app de Entra ID de Nexo (`appKey: 'azure-openai'`; se registra también `/api/llm/oauth/claude-foundry/callback`) y el mismo scope `https://ai.azure.com/.default`, verificado en platform.claude.com («Microsoft Entra authentication») y en `@anthropic-ai/foundry-sdk` 1.1.0. |
   | Hugging Face (`huggingface`) | `OAUTH` (principal), `DEVICE_CODE`, `API_KEY` | `huggingface.co/oauth/authorize|token|device`, scope `inference-api`, PKCE, app pública sin secreto o `Authorization: Basic` con secreto (huggingface/hub-docs). El token expira (`expires_in`) y no se documenta refresh token: al expirar se pide volver a iniciar sesión. |
   | OpenRouter | `OAUTH` (principal, sin app registrada), `API_KEY` | Ver arriba. |
-  | Ollama, LM Studio | `LOCAL_DETECT` | `POST …/detect` prueba la URL indicada o la local por defecto y lista modelos sin guardar. |
+  | Ollama, LM Studio | `LOCAL_DETECT` (LM Studio además `API_KEY` «Servidor con token») | `POST …/detect` prueba la URL indicada o la local por defecto y lista modelos sin guardar. LM Studio admite un token opcional (`sk-lm-…`, `@lmstudio/sdk` 2.1.0: «not required unless LM Studio is configured to mandate API tokens») que se guarda cifrado y viaja como Bearer. |
   | Resto | `API_KEY` | — |
 - **GitHub Models no se incluye:** la documentación oficial (github/docs, `content/github-models/index.md`) indica que
   el servicio se retiró por completo el 30-07-2026 (catálogo, API de inferencia y BYOK). El flujo de código de dispositivo
@@ -130,8 +141,23 @@ Diseño:
   `connectorId = 'llm-provider:<proveedor>:<flujo>'`; flujo y `state` son de un solo uso. El sondeo de dispositivo
   respeta el `interval` del proveedor (si la web sondea antes responde `pending` sin llamarlo) y reclama el turno de forma
   atómica.
-- **Verificación tolerante** (`verifyMode: 'lenient'`, Vertex y Azure): la API v1 de Azure y el endpoint de Vertex no
-  documentan `/models`; un 404/405 ahí no impide conectar, un 401/403 sí (falta de rol sobre el recurso o proyecto).
+- **Verificación tolerante** (`verifyMode: 'lenient'`, Vertex, Azure, Cohere, Perplexity y Ollama Cloud): la API v1 de
+  Azure, el endpoint de Vertex y la API de compatibilidad de Cohere no documentan `/models` (Perplexity lo expone en
+  `/v1/models`, que usa como `verifyPath`; Ollama Cloud lista modelos en `/api/tags`); un 404/405 ahí no impide conectar,
+  un 401/403 sí (falta de rol sobre el recurso o proyecto).
+- **Bedrock** (addendum 2026-10-24): el catálogo ya no recomienda claves de larga duración. Pide un token de corta
+  duración (`bedrock-api-key-…`, hasta 12 horas, generado con `@aws/bedrock-token-generator`; prefijo como advertencia)
+  y explica que Anthropic recomienda antes un rol de servicio o roles de IAM, y que las claves de larga duración se
+  pueden bloquear con `bedrock:BearerTokenType` (platform.claude.com, «Claude in Amazon Bedrock»). La ruta es un campo
+  (`apiPath`: `openai/v1` por defecto o `v1`), porque openai-node documenta `/openai/v1` y señala que la guía de AWS
+  describe `/v1`. Sigue pendiente la conexión sin tokens con `AssumeRole` + `ExternalId` (L3).
+- **Avisos de datos** (`ProviderCatalogEntry.dataNotices[]`, addendum 2026-10-24): `{ level: 'info'|'warning'; text;
+  sourceUrl }`, solo con afirmaciones verificadas en `sourceUrl`; la vista pública los expone y el diálogo de conexión
+  los muestra con el enlace a la fuente. Hoy: retención de 30 días de Claude Fable 5.1 sin ZDR (todos los canales de
+  Claude), no uso para entrenamiento sin permiso expreso (API de Anthropic), datos que permanecen en Azure (Claude en
+  Foundry alojado en Azure), condiciones distintas de los niveles gratuito y de pago de la Gemini API y no uso para
+  entrenamiento en Ollama Cloud. Lo no verificable (DeepSeek, Perplexity, Cohere, detalle del nivel gratuito de Gemini)
+  queda en `pendingVerification`.
 - **Metadatos de modelos:** `suggestedModels[]` y `LlmModel` llevan `specialties` (`CODE|REASONING|VISION|FAST|GENERAL`)
   y `contextTokens`, además de `tier`. Solo valores verificados en la fuente oficial (hoy Anthropic y DeepSeek R1);
   si no, `['GENERAL']` y contexto `null`.
@@ -149,7 +175,7 @@ los agrupa bajo «Claude» (`ProviderCatalogEntry.family = 'CLAUDE'`, `claudeCha
 | API de Anthropic (`anthropic`) | Anthropic | Clave de API (cuenta de servicio); próximo: WIF | `@anthropic-ai/sdk` | Tarifas de Anthropic |
 | Claude en Google Cloud (`claude-google-cloud`) | Anthropic | «Iniciar sesión con Google» (token de Google, rol `roles/claude.user`), proyecto y workspace `wrkspc_` | `@anthropic-ai/google-cloud-sdk` (`bearerTokenProvider`) | Google Cloud Marketplace |
 | Claude en Vertex AI (`claude-vertex`) | Google | «Iniciar sesión con Google», proyecto y región | `@anthropic-ai/vertex-sdk` (`authClient` OAuth2 con el token vigente, uno por solicitud) | Tarifas de Google |
-| Claude en Microsoft Foundry (`claude-foundry`) | Microsoft (Azure) | Clave del recurso (`api-key`); Entra ID pendiente de verificar el alcance | `@anthropic-ai/foundry-sdk` | Microsoft Marketplace a tarifas de Anthropic (CCU) |
+| Claude en Microsoft Foundry (`claude-foundry`) | Microsoft (Azure) | «Iniciar sesión con Microsoft» (Entra ID, scope `https://ai.azure.com/.default`, rol «Foundry User» o «Cognitive Services User») o clave del recurso (`api-key`) | `@anthropic-ai/foundry-sdk` (`azureADTokenProvider` con el token vigente) | Microsoft Marketplace a tarifas de Anthropic (CCU) |
 
 - **Este es el «iniciar sesión» legítimo para Claude:** Anthropic prohíbe que terceros ofrezcan el inicio de sesión de
   Claude.ai o usen planes Free/Pro/Max (code.claude.com/docs/en/legal-and-compliance). El acceso con cuenta de empresa
@@ -164,8 +190,8 @@ los agrupa bajo «Claude» (`ProviderCatalogEntry.family = 'CLAUDE'`, `claudeCha
   conteo de tokens (gratuito) y `verifyMode: 'lenient'` (404 si el modelo no está activado; 401/403 impiden conectar).
 - **Precios:** API de Anthropic y Foundry con las tarifas verificadas en platform.claude.com/docs/en/about-claude/pricing;
   Google Cloud y Vertex AI se importan con `needsPricing`.
-- **Pendiente:** Amazon Bedrock (Mantle) y Claude Platform on AWS con rol de IAM y `ExternalId` (sin claves de larga
-  duración), Workload Identity Federation para la API de Anthropic y Entra ID para Foundry.
+- **Pendiente:** Amazon Bedrock (Mantle) y Claude Platform on AWS con rol de IAM y `ExternalId` (sin tokens Bearer) y
+  Workload Identity Federation para la API de Anthropic. Entra ID para Foundry quedó resuelto (addendum 2026-10-24).
 
 ## Contrato de API
 
@@ -232,7 +258,8 @@ Solo incluye conexiones y modelos habilitados.
   billing: 'PAY_AS_YOU_GO'|'FREE_TIER'|'ENTERPRISE'|'LOCAL'; kind: 'ANTHROPIC'|'OPENAI_COMPATIBLE'; baseUrl;
   auth: 'API_KEY'|'OAUTH'|'NONE'; fields: { key; label; secret; required; placeholder?; help?; pattern?; default? }[];
   docsUrl; keyUrl?; keySteps: string[]; keyPrefix?; suggestedModels: { id; label; tier; inputUsdPerMTok?;
-  outputUsdPerMTok?; cacheReadUsdPerMTok?; contextTokens? }[]; notes?; pendingVerification: string[];
+  outputUsdPerMTok?; cacheReadUsdPerMTok?; contextTokens? }[]; notes?;
+  dataNotices?: { level: 'info'|'warning'; text; sourceUrl }[]; pendingVerification: string[];
   connected: { connectionId; name; modelCount; enabled }[]; modelCount: number;
   platform: { configured: boolean; models: number } | null }` (`platform` solo en `anthropic`).
 - `POST /admin/llm/providers/:id/connect` `{ name?, fields: Record<string,string>, models?: string[] }` → 201
@@ -278,7 +305,8 @@ Solo incluye conexiones y modelos habilitados.
   `UsageRecord`; columnas `Membership.orgUnitId`, `Agent.costCenterId`).
 - Los agentes y conversaciones existentes siguen funcionando (`anthropic`/`mock` son conexiones de sistema).
 - El costo es una estimación según los precios configurados; la factura del proveedor manda. Se documenta en la consola.
-- Pendiente (fase siguiente): proveedor Bedrock, notificaciones por correo/Slack de alertas, presupuestos por usuario,
+- Pendiente (fase siguiente): Bedrock con rol de IAM (el proveedor con token de corta duración ya existe, D8),
+  notificaciones por correo/Slack de alertas, presupuestos por usuario,
   streaming en el proveedor OpenAI-compatible, contador en Redis para muy alto volumen.
 
 ## Plan de implementación

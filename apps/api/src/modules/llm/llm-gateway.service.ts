@@ -14,7 +14,13 @@ import {
 import { LlmTokenService } from './llm-token.service';
 import { quotaPeriod } from '../copilot/copilot-quota.service';
 import { ConnectionUnavailableException } from './llm-errors';
-import { SYSTEM_ANTHROPIC_MODELS, SYSTEM_MOCK_MODELS, type CatalogModel, type ModelPricing } from './pricing';
+import {
+  longContextPricing,
+  SYSTEM_ANTHROPIC_MODELS,
+  SYSTEM_MOCK_MODELS,
+  type CatalogModel,
+  type ModelPricing,
+} from './pricing';
 
 export interface CatalogEntry {
   id: string;
@@ -75,6 +81,15 @@ export function parseClaudeOptions(raw: unknown): ClaudeChannelOptions | null {
     ...(s(o.workspaceId) ? { workspaceId: s(o.workspaceId) } : {}),
     ...(s(o.resource) ? { resource: s(o.resource) } : {}),
   };
+}
+
+/**
+ * Tarifas para medir una llamada: agrega la tarifa escalonada por longitud del prompt (`LONG_CONTEXT_PRICING`) cuando el
+ * modelo la tiene y la conexión cobra sus tarifas base estándar.
+ */
+export function withLongContext(modelId: string, p: ModelPricing): ModelPricing {
+  const longContext = longContextPricing(modelId, p);
+  return longContext ? { ...p, longContext } : p;
 }
 
 export function toCatalogModel(m: LlmModel): CatalogModel {
@@ -220,7 +235,7 @@ export class LlmGatewayService {
         providerLabel: isMock ? 'Mock' : 'Anthropic Claude (plataforma)',
         kind,
         model,
-        pricing: entry,
+        pricing: withLongContext(model, entry),
         client: this.client(`system:${providerId}`, kind, { apiKey: this.anthropicKey }),
       };
     }
@@ -254,7 +269,7 @@ export class LlmGatewayService {
       providerLabel: connection.name,
       kind: connection.kind,
       model,
-      pricing: toCatalogModel(row),
+      pricing: withLongContext(model, toCatalogModel(row)),
       client: this.clientFor(connection),
     };
   }

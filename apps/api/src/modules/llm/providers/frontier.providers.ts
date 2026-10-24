@@ -1,5 +1,10 @@
 import { SYSTEM_ANTHROPIC_MODELS } from '../pricing';
-import { API_KEY_FIELD, type ModelSpecialty, type ProviderCatalogEntry } from './provider-catalog.types';
+import {
+  API_KEY_FIELD,
+  type ModelSpecialty,
+  type ProviderCatalogEntry,
+  type ProviderDataNotice,
+} from './provider-catalog.types';
 
 /**
  * Laboratorios con API propia. Fuentes verificadas el 2026-10-23 (los dominios de documentación de terceros estaban
@@ -10,6 +15,18 @@ import { API_KEY_FIELD, type ModelSpecialty, type ProviderCatalogEntry } from '.
  * - Mistral: SDK `@mistralai/mistralai` 3.1.0. xAI: SDK `@xai-official/sdk` 0.2.4 y xai-org/xai-cookbook.
  * - Moonshot: `kimi-cli` 1.52.0 (plataformas) y MoonshotAI/Kimi-K3 (README).
  * - DeepSeek: deepseek-ai/DeepSeek-R1 (README: API compatible con OpenAI en platform.deepseek.com).
+ * Revisión del 2026-10-24:
+ * - OpenAI: SDK `openai` 7.43.0, tipo `ChatModel` (`gpt-6-astra`, `gpt-6.1-sol`, `gpt-6-sol`, `gpt-6-luna`, serie 5.6).
+ * - xAI: SDK `@xai-official/sdk` 0.2.5 (`README.md`: cubre la Responses API; `dist/generated/types.d.ts`: la
+ *   especificación conserva `ChatRequest` «for `/v1/chat/completions` endpoint» sin marcarlo como legacy, a diferencia de
+ *   `/v1/completions` y `/v1/complete`).
+ * - Gemini: google-gemini/gemini-cli `docs/resources/tos-privacy.md` (con clave de la Gemini API rigen los «Gemini API
+ *   Terms of Service», que «may differ depending on whether you are using an unpaid or paid service»).
+ * - Cohere: cohere-ai/cohere-developer-experience `fern/pages/v2/text-generation/compatibility-api.mdx` (URL base
+ *   `https://api.cohere.ai/compatibility/v1`, Bearer, `command-a-plus-05-2026`, parámetros admitidos: `model`,
+ *   `messages`, `stream`, `tools`, entre otros).
+ * - Perplexity: SDK `@perplexity-ai/perplexity_ai` 0.41.0 (URL base `https://api.perplexity.ai`, Bearer,
+ *   `POST /chat/completions`, `GET /v1/models`, modelo `sonar` en el README).
  */
 /**
  * Especialidades según platform.claude.com/docs/en/models/overview: todos los modelos actuales admiten visión; Fable
@@ -21,6 +38,19 @@ export const ANTHROPIC_SPECIALTIES: Record<string, ModelSpecialty[]> = {
   'claude-opus-5-5': ['CODE', 'GENERAL', 'VISION'],
   'claude-sonnet-5-5': ['GENERAL', 'FAST', 'VISION'],
   'claude-haiku-5-5': ['FAST', 'VISION'],
+};
+
+/**
+ * Aviso verificado de los «Covered Models» (platform.claude.com/docs/en/manage-claude/api-and-data-retention): «require
+ * 30-day data retention; ZDR is therefore not available for any of them unless expressly authorized by Anthropic» y
+ * «The 30-day data retention requirement applies wherever Covered Models are offered».
+ */
+export const CLAUDE_COVERED_MODELS_NOTICE: ProviderDataNotice = {
+  level: 'warning',
+  text:
+    'Claude Fable 5.1 exige retención de datos de 30 días en todos los canales y no está disponible con retención cero ' +
+    '(ZDR) salvo autorización expresa de Anthropic.',
+  sourceUrl: 'https://platform.claude.com/docs/en/manage-claude/api-and-data-retention',
 };
 
 export const FRONTIER_PROVIDERS: ProviderCatalogEntry[] = [
@@ -55,7 +85,18 @@ export const FRONTIER_PROVIDERS: ProviderCatalogEntry[] = [
       specialties: ANTHROPIC_SPECIALTIES[m.id] ?? ['GENERAL', 'VISION'],
     })),
     notes:
-      'Claude Haiku 5.5 cobra 0,50/2,50 USD por MTok en prompts de más de 100.000 tokens; Nexo aplica la tarifa base.',
+      'Claude Haiku 5.5 cobra 0,50/2,50 USD por MTok (0,05 la lectura de caché) en las peticiones cuyo prompt supera ' +
+      '100.000 tokens, incluida la caché; Nexo aplica esa tarifa por petición al medir el consumo.',
+    dataNotices: [
+      {
+        level: 'info',
+        text:
+          'Anthropic no usa los datos retenidos para entrenar modelos sin su permiso expreso. La retención cero (ZDR) se ' +
+          'solicita al equipo de ventas de Anthropic para cada organización.',
+        sourceUrl: 'https://platform.claude.com/docs/en/manage-claude/api-and-data-retention',
+      },
+      CLAUDE_COVERED_MODELS_NOTICE,
+    ],
     pendingVerification: [],
     authHeader: 'bearer',
     family: 'CLAUDE',
@@ -75,8 +116,8 @@ export const FRONTIER_PROVIDERS: ProviderCatalogEntry[] = [
     docsUrl: 'https://platform.openai.com/docs/api-reference/chat',
     keySteps: [],
     suggestedModels: [
-      { id: 'gpt-6.1-sol', label: 'GPT-6.1 Sol', tier: 'PREMIUM' },
-      { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra', tier: 'STANDARD' },
+      { id: 'gpt-6-astra', label: 'GPT-6 Astra', tier: 'PREMIUM' },
+      { id: 'gpt-6.1-sol', label: 'GPT-6.1 Sol', tier: 'STANDARD' },
       { id: 'gpt-6-luna', label: 'GPT-6 Luna', tier: 'ECONOMY' },
     ],
     notes: 'Los niveles de los modelos son una sugerencia de Nexo; complete las tarifas vigentes de OpenAI.',
@@ -106,7 +147,19 @@ export const FRONTIER_PROVIDERS: ProviderCatalogEntry[] = [
       { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite', tier: 'ECONOMY' },
     ],
     notes: 'Una clave inválida responde HTTP 400 («Please pass a valid API key»), no 401.',
-    pendingVerification: ['precios'],
+    dataNotices: [
+      {
+        level: 'warning',
+        text:
+          'Los términos de la Gemini API distinguen servicios gratuitos (Unpaid Services) y de pago (Paid Services) con ' +
+          'condiciones distintas: revise cuál aplica a su clave antes de enviar datos de clientes.',
+        sourceUrl: 'https://github.com/google-gemini/gemini-cli/blob/main/docs/resources/tos-privacy.md',
+      },
+    ],
+    pendingVerification: [
+      'precios',
+      'uso de datos para mejorar productos en el nivel gratuito y servicios de pago obligatorios en el EEE, Suiza y el Reino Unido (solo índice, ai.google.dev no accesible)',
+    ],
     authHeader: 'bearer',
   },
   {
@@ -145,8 +198,14 @@ export const FRONTIER_PROVIDERS: ProviderCatalogEntry[] = [
     keyUrl: 'https://console.x.ai',
     keySteps: [],
     suggestedModels: [{ id: 'grok-4.7', label: 'Grok 4.7', tier: 'PREMIUM' }],
-    notes: 'El SDK oficial de xAI usa la Responses API; Nexo usa Chat Completions.',
-    pendingVerification: ['precios', 'soporte de /chat/completions', 'pasos para obtener la clave'],
+    notes:
+      'El SDK oficial de xAI usa la Responses API; Nexo usa Chat Completions (/v1/chat/completions), que la ' +
+      'especificación oficial sigue describiendo.',
+    pendingVerification: [
+      'precios',
+      'estado legacy de Chat Completions y migración a la Responses API (solo índice, docs.x.ai no accesible)',
+      'pasos para obtener la clave',
+    ],
     authHeader: 'bearer',
   },
   {
@@ -165,7 +224,14 @@ export const FRONTIER_PROVIDERS: ProviderCatalogEntry[] = [
     keySteps: [],
     suggestedModels: [],
     notes: 'Elija los modelos con «Descubrir» tras conectar: el catálogo no sugiere ids sin verificar.',
-    pendingVerification: ['URL base', 'ids de modelos', 'precios', 'pasos para obtener la clave'],
+    pendingVerification: [
+      'URL base',
+      'ids de modelos (deepseek-v4-pro y deepseek-v4-flash según api-docs.deepseek.com; solo índice, dominio no accesible)',
+      'docsUrl oficial (api-docs.deepseek.com; solo índice)',
+      'jurisdicción y almacenamiento de los datos (solo índice)',
+      'precios',
+      'pasos para obtener la clave',
+    ],
     authHeader: 'bearer',
   },
   {
@@ -188,5 +254,60 @@ export const FRONTIER_PROVIDERS: ProviderCatalogEntry[] = [
     pendingVerification: ['precios', 'pasos para obtener la clave'],
     authHeader: 'bearer',
     replayReasoning: true,
+  },
+  {
+    id: 'cohere',
+    name: 'Cohere',
+    description: 'Modelos Command de Cohere mediante su API de compatibilidad con OpenAI.',
+    logo: 'cohere',
+    category: 'FRONTIER',
+    billing: 'PAY_AS_YOU_GO',
+    kind: 'OPENAI_COMPATIBLE',
+    baseUrl: 'https://api.cohere.ai/compatibility/v1',
+    auth: 'API_KEY',
+    fields: [API_KEY_FIELD({ help: 'Clave de API de Cohere; se envía como Bearer y se guarda cifrada.' })],
+    docsUrl: 'https://docs.cohere.com/v2/docs/compatibility-api',
+    keySteps: [],
+    suggestedModels: [{ id: 'command-a-plus-05-2026', label: 'Command A Plus (05-2026)', tier: 'STANDARD' }],
+    notes:
+      'La API de compatibilidad admite herramientas (tools) y streaming; reasoning_effort solo acepta «none» y «high». ' +
+      'El nivel del modelo es una sugerencia de Nexo: complete las tarifas vigentes de Cohere.',
+    pendingVerification: [
+      'precios',
+      'endpoint /models en la API de compatibilidad',
+      'pasos y formato de la clave',
+      'retención de datos (30 días; ZDR solo para clientes enterprise; solo índice)',
+    ],
+    authHeader: 'bearer',
+    verifyMode: 'lenient',
+  },
+  {
+    id: 'perplexity',
+    name: 'Perplexity',
+    description: 'Modelos Sonar de Perplexity con búsqueda web integrada (Chat Completions).',
+    logo: 'perplexity',
+    category: 'FRONTIER',
+    billing: 'PAY_AS_YOU_GO',
+    kind: 'OPENAI_COMPATIBLE',
+    baseUrl: 'https://api.perplexity.ai',
+    auth: 'API_KEY',
+    fields: [API_KEY_FIELD({ help: 'Clave de API de Perplexity; se envía como Bearer y se guarda cifrada.' })],
+    docsUrl: 'https://docs.perplexity.ai/',
+    keySteps: [],
+    suggestedModels: [{ id: 'sonar', label: 'Sonar', tier: 'STANDARD' }],
+    notes:
+      'Las respuestas se apoyan en búsquedas web en tiempo real. El nivel del modelo es una sugerencia de Nexo: complete ' +
+      'las tarifas vigentes de Perplexity.',
+    pendingVerification: [
+      'precios',
+      'formato de la respuesta de /v1/models (Nexo lista modelos con /models)',
+      'pasos y formato de la clave',
+      'retención de datos de la API («zero-day retention») y exclusión de la Search API (solo índice)',
+      'migración de Sonar a la Agent API (solo índice)',
+    ],
+    authHeader: 'bearer',
+    // Perplexity expone la lista de modelos en `/v1/models` (SDK oficial), no bajo la URL base de Chat Completions.
+    verifyPath: '/v1/models',
+    verifyMode: 'lenient',
   },
 ];

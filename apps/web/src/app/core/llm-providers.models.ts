@@ -53,8 +53,20 @@ export interface SuggestedModel {
   tier: ModelTier;
   inputUsdPerMTok?: number;
   outputUsdPerMTok?: number;
+  /** Lectura de caché (USD por MTok), si está verificada. */
+  cacheReadUsdPerMTok?: number;
   contextTokens?: number;
   specialties?: ModelSpecialty[];
+}
+
+/**
+ * Aviso sobre el tratamiento de los datos en el proveedor (entrenamiento, retención, residencia), verificado en
+ * `sourceUrl`. `warning` = condición que puede impedir enviar datos de clientes.
+ */
+export interface ProviderDataNotice {
+  level: 'info' | 'warning';
+  text: string;
+  sourceUrl: string;
 }
 
 export interface ProviderConnectionRef {
@@ -87,6 +99,8 @@ export interface ProviderView {
   keyPrefix?: string;
   suggestedModels: SuggestedModel[];
   notes?: string;
+  /** Avisos de datos del proveedor; el diálogo de conexión los muestra con un enlace a la fuente. */
+  dataNotices?: ProviderDataNotice[];
   modelCount: number;
   connected: ProviderConnectionRef[];
   /** Solo en el proveedor de la plataforma (Anthropic): conexión incluida por Nexo configurada en el servidor. */

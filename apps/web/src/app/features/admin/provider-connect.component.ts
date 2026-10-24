@@ -94,6 +94,10 @@ export class ProviderConnectComponent implements OnInit {
   readonly keyUrl = computed(() => (isHttpUrl(this.provider().keyUrl) ? this.provider().keyUrl! : null));
   readonly docsUrl = computed(() => (isHttpUrl(this.provider().docsUrl) ? this.provider().docsUrl : null));
   readonly steps = computed(() => (this.provider().keySteps ?? []).filter((s) => !!s?.trim()));
+  /** Avisos de datos del proveedor (entrenamiento, retención, residencia) con fuente oficial válida. */
+  readonly dataNotices = computed(() =>
+    (this.provider().dataNotices ?? []).filter((n) => !!n?.text?.trim() && isHttpUrl(n.sourceUrl)),
+  );
   readonly mechanisms = computed(() => mechanismsOf(this.provider()));
   /** «Google» para Vertex AI («Iniciar sesión con Google»). */
   readonly brand = computed(() => brandOf(this.mode(), this.provider()));
@@ -121,6 +125,8 @@ export class ProviderConnectComponent implements OnInit {
     return [...f.filter((x) => !x.secret), ...f.filter((x) => x.secret)];
   });
   readonly isRequired = isRequired;
+  /** El formulario pide un secreto (p. ej. el token opcional de LM Studio en un servidor local). */
+  readonly hasSecret = computed(() => this.fields().some((f) => f.secret));
   /** Campo al que aplica `keyPrefix`: `apiKey` o el primer secreto. */
   readonly keyField = computed(() => {
     const f = this.provider().fields ?? [];
@@ -166,8 +172,12 @@ export class ProviderConnectComponent implements OnInit {
   altLabel(m: ProviderMechanism) {
     switch (m.type) {
       case 'API_KEY': {
-        if (this.provider().category === 'LOCAL' || this.provider().auth === 'NONE') return 'Configurar la dirección manualmente';
         const l = m.label?.trim();
+        if (this.provider().category === 'LOCAL' || this.provider().auth === 'NONE') {
+          // Con token opcional (LM Studio) el mecanismo trae su propia etiqueta («Servidor con token»).
+          const withToken = fieldsFor(this.provider(), 'API_KEY').some((f) => f.secret);
+          return withToken && l ? `Usar ${l.charAt(0).toLowerCase()}${l.slice(1)}` : 'Configurar la dirección manualmente';
+        }
         return !l || /^clave de api$/i.test(l) ? 'Usar una clave de API' : `Usar ${l.charAt(0).toLowerCase()}${l.slice(1)}`;
       }
       case 'LOCAL_DETECT':
@@ -267,7 +277,8 @@ export class ProviderConnectComponent implements OnInit {
 
   price(m: SuggestedModel) {
     if (m.inputUsdPerMTok == null || m.outputUsdPerMTok == null) return null;
-    return `${formatUsd(m.inputUsdPerMTok)} / ${formatUsd(m.outputUsdPerMTok)} por MTok`;
+    const cache = m.cacheReadUsdPerMTok == null ? '' : ` · caché ${formatUsd(m.cacheReadUsdPerMTok)}`;
+    return `${formatUsd(m.inputUsdPerMTok)} / ${formatUsd(m.outputUsdPerMTok)} por MTok${cache}`;
   }
 
   context(tokens?: number) {

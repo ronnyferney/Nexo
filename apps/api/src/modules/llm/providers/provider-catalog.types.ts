@@ -40,6 +40,12 @@ export interface OAuthAppSpec {
   authorizeParams?: Record<string, string>;
   /** Envía `scope` también al canjear y renovar (extensión documentada de Microsoft Entra ID). */
   scopeOnTokenRequest?: boolean;
+  /**
+   * Scopes anteriores de la app: si el `oauthScope` guardado en la conexión contiene `match`, la renovación sigue
+   * pidiendo `scopes` (las conexiones creadas antes de cambiar el scope no se rompen; al volver a iniciar sesión pasan
+   * al scope vigente).
+   */
+  legacyScopes?: { match: string; scopes: string[] }[];
   /** Autenticación del cliente en el endpoint de token: `post` (client_secret en el cuerpo) o `basic`. */
   clientAuth: 'post' | 'basic';
   /** La app de Nexo debe tener client secret (app web confidencial). */
@@ -96,6 +102,19 @@ export interface SuggestedModel {
   specialties?: ModelSpecialty[];
 }
 
+/**
+ * Aviso sobre el tratamiento de los datos (uso para entrenamiento, retención, residencia o jurisdicción) que la web
+ * muestra al conectar. Solo afirmaciones verificadas en `sourceUrl`; lo no verificado va a `pendingVerification`.
+ */
+export interface ProviderDataNotice {
+  /** `warning`: condición que puede impedir enviar datos de clientes; `info`: dato útil para la evaluación. */
+  level: 'info' | 'warning';
+  /** Una o dos frases en español. */
+  text: string;
+  /** Página oficial de la que sale el aviso. */
+  sourceUrl: string;
+}
+
 export interface ProviderCatalogEntry {
   id: string;
   name: string;
@@ -119,6 +138,8 @@ export interface ProviderCatalogEntry {
   keyPrefix?: string;
   suggestedModels: SuggestedModel[];
   notes?: string;
+  /** Avisos de datos del proveedor (L14): se muestran en el diálogo de conexión. */
+  dataNotices?: ProviderDataNotice[];
   /** Aspectos aún no verificados en la documentación oficial (transparencia para la consola y QA). */
   pendingVerification: string[];
   /** Mecanismos de conexión; por defecto `API_KEY` (o `LOCAL_DETECT` en la categoría LOCAL). */
@@ -162,7 +183,7 @@ export function findMechanism(
 }
 
 /** Fecha de la última revisión del catálogo contra las fuentes oficiales. */
-export const CATALOG_VERIFIED_AT = '2026-10-23';
+export const CATALOG_VERIFIED_AT = '2026-10-24';
 
 export const API_KEY_FIELD = (overrides: Partial<ProviderField> = {}): ProviderField => ({
   key: 'apiKey',

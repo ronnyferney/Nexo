@@ -64,7 +64,9 @@ export class OpenRouterOAuthService {
       userId,
       codeVerifier,
     });
-    // OpenRouter no tiene parámetro `state`: viaja en la query del callback_url y vuelve junto al `code`.
+    // El `state` viaja en la query del callback_url y vuelve junto al `code`: el SDK oficial (1.5.7) no documenta un
+    // parámetro `state` propio en `/auth` (el anuncio del blog de OpenRouter no se pudo verificar en la documentación).
+    // `usage_limit_type` tampoco: solo existe en `POST /auth/keys/code`, autenticado con la clave del usuario.
     const callback = new URL(this.callbackUrl);
     callback.searchParams.set('state', state);
     const url = new URL(this.config.get<string>('llm.openrouterAuthUrl') ?? 'https://openrouter.ai/auth');

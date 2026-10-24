@@ -207,9 +207,40 @@ describe('LlmTokenService', () => {
     await expect(svc.accessToken('c1')).resolves.toBe('eyJ.nuevo');
     expect(http.requests[0].url).toBe('https://login.microsoftonline.com/contoso/oauth2/v2.0/token');
     expect(new URLSearchParams(http.requests[0].body).get('scope')).toBe(
-      'https://cognitiveservices.azure.com/.default offline_access',
+      'https://ai.azure.com/.default offline_access',
     );
     expect(crypto.decrypt(state.row.oauthRefreshCipher!)).toBe('rt-2');
+  });
+
+  it('Entra ID: una conexión creada con el scope de Cognitive Services lo conserva al renovar', async () => {
+    const http = new FakeHttp([{ status: 200, body: { access_token: 'eyJ.nuevo', expires_in: 3600 } }]);
+    const { prisma } = fakePrisma(
+      vertexRow({
+        providerId: 'azure-openai',
+        providerFields: { resource: 'r', deployment: 'd', tenantId: 'contoso' },
+        oauthScope: 'https://cognitiveservices.azure.com/user_impersonation',
+      }),
+    );
+    const c = config({ OAUTH_LLM_AZURE_OPENAI_CLIENT_ID: 'id', OAUTH_LLM_AZURE_OPENAI_CLIENT_SECRET: 's' });
+    const svc = new LlmTokenService(prisma, crypto, http as unknown as HttpClientService, c);
+    await expect(svc.accessToken('c1')).resolves.toBe('eyJ.nuevo');
+    expect(new URLSearchParams(http.requests[0].body).get('scope')).toBe(
+      'https://cognitiveservices.azure.com/.default offline_access',
+    );
+  });
+
+  it('Claude en Foundry renueva con la app de Entra ID de Nexo compartida con Azure OpenAI', async () => {
+    const http = new FakeHttp([{ status: 200, body: { access_token: 'eyJ.foundry', expires_in: 3600 } }]);
+    const { prisma } = fakePrisma(
+      vertexRow({ providerId: 'claude-foundry', providerFields: { resource: 'mi-recurso', tenantId: 'contoso' } }),
+    );
+    const c = config({ OAUTH_LLM_AZURE_OPENAI_CLIENT_ID: 'id', OAUTH_LLM_AZURE_OPENAI_CLIENT_SECRET: 's' });
+    const svc = new LlmTokenService(prisma, crypto, http as unknown as HttpClientService, c);
+    await expect(svc.accessToken('c1')).resolves.toBe('eyJ.foundry');
+    expect(http.requests[0].url).toBe('https://login.microsoftonline.com/contoso/oauth2/v2.0/token');
+    const form = new URLSearchParams(http.requests[0].body);
+    expect(form.get('scope')).toBe('https://ai.azure.com/.default offline_access');
+    expect(form.get('client_id')).toBe('id');
   });
 
   it('Hugging Face con secreto usa Authorization: Basic en el endpoint de token', async () => {

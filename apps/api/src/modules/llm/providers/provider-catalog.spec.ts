@@ -52,6 +52,9 @@ describe('Catálogo de proveedores LLM', () => {
         'ollama',
         'lmstudio',
         'vertex',
+        'cohere',
+        'perplexity',
+        'ollama-cloud',
       ]),
     );
     for (const p of REAL_PROVIDERS) {
@@ -87,8 +90,12 @@ describe('Catálogo de proveedores LLM', () => {
     // El único secreto es la clave de API (se cifra en apiKeyCipher).
     expect(secrets.every((f) => f.key === 'apiKey')).toBe(true);
     // Sin mecanismo API_KEY (p. ej. Vertex AI, solo OAuth) no hay secreto en el formulario.
-    if (p.auth === 'NONE' || !findMechanism(p, 'API_KEY')) expect(secrets).toHaveLength(0);
-    else expect(secrets).toHaveLength(1);
+    if (!findMechanism(p, 'API_KEY')) expect(secrets).toHaveLength(0);
+    // Sin autenticación (locales) el secreto es opcional y solo del mecanismo API_KEY (token de LM Studio).
+    else if (p.auth === 'NONE') {
+      expect(secrets.length).toBeLessThanOrEqual(1);
+      for (const f of secrets) expect(f).toMatchObject({ required: false, mechanisms: ['API_KEY'] });
+    } else expect(secrets).toHaveLength(1);
     if (p.auth === 'API_KEY') expect(secrets[0].required).toBe(true);
     for (const f of p.fields) {
       if (f.pattern) {
@@ -203,8 +210,15 @@ describe('validateProviderFields', () => {
     );
   });
 
-  it('renderiza Bedrock con la región', () => {
-    expect(validateProviderFields(findProvider('bedrock')!, { region: 'eu-west-1', apiKey: 'k' }).baseUrl).toBe(
+  it('renderiza Bedrock con la región y la ruta /openai/v1 por defecto o /v1', () => {
+    const bedrock = findProvider('bedrock')!;
+    expect(validateProviderFields(bedrock, { region: 'eu-west-1', apiKey: 'k', apiPath: 'v1' }).baseUrl).toBe(
+      'https://bedrock-mantle.eu-west-1.api.aws/v1',
+    );
+    expect(() => validateProviderFields(bedrock, { region: 'eu-west-1', apiKey: 'k', apiPath: '../evil' })).toThrow(
+      /formato/,
+    );
+    expect(validateProviderFields(bedrock, { region: 'eu-west-1', apiKey: 'k' }).baseUrl).toBe(
       'https://bedrock-mantle.eu-west-1.api.aws/openai/v1',
     );
   });
@@ -254,7 +268,7 @@ describe('Mecanismos de conexión y metadatos de modelos (ADR 0002 D8)', () => {
         expect(['API_KEY', 'OAUTH', 'DEVICE_CODE', 'LOCAL_DETECT']).toContain(m.type);
         expect(m.label.length).toBeGreaterThan(0);
       }
-      if (p.category === 'LOCAL') expect(mechanisms.map((m) => m.type)).toEqual(['LOCAL_DETECT']);
+      if (p.category === 'LOCAL') expect(mechanisms[0]).toMatchObject({ type: 'LOCAL_DETECT', primary: true });
     }
   });
 
@@ -291,9 +305,17 @@ describe('Mecanismos de conexión y metadatos de modelos (ADR 0002 D8)', () => {
     expect(() => validateProviderFields(vertex, { projectId: 'x/../y' }, 'OAUTH')).toThrow(/formato/);
   });
 
-  it('Azure OpenAI: OAuth con Entra ID (scope de Cognitive Services + offline_access) sin clave en el formulario', () => {
+  it('Azure OpenAI: OAuth con Entra ID (scope de la API v1 + offline_access) sin clave en el formulario', () => {
     const oauth = findMechanism(azure(), 'OAUTH')!.oauth!;
-    expect(oauth.scopes).toEqual(['https://cognitiveservices.azure.com/.default', 'offline_access']);
+    // openai-node `docs/azure.md` (v1 API): `getBearerTokenProvider(..., 'https://ai.azure.com/.default')`.
+    expect(oauth.scopes).toEqual(['https://ai.azure.com/.default', 'offline_access']);
+    // Las conexiones creadas con el scope anterior lo conservan al renovar.
+    expect(oauth.legacyScopes).toEqual([
+      {
+        match: 'cognitiveservices.azure.com',
+        scopes: ['https://cognitiveservices.azure.com/.default', 'offline_access'],
+      },
+    ]);
     expect(oauth.tokenUrl).toBe('https://login.microsoftonline.com/{{ tenantId }}/oauth2/v2.0/token');
     const v = validateProviderFields(azure(), { resource: 'contoso-ia', deployment: 'gpt-prod' }, 'OAUTH');
     expect(v).toEqual({
@@ -348,5 +370,98 @@ describe('Simulador de desarrollo (LLM_DEV_SIMULATOR)', () => {
         expect(url).toMatch(/^\/api\/dev\/llm-sim\//);
       }
     }
+  });
+});
+
+describe('Revisión del catálogo 2026-10-24 (plan de mejora L4–L14)', () => {
+  it('L4: Bedrock no recomienda claves de larga duración y espera tokens de corta duración', () => {
+    const bedrock = findProvider('bedrock')!;
+    expect(bedrock.keyPrefix).toBe('bedrock-api-key-');
+    expect(bedrock.notes).not.toMatch(/use una clave de larga duración/i);
+    expect(bedrock.notes).toMatch(/No use claves de larga duración/);
+    expect(bedrock.keySteps.join(' ')).toMatch(/12 horas/);
+  });
+
+  it('L5: no sugiere los modelos retirados de Groq y Fireworks', () => {
+    const ids = PROVIDER_CATALOG.flatMap((p) => p.suggestedModels.map((m) => m.id));
+    expect(ids).not.toContain('meta-llama/llama-4-scout-17b-16e-instruct');
+    expect(ids).not.toContain('accounts/fireworks/models/kimi-k2-instruct-0905');
+  });
+
+  it('L7: Claude en Foundry inicia sesión con Microsoft (scope https://ai.azure.com/.default) o con la clave', () => {
+    const foundry = findProvider('claude-foundry')!;
+    const oauth = findMechanism(foundry, 'OAUTH')!;
+    expect(oauth.primary).toBe(true);
+    expect(oauth.oauth).toMatchObject({
+      scopes: ['https://ai.azure.com/.default', 'offline_access'],
+      appKey: 'azure-openai',
+      tokenUrl: 'https://login.microsoftonline.com/{{ tenantId }}/oauth2/v2.0/token',
+    });
+    expect(findMechanism(foundry, 'API_KEY')).toBeDefined();
+    // La clave no pertenece al mecanismo OAuth; el inquilino sí.
+    expect(validateProviderFields(foundry, { resource: 'mi-recurso' }, 'OAUTH')).toEqual({
+      apiKey: undefined,
+      values: { resource: 'mi-recurso', tenantId: 'organizations' },
+      baseUrl: 'https://mi-recurso.services.ai.azure.com/anthropic',
+    });
+    expect(() => validateProviderFields(foundry, { resource: 'mi-recurso', apiKey: 'k' }, 'OAUTH')).toThrow(
+      /no reconocidos/,
+    );
+    expect(foundry.pendingVerification.join(' ')).not.toMatch(/alcance del token/);
+  });
+
+  it('L9: OpenAI sugiere modelos de la serie actual del SDK oficial', () => {
+    expect(findProvider('openai')!.suggestedModels.map((m) => m.id)).toEqual([
+      'gpt-6-astra',
+      'gpt-6.1-sol',
+      'gpt-6-luna',
+    ]);
+  });
+
+  it('L12: OpenRouter documenta las restricciones verificadas del callback_url y deja pendiente state', () => {
+    const pending = findProvider('openrouter')!.pendingVerification.join(' ');
+    expect(pending).not.toMatch(/restricciones de callback_url/);
+    expect(pending).toMatch(/state/);
+  });
+
+  it('L13: LM Studio acepta un token opcional (solo con «Servidor con token») y Ollama Cloud usa Bearer', () => {
+    const lms = findProvider('lmstudio')!;
+    expect(entryMechanisms(lms).map((m) => m.type)).toEqual(['LOCAL_DETECT', 'API_KEY']);
+    expect(validateProviderFields(lms, {}, 'LOCAL_DETECT').apiKey).toBeUndefined();
+    expect(() => validateProviderFields(lms, { apiKey: 'sk-lm-x' }, 'LOCAL_DETECT')).toThrow(/no reconocidos/);
+    expect(validateProviderFields(lms, { apiKey: 'sk-lm-abcdefgh:abcdefghijklmnopqrst' }, 'API_KEY')).toMatchObject({
+      apiKey: 'sk-lm-abcdefgh:abcdefghijklmnopqrst',
+      baseUrl: 'http://localhost:1234/v1',
+    });
+    expect(lms.authHeader).toBe('bearer');
+    expect(describeProbeError(new LlmHttpError(401, 'Unauthorized'), lms, 'http://localhost:1234/v1')).toMatch(
+      /Token de API de LM Studio/,
+    );
+    expect(findProvider('ollama-cloud')).toMatchObject({
+      baseUrl: 'https://ollama.com/v1',
+      authHeader: 'bearer',
+      category: 'OPEN_MODELS',
+    });
+    expect(findProvider('cohere')).toMatchObject({ baseUrl: 'https://api.cohere.ai/compatibility/v1' });
+    expect(findProvider('perplexity')).toMatchObject({
+      baseUrl: 'https://api.perplexity.ai',
+      verifyPath: '/v1/models',
+    });
+  });
+
+  it('L14: los avisos de datos citan una fuente https y llegan a la vista pública', () => {
+    const withNotices = REAL_PROVIDERS.filter((p) => p.dataNotices?.length);
+    expect(withNotices.map((p) => p.id)).toEqual(
+      expect.arrayContaining(['anthropic', 'claude-foundry', 'gemini', 'ollama-cloud']),
+    );
+    for (const p of withNotices) {
+      for (const n of p.dataNotices!) {
+        expect(['info', 'warning']).toContain(n.level);
+        expect(n.sourceUrl).toMatch(/^https:\/\//);
+        expect(n.text.length).toBeGreaterThan(20);
+        expect(n.text.length).toBeLessThanOrEqual(260);
+      }
+    }
+    expect(publicEntry(findProvider('anthropic')!).dataNotices).toEqual(findProvider('anthropic')!.dataNotices);
   });
 });

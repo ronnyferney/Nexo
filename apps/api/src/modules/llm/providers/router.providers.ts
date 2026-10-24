@@ -6,6 +6,10 @@ import { API_KEY_FIELD, type ProviderCatalogEntry } from './provider-catalog.typ
  * code_challenge_method`, `exchangeAuthCodeForAPIKey` → `POST /auth/keys` `{ code, code_verifier,
  * code_challenge_method }` → `{ key, user_id }`; `GET /key` = metadatos de la clave actual; cabeceras de atribución
  * `HTTP-Referer` y `X-OpenRouter-Title`).
+ * Revisión del 2026-10-24 con `@openrouter/sdk` 1.5.7 (L12): `CreateAuthKeysCodeRequestBody.callbackUrl` «Supports https
+ * URLs and localhost/127.0.0.1 URLs on any port»; `oAuthCreateAuthorizationUrl` solo arma `callback_url`,
+ * `code_challenge`, `code_challenge_method` y `limit` (sin `state`). `usage_limit_type` (`daily|weekly|monthly`) solo
+ * existe en `POST /auth/keys/code`, que se autentica con la clave del propio usuario: no aplica al flujo del navegador.
  */
 export const ROUTER_PROVIDERS: ProviderCatalogEntry[] = [
   {
@@ -29,7 +33,12 @@ export const ROUTER_PROVIDERS: ProviderCatalogEntry[] = [
     suggestedModels: [],
     notes:
       'Con OAuth, OpenRouter crea una clave para Nexo con el límite de crédito que usted elija. Elija los modelos con «Descubrir».',
-    pendingVerification: ['precios', 'restricciones de callback_url', 'conservación de parámetros de callback_url'],
+    pendingVerification: [
+      'precios',
+      'parámetro state propio en openrouter.ai/auth (anunciado en el blog de OpenRouter; solo índice, el SDK 1.5.7 no lo incluye)',
+      'usage_limit_type (reinicio diario/semanal/mensual del límite) en la URL de autorización',
+      'conservación de parámetros de callback_url',
+    ],
     authHeader: 'bearer',
     // `/key` devuelve los metadatos de la clave actual (`apiKeysGetCurrentKeyMetadata`): valida la clave en sí.
     verifyPath: '/key',

@@ -625,7 +625,7 @@ describe('Mecanismos oficiales de conexión de proveedores IA (E2E)', () => {
           fields: { resource: 'contoso', deployment: 'gpt-prod', tenantId: 'contoso.onmicrosoft.com' },
         })
         .expect(200);
-      const scope = 'https://cognitiveservices.azure.com/.default offline_access';
+      const scope = 'https://ai.azure.com/.default offline_access';
       const { code, state } = idp.authorize((start.body as { authorizeUrl: string }).authorizeUrl, {
         path: '/contoso.onmicrosoft.com/oauth2/v2.0/authorize',
         clientId: 'nexo-entra-app',

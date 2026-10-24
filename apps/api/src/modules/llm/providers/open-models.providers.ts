@@ -9,6 +9,15 @@ import { API_KEY_FIELD, type OAuthAppSpec, type ProviderCatalogEntry } from './p
  * `Authorization: Basic` con secreto, código de dispositivo) y huggingface/huggingface.js (`oauth-login-url.ts`,
  * `oauth-handle-redirect.ts`: el token trae `expires_in` y no documenta refresh token); deepseek-ai/DeepSeek-R1
  * (modelo de razonamiento).
+ * Revisión del 2026-10-24 (L5): se retiraron de las sugerencias `meta-llama/llama-4-scout-17b-16e-instruct` de Groq
+ * (desaprobado el 2026-07-17 en los niveles gratuito y de desarrollador según console.groq.com/docs/deprecations) y
+ * `accounts/fireworks/models/kimi-k2-instruct-0905` de Fireworks («serverless: Not supported» en su ficha). Ambas
+ * evidencias son **(índice)**: esos dominios no son accesibles desde el entorno de verificación; retirar una sugerencia
+ * no agrega datos sin verificar y el modelo sigue disponible con «Descubrir» si la cuenta lo expone. `openai/gpt-oss-20b`
+ * se mantiene: es el modelo de los ejemplos del SDK `groq-sdk` 1.6.0.
+ * Ollama Cloud: ollama/ollama `docs/cloud.mdx` y `docs/api/openai-compatibility.mdx` (`https://ollama.com/v1`, clave
+ * `OLLAMA_API_KEY` como Bearer creada en ollama.com/settings/keys, modelos con los nombres de `https://ollama.com/api/tags`;
+ * «We do not use them to train models»).
  */
 
 /** App OAuth de Nexo en Hugging Face (`OAUTH_LLM_HUGGINGFACE_CLIENT_ID/SECRET`; el secreto es opcional). */
@@ -36,12 +45,14 @@ export const OPEN_MODEL_PROVIDERS: ProviderCatalogEntry[] = [
     docsUrl: 'https://console.groq.com/docs',
     keyUrl: 'https://console.groq.com/',
     keySteps: [],
-    suggestedModels: [
-      { id: 'openai/gpt-oss-20b', label: 'GPT-OSS 20B', tier: 'ECONOMY' },
-      { id: 'meta-llama/llama-4-scout-17b-16e-instruct', label: 'Llama 4 Scout 17B', tier: 'ECONOMY' },
-    ],
+    suggestedModels: [{ id: 'openai/gpt-oss-20b', label: 'GPT-OSS 20B', tier: 'ECONOMY' }],
     notes: 'La clave se obtiene gratis al crear una cuenta; el uso de pago depende del plan de Groq.',
-    pendingVerification: ['precios', 'límites del nivel gratuito', 'pasos y formato de la clave'],
+    pendingVerification: [
+      'precios',
+      'límites del nivel gratuito',
+      'pasos y formato de la clave',
+      'reemplazo vigente de Llama 4 Scout (openai/gpt-oss-120b o qwen/qwen3.6-27b; solo índice)',
+    ],
     authHeader: 'bearer',
   },
   {
@@ -76,11 +87,13 @@ export const OPEN_MODEL_PROVIDERS: ProviderCatalogEntry[] = [
     docsUrl: 'https://docs.fireworks.ai/',
     keySteps: [],
     keyPrefix: 'fw_',
-    suggestedModels: [
-      { id: 'accounts/fireworks/models/kimi-k2-instruct-0905', label: 'Kimi K2 Instruct', tier: 'STANDARD' },
-      { id: 'accounts/fireworks/models/gemma-4-31b-it', label: 'Gemma 4 31B', tier: 'ECONOMY' },
+    suggestedModels: [{ id: 'accounts/fireworks/models/gemma-4-31b-it', label: 'Gemma 4 31B', tier: 'ECONOMY' }],
+    pendingVerification: [
+      'precios',
+      'endpoint /models',
+      'pasos para obtener la clave',
+      'modelo serverless vigente que reemplace a Kimi K2 Instruct 0905 (solo índice)',
     ],
-    pendingVerification: ['precios', 'endpoint /models', 'pasos para obtener la clave'],
     authHeader: 'bearer',
   },
   {
@@ -165,5 +178,40 @@ export const OPEN_MODEL_PROVIDERS: ProviderCatalogEntry[] = [
       { type: 'DEVICE_CODE', label: 'Conectar con un código', primary: false, oauth: HUGGING_FACE_OAUTH },
       { type: 'API_KEY', label: 'Token de acceso (hf_)', primary: false },
     ],
+  },
+  {
+    id: 'ollama-cloud',
+    name: 'Ollama Cloud',
+    description: 'Modelos abiertos en la nube de Ollama, sin servidor propio, con clave de API.',
+    logo: 'ollama-cloud',
+    category: 'OPEN_MODELS',
+    billing: 'PAY_AS_YOU_GO',
+    kind: 'OPENAI_COMPATIBLE',
+    baseUrl: 'https://ollama.com/v1',
+    auth: 'API_KEY',
+    fields: [
+      API_KEY_FIELD({ help: 'Clave de API de Ollama (OLLAMA_API_KEY); se envía como Bearer y se guarda cifrada.' }),
+    ],
+    docsUrl: 'https://docs.ollama.com/cloud',
+    keyUrl: 'https://ollama.com/settings/keys',
+    keySteps: [
+      'Inicie sesión en ollama.com y abra «API keys» (ollama.com/settings/keys).',
+      'Cree una clave y cópiela; manténgala fuera del código y del navegador.',
+    ],
+    suggestedModels: [],
+    notes:
+      'Use los nombres de modelo de la lista de modelos en la nube (p. ej. gemma4:31b) y elíjalos con «Descubrir». ' +
+      'La API en la nube no admite Responses con estado. Revise los retiros de modelos en la configuración de uso de Ollama.',
+    dataNotices: [
+      {
+        level: 'info',
+        text: 'Ollama procesa los prompts y respuestas en la nube para responder y no los usa para entrenar modelos.',
+        sourceUrl: 'https://docs.ollama.com/cloud',
+      },
+    ],
+    pendingVerification: ['precios y planes', 'endpoint /v1/models en ollama.com (la documentación lista /api/tags)'],
+    authHeader: 'bearer',
+    // La lista oficial de modelos en la nube es `/api/tags`; un 404 en `/models` no impide conectar.
+    verifyMode: 'lenient',
   },
 ];

@@ -46,6 +46,12 @@ dialog.connect { width: min(600px, calc(100vw - 24px)); border-radius: 18px; }
 .foot { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; padding-top: 4px; }
 .back { margin-right: auto; }
 .chan { display: block; line-height: 1.4; }
+.notices { display: grid; gap: 8px; }
+.notices h3 { margin: 0; font-size: 12.5px; font-weight: 600; color: var(--muted); text-transform: none; }
+.notices .callout { line-height: 1.5; }
+.notices .callout nx-icon { margin-top: 2px; flex-shrink: 0; }
+.notices .callout.warning nx-icon { color: var(--warning); }
+.notices a { font-weight: 600; white-space: nowrap; }
 .spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.4); border-top-color: #fff; animation: spin 0.7s linear infinite; }
 .spin.dark { border-color: var(--border); border-top-color: var(--info); flex-shrink: 0; }
 @keyframes spin { to { transform: rotate(360deg); } }

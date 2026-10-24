@@ -40,7 +40,9 @@
           @case ('DEVICE_CODE') { Autorice a Nexo con un código de un solo uso, sin copiar claves. }
           @case ('LOCAL_DETECT') { Conecte su servidor {{ p.name }}: Nexo lo detecta y lista sus modelos. }
           @default {
-            @if (p.auth === 'NONE' || p.category === 'LOCAL') {
+            @if ((p.auth === 'NONE' || p.category === 'LOCAL') && hasSecret()) {
+              Indique la dirección de su servidor {{ p.name }} y, si exige autenticación, su token. Guardamos el token cifrado en la bóveda.
+            } @else if (p.auth === 'NONE' || p.category === 'LOCAL') {
               Indique la dirección de su servidor {{ p.name }}. Nexo se conecta directamente y no necesita clave.
             } @else if (p.category === 'ENTERPRISE_CLOUD') {
               Complete los datos de su recurso de {{ p.name }}. Guardamos las credenciales cifradas en la bóveda y las usamos para sus agentes.
@@ -63,6 +65,19 @@
         <div class="callout info"><nx-icon name="info" [size]="16" />
           <span>Nexo se conecta con la <strong>cuenta empresarial o de API</strong>, no con suscripciones personales como {{ plan }}.
             Los términos de {{ p.name }} reservan esos planes para uso individual, y la cuenta de API permite asignar y controlar el gasto por unidad.</span></div>
+      }
+
+      @if (dataNotices().length) {
+        <section class="notices" aria-labelledby="pc-data">
+          <h3 id="pc-data" class="small">Tratamiento de sus datos</h3>
+          @for (n of dataNotices(); track $index) {
+            <div class="callout" [class.warning]="n.level === 'warning'" [class.info]="n.level !== 'warning'">
+              <nx-icon [name]="n.level === 'warning' ? 'alert' : 'info'" [size]="16" />
+              <span>{{ n.text }}
+                <a [href]="n.sourceUrl" target="_blank" rel="noopener noreferrer">Fuente<span class="sr-only"> (abre en otra pestaña)</span></a></span>
+            </div>
+          }
+        </section>
       }
 
       <div class="panel">

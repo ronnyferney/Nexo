@@ -1,6 +1,6 @@
 import { SYSTEM_ANTHROPIC_MODELS } from '../pricing';
-import { GOOGLE_CLOUD_OAUTH } from './enterprise.providers';
-import { ANTHROPIC_SPECIALTIES } from './frontier.providers';
+import { ENTRA_AI_OAUTH, GOOGLE_CLOUD_OAUTH } from './enterprise.providers';
+import { ANTHROPIC_SPECIALTIES, CLAUDE_COVERED_MODELS_NOTICE } from './frontier.providers';
 import {
   API_KEY_FIELD,
   type ProviderCatalogEntry,
@@ -16,6 +16,11 @@ import {
  * (`@anthropic-ai/vertex-sdk`, proyecto y región, ids sin prefijo, tarifas de Google) y «Microsoft Foundry»
  * (`@anthropic-ai/foundry-sdk`, recurso `https://<recurso>.services.ai.azure.com/anthropic`, clave o token de Entra ID,
  * tarifas de la API de Anthropic vía Microsoft Marketplace). Ninguno usa suscripciones personales (Pro/Max).
+ * Entra ID en Foundry (verificado el 2026-10-24 en platform.claude.com/docs/en/build-with-claude/claude-in-microsoft-
+ * foundry, «Microsoft Entra authentication», y en el README de `@anthropic-ai/foundry-sdk` 1.1.0): token con el scope
+ * `https://ai.azure.com/.default` en `Authorization: Bearer`; rol de Azure RBAC «Foundry User» (antes «Azure AI User») o
+ * «Cognitive Services User»; tokens de ~1 hora. Datos: «For deployments hosted on Azure, prompts and completions remain
+ * within Azure» (misma página, «Hosting options»).
  */
 
 /** Modelos Claude actuales; `priced: false` cuando el canal factura con tarifas propias (Google). */
@@ -75,6 +80,7 @@ export const CLAUDE_CHANNEL_PROVIDERS: ProviderCatalogEntry[] = [
       'Misma API de Claude (operada por Anthropic), facturada por Google Cloud Marketplace. Requisitos: suscripción en ' +
       'Marketplace, la API claude.googleapis.com habilitada y el rol roles/claude.user para la cuenta que inicia sesión. ' +
       'Es una organización de Anthropic distinta de la de la Consola de Claude. Revise las tarifas en «Modelos de IA».',
+    dataNotices: [CLAUDE_COVERED_MODELS_NOTICE],
     pendingVerification: ['tarifas por token de este canal (no publicadas en la fuente consultada)'],
     authHeader: 'bearer',
     family: 'CLAUDE',
@@ -118,6 +124,7 @@ export const CLAUDE_CHANNEL_PROVIDERS: ProviderCatalogEntry[] = [
       'Operado y facturado por Google con sus tarifas: complételas en «Modelos de IA». Active cada modelo Claude en ' +
       'Model Garden. Algunas funciones de la API de Anthropic no están disponibles en Vertex AI (p. ej. web fetch y el ' +
       'fallback server-side).',
+    dataNotices: [CLAUDE_COVERED_MODELS_NOTICE],
     pendingVerification: [],
     authHeader: 'bearer',
     // Vertex AI no ofrece API de modelos: se verifica con un conteo de tokens (404 si el modelo no está activado).
@@ -153,7 +160,22 @@ export const CLAUDE_CHANNEL_PROVIDERS: ProviderCatalogEntry[] = [
         help: 'El nombre de https://<recurso>.services.ai.azure.com.',
         pattern: '^[a-z0-9][a-z0-9-]{1,62}$',
       },
-      API_KEY_FIELD({ label: 'Clave del recurso', help: 'Clave del recurso de Foundry; se guarda cifrada.' }),
+      API_KEY_FIELD({
+        label: 'Clave del recurso',
+        help: 'Clave del recurso de Foundry; se guarda cifrada.',
+        mechanisms: ['API_KEY'],
+      }),
+      {
+        key: 'tenantId',
+        label: 'Inquilino de Entra ID',
+        secret: false,
+        required: false,
+        placeholder: 'organizations',
+        default: 'organizations',
+        help: 'Id o dominio del inquilino de Microsoft Entra ID del recurso; «organizations» acepta cualquier cuenta profesional.',
+        pattern: '^[A-Za-z0-9][A-Za-z0-9.-]{0,99}$',
+        mechanisms: ['OAUTH'],
+      },
     ],
     docsUrl: 'https://platform.claude.com/docs/en/build-with-claude/claude-in-microsoft-foundry',
     keySteps: [
@@ -162,11 +184,33 @@ export const CLAUDE_CHANNEL_PROVIDERS: ProviderCatalogEntry[] = [
       'Use como modelo el nombre del despliegue (por defecto, el id del modelo, p. ej. claude-opus-5-5).',
     ],
     suggestedModels: claudeModels(true),
-    notes: 'Facturado por Microsoft Marketplace con las tarifas de la API de Anthropic.',
-    pendingVerification: ['inicio de sesión con Microsoft Entra ID (alcance del token) para Claude en Foundry'],
+    notes:
+      'Facturado por Microsoft Marketplace con las tarifas de la API de Anthropic. Con «Iniciar sesión con Microsoft», su ' +
+      'cuenta necesita un rol de Azure RBAC sobre el recurso, como «Foundry User» (antes «Azure AI User») o «Cognitive ' +
+      'Services User», y el recurso debe tener habilitada la autenticación con Entra ID; el token se renueva solo.',
+    dataNotices: [
+      {
+        level: 'info',
+        text:
+          'En los despliegues alojados en Azure, los prompts y las respuestas permanecen en Azure; solo los metadatos de ' +
+          'uso y el contenido marcado por los sistemas de seguridad de Anthropic salen hacia Anthropic.',
+        sourceUrl: 'https://platform.claude.com/docs/en/build-with-claude/claude-in-microsoft-foundry',
+      },
+      CLAUDE_COVERED_MODELS_NOTICE,
+    ],
+    pendingVerification: ['permiso delegado de la app de Nexo para el recurso https://ai.azure.com en Entra ID'],
     authHeader: 'api-key',
     verifyMode: 'lenient',
     family: 'CLAUDE',
     claudeChannel: 'foundry',
+    mechanisms: [
+      {
+        type: 'OAUTH',
+        label: 'Iniciar sesión con Microsoft',
+        primary: true,
+        oauth: { ...ENTRA_AI_OAUTH, appKey: 'azure-openai' },
+      },
+      { type: 'API_KEY', label: 'Clave del recurso', primary: false },
+    ],
   },
 ];

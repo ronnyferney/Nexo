@@ -132,9 +132,13 @@ export function describeProbeError(err: unknown, entry: ProviderCatalogEntry, ba
       err.status === 403 ||
       (err.status === 400 && /api[ _-]?key|unauthori[sz]ed|invalid[^.]*(key|token)/i.test(err.message));
     if (keyRejected) {
-      return entry.auth === 'NONE'
-        ? `El servidor ${host} exige autenticación (HTTP ${err.status}); configúrelo como conexión manual con clave.`
-        : `${entry.name} rechazó la clave de API (HTTP ${err.status}). Verifique que esté completa, activa y con permisos.`;
+      if (entry.auth === 'NONE') {
+        const token = entry.fields.find((f) => f.secret);
+        return token
+          ? `El servidor ${host} exige autenticación (HTTP ${err.status}): indique o revise el campo «${token.label}».`
+          : `El servidor ${host} exige autenticación (HTTP ${err.status}); configúrelo como conexión manual con clave.`;
+      }
+      return `${entry.name} rechazó la clave de API (HTTP ${err.status}). Verifique que esté completa, activa y con permisos.`;
     }
     if (err.status === 404) {
       return `La URL base no responde como una API compatible (HTTP 404 en ${host}). Revise los datos de la conexión.`;

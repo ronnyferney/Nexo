@@ -167,7 +167,9 @@ export class LlmTokenService {
         'session_expired',
       );
     }
-    const app = this.app(entry, spec, stringValues(c.providerFields));
+    const resolved = this.app(entry, spec, stringValues(c.providerFields));
+    const legacy = c.oauthScope ? spec.legacyScopes?.find((l) => c.oauthScope!.includes(l.match)) : undefined;
+    const app = legacy ? { ...resolved, scopes: legacy.scopes } : resolved;
     let token: OAuthTokenResponse;
     try {
       token = await this.token(app, {

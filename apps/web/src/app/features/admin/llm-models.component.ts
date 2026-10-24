@@ -23,6 +23,8 @@ interface ModelRow {
   tier: ModelTier;
   input: number | null;
   output: number | null;
+  /** Lectura de caché (USD/MTok); `null` = se cobra como la entrada. */
+  cacheRead: number | null;
   enabled: boolean;
   /** Solo los modelos de conexiones del workspace se editan; los de plataforma y prueba son de solo lectura. */
   model: LlmModel | null;
@@ -42,6 +44,10 @@ function metaOf(modelId: string, ctx: number | null | undefined, given: readonly
 }
 
 const MOCK = { id: 'mock', name: 'Simulado', logo: 'mock' };
+
+type PriceField = 'inputUsdPerMTok' | 'outputUsdPerMTok' | 'cacheReadUsdPerMTok';
+/** Cambio en línea: la tarifa de caché admite `null` (vuelve a cobrarse como la entrada); el API lo acepta. */
+type ModelPatch = Omit<Partial<LlmModelInput>, 'cacheReadUsdPerMTok'> & { cacheReadUsdPerMTok?: number | null };
 
 /** Pestaña «Modelos de IA»: todos los modelos del workspace con tarifa, nivel y estado editables en línea. */
 @Component({
@@ -96,6 +102,7 @@ export class LlmModelsComponent {
           tier: m.tier,
           input,
           output,
+          cacheRead: m.cacheReadUsdPerMTok ?? null,
           enabled: m.enabled,
           model: m,
           tag: test ? 'TEST' : null,
@@ -110,6 +117,8 @@ export class LlmModelsComponent {
       // La conexión de la plataforma sin clave en el servidor no se puede usar: no se lista como disponible.
       if (!test && !s.configured) continue;
       const prov = test ? MOCK : s.kind === 'ANTHROPIC' ? (anthropic ?? { id: 'anthropic', name: 'Anthropic', logo: 'anthropic' }) : { id: s.id, name: s.label, logo: '' };
+      // La tarifa de caché de la plataforma viene del catálogo de Anthropic (el catálogo de agentes no la expone).
+      const platformCache = new Map((anthropic?.suggestedModels ?? []).map((sm) => [sm.id, sm.cacheReadUsdPerMTok ?? null]));
       for (const m of s.models) {
         out.push({
           key: `${s.id}:${m.id}`,
@@ -122,6 +131,7 @@ export class LlmModelsComponent {
           tier: m.tier,
           input: m.inputUsdPerMTok,
           output: m.outputUsdPerMTok,
+          cacheRead: test ? null : (platformCache.get(m.id) ?? null),
           enabled: true,
           model: null,
           tag: test ? 'TEST' : 'PLATFORM',
@@ -171,16 +181,24 @@ export class LlmModelsComponent {
     this.onlyUnpriced.set(false);
   }
 
-  async setPrice(r: ModelRow, field: 'inputUsdPerMTok' | 'outputUsdPerMTok', el: HTMLInputElement) {
+  async setPrice(r: ModelRow, field: PriceField, el: HTMLInputElement) {
     const raw = el.value.trim();
+    const current = r.model?.[field] ?? null;
+    const restore = () => (el.value = current == null ? '' : String(current));
+    // Vaciar la tarifa de caché la quita: la lectura de caché se cobra como la entrada.
+    if (!raw && field === 'cacheReadUsdPerMTok') {
+      if (current === null) return;
+      if (!(await this.save(r, { cacheReadUsdPerMTok: null }))) restore();
+      return;
+    }
     const value = Number(raw);
     if (!raw || Number.isNaN(value) || value < 0) {
-      el.value = r.model?.[field] == null ? '' : String(r.model[field]);
+      restore();
       this.toast.error('La tarifa debe ser un número mayor o igual a 0 (USD por millón de tokens).');
       return;
     }
-    if (value === r.model?.[field]) return;
-    if (!(await this.save(r, { [field]: value }))) el.value = r.model?.[field] == null ? '' : String(r.model[field]);
+    if (value === current) return;
+    if (!(await this.save(r, { [field]: value }))) restore();
   }
 
   async setTier(r: ModelRow, el: HTMLSelectElement) {
@@ -192,12 +210,12 @@ export class LlmModelsComponent {
   }
 
   /** Guarda un cambio en línea; `false` si falló (el control debe volver al valor guardado). */
-  async save(r: ModelRow, patch: Partial<LlmModelInput>): Promise<boolean> {
+  async save(r: ModelRow, patch: ModelPatch): Promise<boolean> {
     const m = r.model;
     if (!m) return false;
     this.saving.update((s) => new Set(s).add(m.id));
     try {
-      const updated = await this.api.updateLlmModel(m.id, patch);
+      const updated = await this.api.updateLlmModel(m.id, patch as Partial<LlmModelInput>);
       this.modelUpdated.emit({ ...m, ...patch, ...updated });
       this.saved.set(m.id);
       setTimeout(() => this.saved() === m.id && this.saved.set(null), 2000);

@@ -3,10 +3,12 @@ import { API_KEY_FIELD, type OAuthAppSpec, type ProviderCatalogEntry } from './p
 /**
  * Nubes empresariales. Fuentes verificadas el 2026-10-23 (learn.microsoft.com, developers.google.com y
  * docs.cloud.google.com estaban bloqueados por el proxy; se usaron los repos oficiales):
- * - Azure OpenAI: openai/openai-node `docs/azure.md` y `examples/azure/chat.ts` (endpoint v1
- *   `https://<recurso>.openai.azure.com/openai/v1/`, `model` = nombre del despliegue, token de Entra ID como Bearer) y
- *   la clase `AzureOpenAI` del SDK (cabecera `api-key`); Azure/azure-sdk-for-js `sdk/openai/openai/README.md` (scope
- *   `https://cognitiveservices.azure.com/.default`).
+ * - Azure OpenAI: openai/openai-node `docs/azure.md` (sección «v1 API», verificada el 2026-10-24) y
+ *   `examples/azure/chat.ts` (endpoint v1 `https://<recurso>.openai.azure.com/openai/v1/`, `model` = nombre del
+ *   despliegue, token de Entra ID como Bearer obtenido con el scope `https://ai.azure.com/.default`; el scope
+ *   `https://cognitiveservices.azure.com/.default` queda para las versiones con fecha y la clase `AzureOpenAI`, cabecera
+ *   `api-key`). Roles de Azure RBAC de un recurso de Foundry: «Foundry User» (antes «Azure AI User») o «Cognitive
+ *   Services User» (platform.claude.com/docs/en/build-with-claude/claude-in-microsoft-foundry, «Prerequisites»).
  * - Microsoft Entra ID: MicrosoftDocs/entra-docs `docs/identity-platform/v2-oauth2-auth-code-flow.md`
  *   (`https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize|token`, tenant `organizations`/id, PKCE S256
  *   recomendado también para apps confidenciales, `client_secret` en el cuerpo, `scope` en el canje y la renovación,
@@ -18,9 +20,14 @@ import { API_KEY_FIELD, type OAuthAppSpec, type ProviderCatalogEntry } from './p
  * - Google OAuth 2.0: googleapis/google-auth-library-nodejs `src/auth/oauth2client.ts` (`accounts.google.com/o/oauth2/
  *   v2/auth`, `oauth2.googleapis.com/token`, `oauth2.googleapis.com/revoke`, `access_type=offline` para recibir refresh
  *   token, `prompt=consent`, PKCE S256).
- * - Amazon Bedrock: openai/openai-node `docs/bedrock.md` y `internal/bedrock.js` (API raíz
- *   `https://bedrock-mantle.<región>.api.aws/openai/v1`, autenticación Bearer con la clave de API de Bedrock
- *   `AWS_BEARER_TOKEN_BEDROCK`, validación de región) y platform.claude.com «Claude in Amazon Bedrock» (bedrock-mantle).
+ * - Amazon Bedrock (verificado el 2026-10-24): openai/openai-node `docs/bedrock.md` (API raíz por defecto
+ *   `https://bedrock-mantle.<región>.api.aws/openai/v1`; «AWS's Chat Completions documentation instead describes a `/v1`
+ *   route… If your model or endpoint requires that route, override the API root explicitly»; Bearer con la clave de
+ *   Bedrock `AWS_BEARER_TOKEN_BEDROCK`); aws/aws-bedrock-token-generator-js `README.md` (tokens de corta duración con
+ *   prefijo `bedrock-api-key-`, vida de hasta 12 horas, generados con credenciales de AWS); platform.claude.com/docs/en/
+ *   build-with-claude/claude-in-amazon-bedrock, «Authentication» (rol de servicio o roles de IAM asumidos antes que
+ *   tokens Bearer, que son «short-term access… 12-hour maximum, least preferred», y bloquear las claves de larga
+ *   duración con la condición `bedrock:BearerTokenType`).
  */
 /** App OAuth web de Nexo en Google Cloud (`OAUTH_LLM_VERTEX_CLIENT_ID/SECRET`). */
 export const GOOGLE_CLOUD_OAUTH: OAuthAppSpec = {
@@ -35,12 +42,24 @@ export const GOOGLE_CLOUD_OAUTH: OAuthAppSpec = {
   secretRequired: true,
 };
 
-/** App de Nexo registrada en Microsoft Entra ID (`OAUTH_LLM_AZURE_OPENAI_CLIENT_ID/SECRET`). */
-const ENTRA_COGNITIVE_OAUTH: OAuthAppSpec = {
+/**
+ * App de Nexo registrada en Microsoft Entra ID (`OAUTH_LLM_AZURE_OPENAI_CLIENT_ID/SECRET`); la comparten Azure OpenAI y
+ * Claude en Microsoft Foundry (`appKey: 'azure-openai'`). El scope `https://ai.azure.com/.default` es el de la API v1 de
+ * Azure OpenAI (openai-node `docs/azure.md`) y el de Claude en Foundry (platform.claude.com, «Microsoft Entra
+ * authentication»; SDK `@anthropic-ai/foundry-sdk` 1.1.0).
+ */
+export const ENTRA_AI_OAUTH: OAuthAppSpec = {
   idpName: 'Microsoft',
   authorizeUrl: 'https://login.microsoftonline.com/{{ tenantId }}/oauth2/v2.0/authorize',
   tokenUrl: 'https://login.microsoftonline.com/{{ tenantId }}/oauth2/v2.0/token',
-  scopes: ['https://cognitiveservices.azure.com/.default', 'offline_access'],
+  scopes: ['https://ai.azure.com/.default', 'offline_access'],
+  // Conexiones de Azure OpenAI creadas con el scope anterior de Cognitive Services (hasta 2026-10-24).
+  legacyScopes: [
+    {
+      match: 'cognitiveservices.azure.com',
+      scopes: ['https://cognitiveservices.azure.com/.default', 'offline_access'],
+    },
+  ],
   scopeOnTokenRequest: true,
   clientAuth: 'post',
   secretRequired: true,
@@ -97,20 +116,22 @@ export const ENTERPRISE_PROVIDERS: ProviderCatalogEntry[] = [
     suggestedModels: [],
     notes:
       'Las tarifas dependen de su contrato con Microsoft: complételas en cada despliegue. Con «Iniciar sesión con ' +
-      'Microsoft», su cuenta necesita un rol de Azure RBAC que permita inferencia sobre el recurso (p. ej. «Cognitive ' +
-      'Services OpenAI User»); el token se renueva solo. Entra ID no documenta revocación de tokens: al desconectar, ' +
-      'Nexo borra sus tokens y usted puede retirar el consentimiento de la app en su inquilino.',
+      'Microsoft», su cuenta necesita un rol de Azure RBAC que permita inferencia sobre el recurso (en recursos de ' +
+      'Foundry: «Foundry User», antes «Azure AI User», o «Cognitive Services User»); el token se renueva solo. Entra ID ' +
+      'no documenta revocación de tokens: al desconectar, Nexo borra sus tokens y usted puede retirar el consentimiento ' +
+      'de la app en su inquilino.',
     pendingVerification: [
       'endpoint /models con clave de API y con token de Entra ID en la API v1',
       'pasos para obtener la clave',
-      'nombre exacto del rol de Azure RBAC requerido',
-      'scope para la API v1: el ejemplo v1 de openai-node usa https://ai.azure.com/.default; Nexo usa el de Cognitive Services documentado en el SDK de Azure',
+      'rol de Azure RBAC en recursos clásicos de Azure OpenAI (posiblemente «Cognitive Services OpenAI User»; solo índice)',
+      'host https://<recurso>.services.ai.azure.com/openai/v1 de los recursos de Foundry (solo índice; el SDK @azure/ai-projects usa la ruta de proyecto /api/projects/<proyecto>/openai/v1)',
+      'permiso delegado de la app de Nexo para el recurso https://ai.azure.com en Entra ID',
     ],
     authHeader: 'api-key',
     // La API v1 no documenta `/models`: un 404 ahí no impide conectar (un 401/403 sí).
     verifyMode: 'lenient',
     mechanisms: [
-      { type: 'OAUTH', label: 'Iniciar sesión con Microsoft', primary: true, oauth: ENTRA_COGNITIVE_OAUTH },
+      { type: 'OAUTH', label: 'Iniciar sesión con Microsoft', primary: true, oauth: ENTRA_AI_OAUTH },
       { type: 'API_KEY', label: 'Clave del recurso', primary: false },
     ],
   },
@@ -168,12 +189,12 @@ export const ENTERPRISE_PROVIDERS: ProviderCatalogEntry[] = [
   {
     id: 'bedrock',
     name: 'Amazon Bedrock',
-    description: 'Endpoint compatible con OpenAI de Amazon Bedrock (bedrock-mantle) con clave de API de Bedrock.',
+    description: 'Endpoint compatible con OpenAI de Amazon Bedrock (bedrock-mantle) con un token de Bedrock.',
     logo: 'bedrock',
     category: 'ENTERPRISE_CLOUD',
     billing: 'ENTERPRISE',
     kind: 'OPENAI_COMPATIBLE',
-    baseUrl: 'https://bedrock-mantle.{{ region }}.api.aws/openai/v1',
+    baseUrl: 'https://bedrock-mantle.{{ region }}.api.aws/{{ apiPath }}',
     auth: 'API_KEY',
     fields: [
       {
@@ -184,21 +205,44 @@ export const ENTERPRISE_PROVIDERS: ProviderCatalogEntry[] = [
         placeholder: 'us-east-1',
         pattern: '^[a-z]{2,8}(-[a-z0-9]+)+-\\d+$',
       },
+      {
+        key: 'apiPath',
+        label: 'Ruta de la API',
+        secret: false,
+        required: false,
+        placeholder: 'openai/v1',
+        default: 'openai/v1',
+        help: '«openai/v1» (por defecto del SDK de OpenAI) o «v1» si la ficha de su modelo en Bedrock indica esa ruta.',
+        pattern: '^(openai/v1|v1)$',
+      },
       API_KEY_FIELD({
-        label: 'Clave de API de Bedrock',
-        help: 'Clave de API de Amazon Bedrock (la misma de AWS_BEARER_TOKEN_BEDROCK); se envía como Bearer.',
+        label: 'Token de Bedrock',
+        placeholder: 'bedrock-api-key-...',
+        help:
+          'Token de corta duración (empieza con «bedrock-api-key-», dura hasta 12 horas) generado con sus credenciales ' +
+          'de AWS; se envía como Bearer y se guarda cifrado.',
       }),
     ],
     docsUrl: 'https://docs.aws.amazon.com/bedrock/latest/userguide/inference-chat-completions-mantle.html',
     keyUrl: 'https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html',
-    keySteps: [],
+    keySteps: [
+      'Genere un token de corta duración con la herramienta oficial aws-bedrock-token-generator (npm @aws/bedrock-token-generator) y sus credenciales de AWS.',
+      'El token empieza con «bedrock-api-key-» y dura como máximo 12 horas (o menos, si sus credenciales caducan antes).',
+      'Al caducar, vuelva a generarlo y actualice la clave de la conexión en Nexo.',
+    ],
+    // Prefijo de los tokens de corta duración: la interfaz advierte (sin bloquear) si se pega otro tipo de clave.
+    keyPrefix: 'bedrock-api-key-',
     suggestedModels: [],
     notes:
-      'Los tokens de corta duración (prefijo bedrock-api-key-) caducan en horas: use una clave de larga duración para Nexo. ' +
-      'Los modelos y rutas disponibles dependen de su cuenta y región; elija los modelos con «Descubrir».',
+      'Anthropic recomienda, antes que los tokens Bearer, un rol de servicio de Bedrock o roles de IAM con credenciales ' +
+      'temporales; los tokens de Bedrock son de corta duración (máximo 12 horas) y la opción menos preferida. No use claves de larga ' +
+      'duración para Nexo: su administrador puede bloquearlas con la condición bedrock:BearerTokenType. Mientras Nexo no ' +
+      'admita roles de IAM, la conexión deja de funcionar al caducar el token. Los modelos y rutas disponibles dependen de ' +
+      'su cuenta y región; elija los modelos con «Descubrir».',
     pendingVerification: [
-      'formato de la clave de larga duración y pasos en la consola de AWS',
-      'Chat Completions con clave de API en bedrock-mantle para cada modelo',
+      'conexión con rol de IAM y ExternalId (AssumeRole) sin tokens Bearer',
+      'texto de AWS sobre claves de larga duración («Recommended only for exploration»; solo índice, docs.aws.amazon.com no accesible)',
+      'Chat Completions con token Bearer en bedrock-mantle para cada modelo y ruta (/openai/v1 o /v1)',
       'precios',
     ],
     authHeader: 'bearer',
