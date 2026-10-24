@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, type Agent, type AgentVisibility } from '@prisma/client';
 import type { AuthContext } from '../../common/decorators/current-user.decorator';
+import { LlmUsageService } from '../llm/llm-usage.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AgentAccessService } from '../agent-access/agent-access.service';
 import { SharePrincipalsService } from '../agent-access/share-principals.service';
@@ -56,6 +57,7 @@ export class AgentsService {
     private readonly org: OrgService,
     private readonly access: AgentAccessService,
     private readonly principals: SharePrincipalsService,
+    private readonly llmUsage: LlmUsageService,
   ) {}
 
   /**
@@ -173,6 +175,7 @@ export class AgentsService {
     const ownerId = this.requireUser(auth);
     const visibility = await this.initialVisibility(auth, dto.visibility);
     if (dto.costCenterId) await this.org.unit(auth.workspaceId, dto.costCenterId);
+    await this.assertModels(auth.workspaceId, dto);
     return this.prisma.agent.create({
       data: { ...agentData(dto), workspaceId: auth.workspaceId, ownerId, visibility, launchStatus: 'DRAFT' },
     });
@@ -205,9 +208,32 @@ export class AgentsService {
   }
 
   async update(workspaceId: string, id: string, dto: UpdateAgentDto) {
-    await this.get(workspaceId, id);
+    const current = await this.get(workspaceId, id);
     if (dto.costCenterId) await this.org.unit(workspaceId, dto.costCenterId);
+    await this.assertModels(workspaceId, dto, current);
     return this.prisma.agent.update({ where: { id }, data: agentData(dto) });
+  }
+
+  /**
+   * El modelo y los respaldos deben existir en los proveedores del workspace. Solo se valida lo que cambia: un modelo
+   * que el administrador deshabilitó o borró después no impide editar otros campos del agente.
+   */
+  private async assertModels(
+    workspaceId: string,
+    dto: UpdateAgentDto,
+    current?: { provider: string; model: string; fallbackModels: string[] },
+  ) {
+    const provider = dto.provider ?? current?.provider;
+    const model = dto.model ?? current?.model;
+    const changed =
+      (dto.provider !== undefined || dto.model !== undefined) &&
+      (provider !== current?.provider || model !== current?.model);
+    const fallbacks = dto.fallbackModels?.map((f) => f.trim()).filter((f) => !current?.fallbackModels.includes(f));
+    if (!changed && !fallbacks?.length) return;
+    await this.llmUsage.assertAgentModels(workspaceId, {
+      ...(changed ? { provider: provider ?? 'anthropic', model } : {}),
+      fallbackModels: fallbacks,
+    });
   }
 
   async remove(workspaceId: string, id: string) {

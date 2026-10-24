@@ -352,6 +352,9 @@ describe('Gobierno de IA · conexiones LLM y driver OpenAI-compatible (E2E)', ()
       const hidden = await createAgent(owner, { provider: c.id, model: 'oculto' });
       await owner.api.post(`/agents/${hidden.id}/chat`, { message: 'hola' }).expect(400);
 
+      // Un modelo en uso por un agente no se borra hasta reasignarlo.
+      await owner.api.delete(`/admin/llm/models/${(off.body as { id: string }).id}`).expect(409);
+      await owner.api.delete(`/agents/${hidden.id}`).expect(200);
       await owner.api.delete(`/admin/llm/models/${(off.body as { id: string }).id}`).expect(200);
       await owner.api.delete(`/admin/llm/models/${(off.body as { id: string }).id}`).expect(404);
     });

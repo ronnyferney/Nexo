@@ -1,5 +1,5 @@
 import type { INestApplication } from '@nestjs/common';
-import { createTestApp } from './utils/app';
+import { createTestApp, prismaOf } from './utils/app';
 import {
   addMember,
   adminUnits,
@@ -199,7 +199,11 @@ describe('Gobierno de IA · aislamiento multi-tenant (E2E)', () => {
 
   it('un agente de B no puede ejecutarse con la conexión LLM de A', async () => {
     const before = llm.chatRequests(channel).length;
-    const agent = await createAgent(b, { provider: aConnectionId, model: 'gpt-a' });
+    // Ni siquiera se puede guardar un agente de B con la conexión de A…
+    await b.api.post('/agents', { name: 'Intruso', provider: aConnectionId, model: 'gpt-a' }).expect(400);
+    // …y si existiera (datos heredados), tampoco se ejecuta con ella.
+    const agent = await createAgent(b);
+    await prismaOf(app).agent.update({ where: { id: agent.id }, data: { provider: aConnectionId, model: 'gpt-a' } });
     await b.api.post(`/agents/${agent.id}/chat`, { message: 'usar la clave de A' }).expect(400);
     expect(llm.chatRequests(channel)).toHaveLength(before);
     expect(await records(b)).toEqual([]);

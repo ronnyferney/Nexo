@@ -5,6 +5,7 @@ import { CryptoService } from '../../common/crypto/crypto.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { LLM_DRIVERS, type AuthHeaderStyle, type LlmClient, type LlmCredentials, type LlmDriver } from './llm-provider';
 import { LlmTokenService } from './llm-token.service';
+import { ConnectionUnavailableException } from './llm-errors';
 import { SYSTEM_ANTHROPIC_MODELS, SYSTEM_MOCK_MODELS, type CatalogModel, type ModelPricing } from './pricing';
 
 export interface CatalogEntry {
@@ -151,10 +152,25 @@ export class LlmGatewayService {
       include: { models: { where: { modelId: model } } },
     });
     if (!connection) throw new BadRequestException('Proveedor LLM no encontrado');
-    if (!connection.enabled) throw new BadRequestException(`El proveedor "${connection.name}" está deshabilitado`);
+    if (!connection.enabled) {
+      throw new ConnectionUnavailableException(`El proveedor "${connection.name}" está deshabilitado`, 'disabled');
+    }
+    if (connection.credentialType === 'OAUTH' && !connection.apiKeyCipher) {
+      throw new ConnectionUnavailableException(
+        `La sesión de "${connection.name}" está cerrada: vuelva a iniciar sesión en Administración → Proveedores IA`,
+        'signed_out',
+      );
+    }
     const row = connection.models[0];
-    if (!row || !row.enabled)
-      throw new BadRequestException(`El modelo "${model}" no está habilitado en "${connection.name}"`);
+    if (!row) {
+      throw new BadRequestException(`El modelo "${model}" no existe en "${connection.name}"`);
+    }
+    if (!row.enabled) {
+      throw new ConnectionUnavailableException(
+        `El modelo "${model}" no está habilitado en "${connection.name}"`,
+        'model_disabled',
+      );
+    }
     return {
       providerId,
       providerLabel: connection.name,

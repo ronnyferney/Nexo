@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   Body,
-  ConflictException,
   Controller,
   Delete,
   Get,
@@ -25,6 +24,7 @@ import {
 import { LlmGatewayService } from './llm-gateway.service';
 import { serializeConnection, serializeModel } from './llm-serializers';
 import { LlmTokenService } from './llm-token.service';
+import { LlmUsageService } from './llm-usage.service';
 
 /** Catálogo visible para todos los roles (selectores de modelo). */
 @ApiTags('llm')
@@ -50,6 +50,7 @@ export class LlmAdminController {
     private readonly crypto: CryptoService,
     private readonly gateway: LlmGatewayService,
     private readonly tokens: LlmTokenService,
+    private readonly usage: LlmUsageService,
   ) {}
 
   @Get('connections')
@@ -88,8 +89,7 @@ export class LlmAdminController {
   @Delete('connections/:id')
   async remove(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
     const c = await this.connection(a.workspaceId, id);
-    const inUse = await this.prisma.agent.count({ where: { workspaceId: a.workspaceId, provider: id } });
-    if (inUse) throw new ConflictException(`La conexión está en uso por ${inUse} agente(s); reasígnelos primero`);
+    await this.usage.assertUnused(a.workspaceId, id);
     const revoked = await this.tokens.revoke(c);
     await this.prisma.llmConnection.delete({ where: { id } });
     return { deleted: true, revoked };
@@ -116,6 +116,13 @@ export class LlmAdminController {
       include: { models: { orderBy: { label: 'asc' } } },
     });
     return { connection: serializeConnection(row), revoked };
+  }
+
+  /** Agentes que usan la conexión (principal o respaldo): la consola los muestra antes de deshabilitar o borrar. */
+  @Get('connections/:id/usage')
+  async connectionUsage(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
+    await this.connection(a.workspaceId, id);
+    return this.usage.usage(a.workspaceId, id);
   }
 
   /** Modelos de la conexión con nivel, especialidades, contexto y tarifas (filtros de la consola). */
@@ -156,6 +163,7 @@ export class LlmAdminController {
   @Delete('models/:id')
   async removeModel(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
     const model = await this.model(a.workspaceId, id);
+    await this.usage.assertUnused(a.workspaceId, model.connectionId, model.modelId);
     await this.prisma.llmModel.delete({ where: { id } });
     await this.touch(model.connectionId);
   }

@@ -486,7 +486,7 @@ describe('Mecanismos oficiales de conexión de proveedores IA (E2E)', () => {
         enabled: true,
       });
       expect(after.models.map((m) => m.modelId)).toEqual(['google/gemini-e2e']);
-      await expect(chat(owner, agent.id, 'Hola')).rejects.toThrow(/sesión de esta conexión está cerrada/);
+      await expect(chat(owner, agent.id, 'Hola')).rejects.toThrow(/Vertex producción.*está cerrada/);
       const catalog = (await owner.api.get('/llm/catalog').expect(200)).body as { id: string; configured: boolean }[];
       expect(catalog.find((c) => c.id === connectionId)?.configured).toBe(false);
       await prismaOf(app).agent.delete({ where: { id: agent.id } });

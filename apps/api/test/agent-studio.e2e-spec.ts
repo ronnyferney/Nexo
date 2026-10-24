@@ -441,9 +441,14 @@ describe('Estudio de agentes · perfil, skills, conocimiento, ejemplos y respald
           model: 'gpt-caido',
         })
       ).id;
+      // La API rechaza respaldos inexistentes; uno que quedó inválido después (datos heredados) se omite con aviso.
       await owner.api
         .patch(`/agents/${agentId}`, { fallbackModels: ['inexistente:modelo-x', 'mock:mock-echo'] })
-        .expect(200);
+        .expect(400);
+      await prismaOf(app).agent.update({
+        where: { id: agentId },
+        data: { fallbackModels: ['inexistente:modelo-x', 'mock:mock-echo'] },
+      });
 
       const before = llm.chatRequests('caida').length;
       const { status, events } = await owner.api.sse(`/agents/${agentId}/chat`, { message: 'hola', stream: true });
@@ -466,9 +471,11 @@ describe('Estudio de agentes · perfil, skills, conocimiento, ejemplos y respald
     });
 
     it('los errores de configuración del principal no activan el respaldo', async () => {
-      const agentId = (
-        await createAgent(owner, { name: 'Mal configurado', provider: 'mock', model: 'modelo-inexistente' })
-      ).id;
+      await owner.api
+        .post('/agents', { name: 'Mal configurado', provider: 'mock', model: 'modelo-inexistente' })
+        .expect(400);
+      const agentId = (await createAgent(owner, { name: 'Mal configurado' })).id;
+      await prismaOf(app).agent.update({ where: { id: agentId }, data: { model: 'modelo-inexistente' } });
       await owner.api.patch(`/agents/${agentId}`, { fallbackModels: ['mock:mock-echo'] }).expect(200);
       await owner.api.post(`/agents/${agentId}/chat`, { message: 'hola' }).expect(400);
     });

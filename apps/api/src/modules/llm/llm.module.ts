@@ -10,6 +10,7 @@ import { LLM_DRIVERS } from './llm-provider';
 import { LlmOAuthCallbackController, LlmProvidersController } from './llm-providers.controller';
 import { LlmProvidersService } from './llm-providers.service';
 import { LlmTokenService } from './llm-token.service';
+import { LlmUsageService } from './llm-usage.service';
 import { OpenRouterOAuthService } from './openrouter-oauth.service';
 
 /** Para agregar un tipo de proveedor (Bedrock, Gemini nativo...) implemente LlmDriver y regístrelo aquí. */
@@ -26,8 +27,9 @@ const DRIVERS = [AnthropicDriver, OpenAiCompatibleDriver, MockDriver];
     LlmProvidersService,
     OpenRouterOAuthService,
     LlmAuthFlowsService,
+    LlmUsageService,
     { provide: LLM_DRIVERS, useFactory: (...d: unknown[]) => d, inject: DRIVERS },
   ],
-  exports: [LlmGatewayService, LlmTokenService],
+  exports: [LlmGatewayService, LlmTokenService, LlmUsageService],
 })
 export class LlmModule {}

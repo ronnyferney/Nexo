@@ -6,6 +6,7 @@ import type { HttpClientService, HttpRequest, HttpResponse } from '../../common/
 import type { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { parseOAuthEndpointOverrides } from '../../config/configuration';
 import { llmOAuthEnvName, mechanismViews, resolveLlmOAuthApp } from './llm-oauth-apps';
+import { ConnectionUnavailableException } from './llm-errors';
 import { LlmTokenService, tokensFrom } from './llm-token.service';
 import { findMechanism, findProvider } from './providers';
 
@@ -43,6 +44,11 @@ function fakePrisma(row: Partial<LlmConnection>) {
         state.updates++;
         state.row = { ...state.row, ...data };
         return Promise.resolve(state.row);
+      },
+      updateMany: ({ data }: { data: Partial<LlmConnection> }) => {
+        state.updates++;
+        state.row = { ...state.row, ...data };
+        return Promise.resolve({ count: 1 });
       },
     },
   };
@@ -216,7 +222,7 @@ describe('LlmTokenService', () => {
     expect(new URLSearchParams(http.requests[0].body).get('client_secret')).toBeNull();
   });
 
-  it('sin refresh token o con renovación rechazada pide volver a iniciar sesión', async () => {
+  it('sin refresh token o con el grant revocado (invalid_grant) cierra la sesión y pide volver a iniciarla', async () => {
     const { prisma } = fakePrisma(vertexRow({ oauthRefreshCipher: null }));
     const svc = new LlmTokenService(prisma, crypto, new FakeHttp([]) as unknown as HttpClientService, vertexConfig());
     await expect(svc.accessToken('c1')).rejects.toThrow(/no entrega refresh token/);
@@ -225,9 +231,22 @@ describe('LlmTokenService', () => {
     const http = new FakeHttp([{ status: 400, body: { error: 'invalid_grant' } }]);
     const svc2 = new LlmTokenService(rejected.prisma, crypto, http as unknown as HttpClientService, vertexConfig());
     const err = await svc2.accessToken('c1').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConnectionUnavailableException);
     expect(err).toBeInstanceOf(BadRequestException);
-    expect((err as Error).message).toMatch(/HTTP 400, invalid_grant.*vuelva a iniciar sesión/);
-    expect(rejected.state.updates).toBe(0);
+    expect(err).toMatchObject({ reason: 'signed_out' });
+    expect((err as Error).message).toMatch(/revocada o caducó.*vuelva a iniciar sesión/);
+    // La consola muestra «Sesión cerrada»: se borran los tokens.
+    expect(rejected.state.row).toMatchObject({ apiKeyCipher: null, oauthRefreshCipher: null, oauthExpiresAt: null });
+  });
+
+  it('un error transitorio al renovar conserva la sesión', async () => {
+    const transient = fakePrisma(vertexRow());
+    const http = new FakeHttp([{ status: 503, body: { error: 'temporarily_unavailable' } }]);
+    const svc = new LlmTokenService(transient.prisma, crypto, http as unknown as HttpClientService, vertexConfig());
+    const err = await svc.accessToken('c1').catch((e: unknown) => e);
+    expect(err).toMatchObject({ reason: 'session_expired' });
+    expect((err as Error).message).toMatch(/HTTP 503.*inténtelo de nuevo/);
+    expect(transient.state.updates).toBe(0);
   });
 
   it('revoca en Google al desconectar y no intenta revocar donde no hay endpoint documentado', async () => {

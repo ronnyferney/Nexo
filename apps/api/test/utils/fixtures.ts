@@ -111,6 +111,7 @@ export interface AgentBody {
   systemPrompt?: string;
   costCenterId?: string | null;
   maxTurns?: number;
+  fallbackModels?: string[];
 }
 
 export async function createAgent(

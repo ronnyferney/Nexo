@@ -18,6 +18,7 @@ import { BudgetsService } from '../governance/budgets.service';
 import { OrgService } from '../governance/org.service';
 import { KnowledgeService } from '../knowledge/knowledge.service';
 import type { ResolvedModel } from '../llm/llm-gateway.service';
+import { ConnectionUnavailableException } from '../llm/llm-errors';
 import { LlmGatewayService } from '../llm/llm-gateway.service';
 import type { AgentEvent, Effort, LlmRunResult, ToolCall, ToolOutcome, ToolSpec } from '../llm/llm-provider';
 import { costUsd } from '../llm/pricing';
@@ -101,6 +102,8 @@ export function parseModelRef(ref: string): { providerId: string; model: string 
  */
 export function isProviderFailure(err: unknown, signal?: AbortSignal): boolean {
   if (signal?.aborted) return false;
+  // Conexión o modelo no disponible (sesión cerrada o revocada, deshabilitado): recuperable con un respaldo.
+  if (err instanceof ConnectionUnavailableException) return true;
   if (err instanceof HttpException) return false;
   const name = (err as Error | undefined)?.name ?? '';
   return !/abort/i.test(name);
@@ -228,7 +231,23 @@ export class AgentRuntimeService {
 
     const plan = await this.budgets.plan(ws, orgUnitId, agent.provider, agent.model);
     if (plan.notice) opts.onEvent?.({ type: 'notice', message: plan.notice });
-    const primary = await this.gateway.resolve(ws, plan.providerId, plan.model);
+    const fallbacks = (agent.fallbackModels ?? []).map(parseModelRef).filter((r) => r !== null);
+    let primary: ResolvedModel;
+    let start: { index: number; chainIds: string[] } | null = null;
+    try {
+      primary = await this.gateway.resolve(ws, plan.providerId, plan.model);
+    } catch (err) {
+      // Principal no disponible (sesión cerrada, deshabilitado, modelo eliminado): se arranca con el primer respaldo.
+      if (!(err instanceof ConnectionUnavailableException)) throw err;
+      const next = await this.nextFallback(ws, orgUnitId, fallbacks, 0, opts);
+      if (!next) throw err;
+      opts.onEvent?.({
+        type: 'notice',
+        message: `El modelo ${plan.model} no está disponible (${err.message}); se usa ${label(next.resolved)}.`,
+      });
+      primary = next.resolved;
+      start = { index: next.index, chainIds: next.chainIds };
+    }
 
     let history = opts.history ?? [];
     if (history.length && opts.historyProviderId && opts.historyProviderId !== primary.providerId) {
@@ -240,10 +259,9 @@ export class AgentRuntimeService {
     }
 
     const totals = { cost: 0 };
-    const fallbacks = (agent.fallbackModels ?? []).map(parseModelRef).filter((r) => r !== null);
-    let current = { resolved: primary, chainIds: plan.chainIds, history };
+    let current = { resolved: primary, chainIds: start?.chainIds ?? plan.chainIds, history };
     let failed = label(primary);
-    for (let i = 0; ; i++) {
+    for (let i = start ? start.index + 1 : 0; ; i++) {
       try {
         return await this.attempt(agent, opts, prepared, orgUnitId, current, totals);
       } catch (err) {

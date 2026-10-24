@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import type { LlmConnection } from '@prisma/client';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { HttpClientService } from '../../common/http/http-client.service';
+import { ConnectionUnavailableException } from './llm-errors';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { LlmOAuthAppError, resolveLlmOAuthApp, type ResolvedLlmOAuthApp } from './llm-oauth-apps';
 import { findMechanism, findProvider, type OAuthAppSpec, type ProviderCatalogEntry } from './providers';
@@ -139,7 +140,7 @@ export class LlmTokenService {
    */
   async accessToken(connectionId: string): Promise<string> {
     const c = await this.prisma.llmConnection.findUnique({ where: { id: connectionId } });
-    if (!c?.apiKeyCipher) throw new BadRequestException(SIGNED_OUT_MESSAGE);
+    if (!c?.apiKeyCipher) throw new ConnectionUnavailableException(SIGNED_OUT_MESSAGE, 'signed_out');
     if (!this.expiringSoon(c)) return this.crypto.decrypt(c.apiKeyCipher);
     const inflight = this.refreshing.get(connectionId);
     if (inflight) return inflight;
@@ -154,15 +155,16 @@ export class LlmTokenService {
 
   private async refresh(connectionId: string): Promise<string> {
     const c = await this.prisma.llmConnection.findUnique({ where: { id: connectionId } });
-    if (!c?.apiKeyCipher) throw new BadRequestException(SIGNED_OUT_MESSAGE);
+    if (!c?.apiKeyCipher) throw new ConnectionUnavailableException(SIGNED_OUT_MESSAGE, 'signed_out');
     if (!this.expiringSoon(c)) return this.crypto.decrypt(c.apiKeyCipher);
     const entry = c.providerId ? findProvider(c.providerId) : undefined;
     const spec = entry ? this.oauthSpec(entry) : undefined;
     const name = entry?.name ?? c.name;
     if (!entry || !spec) throw new BadRequestException(`La conexión "${c.name}" no admite renovar su sesión OAuth`);
     if (!c.oauthRefreshCipher) {
-      throw new BadRequestException(
+      throw new ConnectionUnavailableException(
         `La sesión de ${name} expiró y el proveedor no entrega refresh token: vuelva a iniciar sesión en Proveedores IA`,
+        'session_expired',
       );
     }
     const app = this.app(entry, spec, stringValues(c.providerFields));
@@ -175,8 +177,21 @@ export class LlmTokenService {
     } catch (err) {
       const detail = err instanceof OAuthTokenError ? ` (HTTP ${err.status}${err.code ? `, ${err.code}` : ''})` : '';
       this.logger.warn(`Renovación OAuth fallida para la conexión LLM ${connectionId}${detail}`);
-      throw new BadRequestException(
-        `No se pudo renovar la sesión de ${name}${detail}: vuelva a iniciar sesión en Proveedores IA`,
+      // `invalid_grant` (RFC 6749 §5.2): el grant fue revocado o caducó en el proveedor. La sesión queda cerrada para
+      // que la consola lo muestre y ofrezca «Iniciar sesión de nuevo»; un error transitorio conserva los tokens.
+      if (err instanceof OAuthTokenError && err.code === 'invalid_grant') {
+        await this.prisma.llmConnection.updateMany({
+          where: { id: connectionId, oauthRefreshCipher: c.oauthRefreshCipher },
+          data: { apiKeyCipher: null, oauthRefreshCipher: null, oauthExpiresAt: null },
+        });
+        throw new ConnectionUnavailableException(
+          `La sesión de ${name} fue revocada o caducó en el proveedor: vuelva a iniciar sesión en Proveedores IA`,
+          'signed_out',
+        );
+      }
+      throw new ConnectionUnavailableException(
+        `No se pudo renovar la sesión de ${name}${detail}: inténtelo de nuevo o vuelva a iniciar sesión en Proveedores IA`,
+        'session_expired',
       );
     }
     const t = tokensFrom(token);
