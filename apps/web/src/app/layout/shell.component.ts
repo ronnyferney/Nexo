@@ -12,9 +12,9 @@ import { IconComponent } from '../shared/icon.component';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <aside class="sidebar">
-      <a class="brand" routerLink="/">
-        <span class="logo">N</span>
-        <span><strong>Nexo</strong><small>AI Agents Platform</small></span>
+      <a class="brand" routerLink="/" aria-label="Nexo: ir al inicio">
+        <img class="insignia" src="brand/insignia.png" width="38" height="38" alt="" />
+        <span class="wordmark" aria-hidden="true"><strong>Nexo</strong><small lang="en">AI Agents Platform</small></span>
       </a>
       <nav aria-label="Navegación principal">
         <div class="nav-section" id="nav-portal">Portal</div>
@@ -67,28 +67,38 @@ import { IconComponent } from '../shared/icon.component';
   `,
   styles: `
     :host { display: flex; min-height: 100vh; }
-    .sidebar { width: 248px; background: var(--sidebar); color: #c9cce0; display: flex; flex-direction: column; padding: 18px 14px; position: sticky; top: 0; height: 100vh; flex-shrink: 0; }
-    .brand { display: flex; gap: 10px; align-items: center; padding: 6px 8px 22px; color: #fff; }
-    .brand small { display: block; font-size: 11px; color: #8a8fb0; }
-    .logo { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(135deg, #6d6dfa, #9b5cf6); display: grid; place-items: center; font-weight: 800; color: #fff; }
+    /* Kit de Marca: sidebar en azul profundo; las variables --brand-* se definen en styles.scss (con respaldo). */
+    .sidebar { width: 248px; background: var(--brand-navy, #08102D); color: #c9d1ec; display: flex; flex-direction: column; padding: 18px 14px; border-right: 1px solid rgba(255, 255, 255, 0.08); position: sticky; top: 0; height: 100vh; flex-shrink: 0; }
+    .sidebar::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(120% 40% at 0% 0%, rgba(18, 91, 234, 0.14), transparent 70%); }
+    .sidebar > * { position: relative; z-index: 1; }
+    .sidebar :focus-visible { outline-color: var(--brand-cyan, #16C7F4); }
+    .brand { display: flex; gap: 10px; align-items: center; padding: 6px 8px 22px; color: #fff; border-radius: 10px; }
+    .insignia { width: 38px; height: 38px; flex-shrink: 0; display: block; }
+    /* Lockup de marca: «Nexo» en Inter 800 y descriptor en tipo oración (#a9b1d6 sobre azul profundo ≈ 8,8:1). */
+    .wordmark { display: flex; flex-direction: column; gap: 1px; }
+    .wordmark strong { display: block; font-size: 17px; font-weight: 800; line-height: 1.1; color: #fff; }
+    .wordmark small { display: block; font-size: 11.5px; font-weight: 400; line-height: 1.2; color: #a9b1d6; }
     nav { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
     .nav-group { display: flex; flex-direction: column; gap: 2px; }
-    .nav-section { font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #6f7499; padding: 4px 12px 6px; }
-    .nav-section.admin, .nav-section.platform { margin-top: 18px; padding-top: 14px; border-top: 1px solid #23264a; }
-    .nav-section.platform { color: #b49cf7; }
-    nav a { display: flex; gap: 11px; align-items: center; padding: 9px 12px; border-radius: 9px; color: #b4b8d4; font-weight: 500; }
-    nav a:hover { background: rgba(255, 255, 255, 0.05); color: #fff; }
-    nav a.active { background: rgba(109, 109, 250, 0.18); color: #fff; }
+    .nav-section { font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #8f98c2; padding: 4px 12px 6px; }
+    .nav-section.admin, .nav-section.platform { margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+    .nav-section.platform { color: #b9a3f5; }
+    nav a { position: relative; display: flex; gap: 11px; align-items: center; padding: 9px 12px; border-radius: 9px; color: #c0c7e3; font-weight: 500; }
+    nav a:hover { background: rgba(255, 255, 255, 0.06); color: #fff; }
+    /* Activo: fondo azul eléctrico translúcido (texto blanco > 12:1) e indicador cian (> 3:1 sobre el azul profundo). */
+    nav a.active { background: rgba(18, 91, 234, 0.28); color: #fff; box-shadow: inset 0 0 0 1px rgba(22, 199, 244, 0.18); }
+    nav a.active::before { content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: var(--brand-gradient, linear-gradient(135deg, #125BEA, #16C7F4, #8550E9)); }
+    nav a.active nx-icon { color: var(--brand-cyan, #16C7F4); }
     .spacer { flex: 1; }
-    .ws { margin-bottom: 10px; background: #1d2040; color: #fff; border: 1px solid #2c3060; border-radius: 8px; padding: 7px; }
-    .user { display: flex; align-items: center; gap: 10px; padding: 10px 6px 0; border-top: 1px solid #23264a; }
-    .user .btn { color: #b4b8d4; }
-    .avatar { width: 32px; height: 32px; border-radius: 50%; background: #2c2f5c; color: #fff; display: grid; place-items: center; font-weight: 700; text-transform: uppercase; }
+    .ws { margin-bottom: 10px; background: #111c45; color: #fff; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 8px; padding: 7px; }
+    .user { display: flex; align-items: center; gap: 10px; padding: 10px 6px 0; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+    .user .btn { color: #c0c7e3; }
+    .avatar { width: 32px; height: 32px; border-radius: 50%; background: #16307a; box-shadow: 0 0 0 2px rgba(22, 199, 244, 0.35); color: #fff; display: grid; place-items: center; font-weight: 700; text-transform: uppercase; }
     .who { flex: 1; min-width: 0; }
     .who strong { display: block; color: #fff; font-size: 13px; }
-    .who small { display: block; color: #8a8fb0; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .who small { display: block; color: #a3acd3; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     main { flex: 1; min-width: 0; }
-    @media (max-width: 900px) { :host { flex-direction: column; } .sidebar { width: 100%; height: auto; position: static; } nav { flex-direction: row; overflow-x: auto; align-items: center; } .nav-group { flex-direction: row; } .nav-section { padding: 0 8px; white-space: nowrap; } .nav-section.admin, .nav-section.platform { margin: 0 0 0 8px; padding: 0 8px; border-top: 0; border-left: 1px solid #23264a; } nav a { white-space: nowrap; } .spacer, .user, .ws { display: none; } }
+    @media (max-width: 900px) { :host { flex-direction: column; } .sidebar { width: 100%; height: auto; position: relative; border-right: 0; border-bottom: 1px solid rgba(255, 255, 255, 0.08); } .brand { padding-bottom: 12px; } nav { flex-direction: row; overflow-x: auto; align-items: center; } .nav-group { flex-direction: row; } .nav-section { padding: 0 8px; white-space: nowrap; } .nav-section.admin, .nav-section.platform { margin: 0 0 0 8px; padding: 0 8px; border-top: 0; border-left: 1px solid rgba(255, 255, 255, 0.08); } nav a { white-space: nowrap; } nav a.active::before { left: 8px; right: 8px; top: auto; bottom: 0; width: auto; height: 3px; border-radius: 3px 3px 0 0; } .spacer, .user, .ws { display: none; } }
   `,
 })
 export class ShellComponent implements OnInit {

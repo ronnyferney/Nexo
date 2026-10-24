@@ -105,7 +105,7 @@ export type TrainingSection = 'feedback' | 'cases' | 'runs' | 'suggestions' | 'v
     .step:hover { border-color: var(--primary); }
     .step.active { border-color: var(--primary); background: var(--primary-50); }
     .n { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; background: var(--surface-2); color: var(--muted); flex-shrink: 0; }
-    .step.active .n { background: var(--primary); color: #fff; }
+    .step.active .n { background: var(--primary-solid); color: var(--on-primary); }
     .lbl { display: flex; align-items: center; gap: 5px; font-size: 13px; padding-right: 4px; }
     .detail { line-height: 1.3; }
     .dot-alert { position: absolute; top: 4px; right: 4px; width: 8px; height: 8px; border-radius: 50%; background: var(--warning); }

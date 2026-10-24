@@ -19,7 +19,7 @@ import { NumberPipe, UsdPipe } from '../../shared/usd.pipe';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page">
-      <div class="page-header">
+      <div class="page-header brand-hero">
         <div><h1>Hola{{ auth.me() ? ', ' + auth.me()!.name : '' }} 👋</h1><p>Resumen de su plataforma de agentes y automatización</p></div>
       </div>
 

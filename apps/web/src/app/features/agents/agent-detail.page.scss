@@ -3,7 +3,7 @@
 .chat-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
 .messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .msg { max-width: 88%; padding: 10px 14px; border-radius: 12px; white-space: pre-wrap; word-break: break-word; }
-.msg.user { align-self: flex-end; background: var(--primary); color: #fff; border-bottom-right-radius: 4px; }
+.msg.user { align-self: flex-end; background: var(--primary-solid); color: var(--on-primary); border-bottom-right-radius: 4px; }
 .msg.assistant { align-self: flex-start; background: var(--surface-2); border-bottom-left-radius: 4px; }
 .msg.notice { align-self: center; font-size: 12px; color: var(--muted); background: none; }
 .msg.usage { align-self: flex-start; margin-top: -8px; padding: 0 4px; font-size: 11.5px; color: var(--muted); background: none; font-variant-numeric: tabular-nums; }
@@ -47,11 +47,10 @@
 .meta-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }
 .meta-badges .badge { gap: 4px; }
 .head-actions { gap: 8px; justify-content: flex-end; }
-.copilot-btn { border-color: color-mix(in srgb, #9b5cf6 55%, var(--border)); color: #7c45e0; background: color-mix(in srgb, #9b5cf6 8%, var(--surface)); }
-.copilot-btn:hover:not(:disabled) { border-color: #9b5cf6; color: #6a34d4; }
+.copilot-btn { border-color: color-mix(in srgb, var(--brand-violet) 55%, var(--border)); color: var(--brand-violet-text); background: color-mix(in srgb, var(--brand-violet) 8%, var(--surface)); }
+.copilot-btn:hover:not(:disabled) { border-color: var(--brand-violet); color: var(--brand-violet-text); }
 .ro-note { margin-bottom: 16px; }
 .health-slot { margin-bottom: 14px; }
-@media (prefers-color-scheme: dark) { .copilot-btn, .copilot-btn:hover:not(:disabled) { color: #c4a5ff; } }
 .copilot-notice ul { padding-left: 18px; margin-top: 4px; }
 .copilot-notice p { margin-top: 4px; }
 .model-issue { margin-bottom: 12px; align-items: center; }

@@ -101,7 +101,7 @@ const CIRC = 2 * Math.PI * RADIUS;
     .chk.WARNING > nx-icon { color: var(--warning); }
     .chk.INFO > nx-icon { color: var(--info); }
     .chk > nx-icon { margin-top: 2px; }
-    .btn.cp { color: #8b4fe6; }
+    .btn.cp { color: var(--brand-violet-text); }
   `,
 })
 export class AgentHealthCardComponent {

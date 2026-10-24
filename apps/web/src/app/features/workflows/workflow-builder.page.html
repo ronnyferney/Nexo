@@ -297,7 +297,7 @@
                   @if (v.definition; as vd) {
                     <ul class="wf-version-nodes small">
                       @for (vnode of vd.nodes; track vnode.id) {
-                        <li><span class="wf-dot" [style.background]="metaOf(vnode.type)?.color ?? '#6b7189'"></span>{{ vnode.name }} <span class="muted">· {{ metaOf(vnode.type)?.label ?? vnode.type }}</span></li>
+                        <li><span class="wf-dot" [style.background]="metaOf(vnode.type)?.color ?? 'var(--muted)'"></span>{{ vnode.name }} <span class="muted">· {{ metaOf(vnode.type)?.label ?? vnode.type }}</span></li>
                       }
                     </ul>
                     <span class="muted small">{{ vd.edges.length }} conexiones</span>

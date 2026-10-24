@@ -92,18 +92,17 @@ const DEFAULT_PROMPT =
     .paths { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px; align-items: start; }
     .path h2 { font-size: 16px; }
     .path p { margin: 10px 0 14px; }
-    .rec { border-color: color-mix(in srgb, #9b5cf6 55%, var(--border)); background: linear-gradient(160deg, color-mix(in srgb, #6d6dfa 8%, var(--surface)), var(--surface) 55%); }
-    .mark { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(135deg, #6d6dfa, #9b5cf6); color: #fff; font-weight: 800; display: grid; place-items: center; }
+    .rec { border-color: color-mix(in srgb, var(--brand-violet) 55%, var(--border)); background: linear-gradient(160deg, color-mix(in srgb, var(--brand-blue) 8%, var(--surface)), var(--surface) 55%); }
+    .mark { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(135deg, var(--brand-blue), var(--brand-violet)); color: #fff; font-weight: 800; display: grid; place-items: center; }
     .tpls { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
     .tpl { display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: inherit; font: inherit; cursor: pointer; }
-    .tpl:hover { border-color: #9b5cf6; background: color-mix(in srgb, #9b5cf6 7%, var(--surface)); }
-    .tpl-head { gap: 8px; color: #7c45e0; }
+    .tpl:hover { border-color: var(--brand-violet); background: color-mix(in srgb, var(--brand-violet) 7%, var(--surface)); }
+    .tpl-head { gap: 8px; color: var(--brand-violet-text); }
     .tpl-head strong { color: var(--text); }
     .interview { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 16px; height: calc(100dvh - 150px); min-height: 560px; }
     .side { display: flex; flex-direction: column; gap: 10px; align-self: start; }
     .side p { margin: 0; }
     .steps { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
-    @media (prefers-color-scheme: dark) { .tpl-head { color: #c4a5ff; } }
     @media (max-width: 900px) {
       .paths, .interview { grid-template-columns: 1fr; }
       .interview { height: auto; }

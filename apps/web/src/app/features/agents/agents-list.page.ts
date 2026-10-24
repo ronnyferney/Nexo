@@ -45,7 +45,7 @@ const GOVERNANCE_TAB: ScopeTab = {
         <div class="row wrap">
           <a class="btn" routerLink="/agents/explore"><nx-icon name="search" />Explorar agentes</a>
           @if (canCreate()) {
-            <a class="btn primary" routerLink="/agents/new"><nx-icon name="plus" />Crear agente</a>
+            <a class="btn primary brand" routerLink="/agents/new"><nx-icon name="plus" />Crear agente</a>
           }
         </div>
       </div>

@@ -9,7 +9,7 @@ dialog.connect { width: min(600px, calc(100vw - 24px)); border-radius: 18px; }
 .wide { width: 100%; justify-content: center; }
 .panel, .key-form { display: flex; flex-direction: column; gap: 14px; }
 .big { height: 46px; font-size: 15px; }
-.btn-logo { width: 26px; height: 26px; border-radius: 50%; background: #fff; display: inline-grid; place-items: center; color: #171a2b; }
+.btn-logo { width: 26px; height: 26px; border-radius: 50%; background: #fff; display: inline-grid; place-items: center; color: var(--brand-navy); }
 .unavail { margin: -4px 0 0; display: flex; gap: 6px; align-items: flex-start; color: var(--muted); font-size: 12.5px; }
 .unavail nx-icon { margin-top: 2px; flex-shrink: 0; }
 .wait { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--info-50); font-size: 13px; }

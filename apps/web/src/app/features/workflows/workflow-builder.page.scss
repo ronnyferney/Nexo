@@ -17,7 +17,7 @@
 .canvas:active { cursor: grabbing; }
 .viewport { position: absolute; inset: 0 auto auto 0; transform-origin: 0 0; }
 .edges { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
-.edge { fill: none; stroke: #9aa0bd; stroke-width: 2; }
+.edge { fill: none; stroke: var(--muted); stroke-width: 2; }
 .edge.active { stroke: var(--success); }
 .edge.selected { stroke: var(--primary); stroke-width: 3; }
 .edge.pending { stroke: var(--primary); stroke-dasharray: 6 4; }
@@ -37,7 +37,7 @@
 .status-dot.succeeded { background: var(--success); }
 .status-dot.failed { background: var(--danger); }
 .status-dot.running { background: var(--primary); }
-.port { position: absolute; width: 14px; height: 14px; border-radius: 50%; background: var(--surface); border: 2px solid #9aa0bd; cursor: crosshair; }
+.port { position: absolute; width: 14px; height: 14px; border-radius: 50%; background: var(--surface); border: 2px solid var(--muted); cursor: crosshair; }
 .port:hover { border-color: var(--primary); background: var(--primary-50); transform: scale(1.2); }
 .port.in { left: -8px; top: calc(50% - 7px); }
 .port.out { right: -8px; top: calc(50% - 7px); }

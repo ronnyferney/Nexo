@@ -10,9 +10,9 @@ export interface NodeMeta {
 }
 
 export const NODE_CATALOG: NodeMeta[] = [
-  { type: 'trigger', label: 'Disparador', description: 'Manual, webhook, cron o MCP', icon: 'flag', color: '#5b5bf7', defaults: {} },
-  { type: 'connector', label: 'Conector', description: 'Llamar REST / SOAP / GraphQL / MCP', icon: 'plug', color: '#1f84d6', defaults: { operationId: '', input: {}, retries: 0 } },
-  { type: 'agent', label: 'Agente IA', description: 'Delegar una tarea a un agente', icon: 'bot', color: '#9b5cf6', defaults: { agentId: '', message: '{{ input | json }}', parseJson: false } },
+  { type: 'trigger', label: 'Disparador', description: 'Manual, webhook, cron o MCP', icon: 'flag', color: '#125BEA', defaults: {} },
+  { type: 'connector', label: 'Conector', description: 'Llamar REST / SOAP / GraphQL / MCP', icon: 'plug', color: '#0A86B8', defaults: { operationId: '', input: {}, retries: 0 } },
+  { type: 'agent', label: 'Agente IA', description: 'Delegar una tarea a un agente', icon: 'bot', color: '#8550E9', defaults: { agentId: '', message: '{{ input | json }}', parseJson: false } },
   { type: 'condition', label: 'Condición', description: 'Bifurcar en verdadero / falso', icon: 'branch', color: '#d98a0b', defaults: { combinator: 'and', rules: [{ left: '{{ input.valor }}', operator: 'eq', right: '' }] } },
   { type: 'transform', label: 'Transformar', description: 'Mapear y construir datos', icon: 'shuffle', color: '#12a46b', defaults: { output: { campo: '{{ input.valor }}' } } },
   { type: 'delay', label: 'Espera', description: 'Pausar unos segundos', icon: 'clock', color: '#6b7189', defaults: { ms: 1000 } },
