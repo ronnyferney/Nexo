@@ -1,8 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AgentsService } from '../agents/agents.service';
+import { declaredInputFields } from '../workflows/engine/workflow-input';
+import type { WorkflowDefinition } from '../workflows/engine/workflow.types';
 import { WorkflowsService } from '../workflows/workflows.service';
 
 const slug = (s: string) =>
@@ -15,6 +17,19 @@ const text = (value: unknown, isError = false) => ({
   content: [{ type: 'text' as const, text: typeof value === 'string' ? value : JSON.stringify(value, null, 2) }],
   isError,
 });
+
+/** Descripción del argumento `input` con los campos declarados en el disparador del flujo (si los hay). */
+function inputDescription(definition: unknown): string {
+  const fields = declaredInputFields(definition as WorkflowDefinition);
+  if (!fields?.length) return 'Datos de entrada del flujo';
+  const list = fields
+    .map(
+      (f) =>
+        `${f.name} (${f.type ?? 'cualquiera'}${f.required ? ', requerido' : ''})${f.description ? `: ${f.description}` : ''}`,
+    )
+    .join('; ');
+  return `Datos de entrada del flujo. Campos: ${list}`;
+}
 
 /**
  * Construye un servidor MCP por workspace: cada agente de empresa lanzado (WORKSPACE + LAUNCHED) y cada flujo activo
@@ -38,7 +53,7 @@ export class McpServerService {
       }),
       this.prisma.workflow.findMany({
         where: { workspaceId, active: true },
-        select: { id: true, name: true, description: true },
+        select: { id: true, name: true, description: true, definition: true },
       }),
     ]);
     const used = new Set<string>();
@@ -74,10 +89,17 @@ export class McpServerService {
         {
           title: wf.name,
           description: wf.description ?? `Flujo de automatización "${wf.name}" (espera hasta 60 s el resultado)`,
-          inputSchema: { input: z.record(z.unknown()).optional().describe('Datos de entrada del flujo') },
+          inputSchema: { input: z.record(z.unknown()).optional().describe(inputDescription(wf.definition)) },
         },
         async ({ input }) => {
-          const ex = await this.workflows.run(workspaceId, wf.id, input ?? {}, 'MCP', true);
+          let ex;
+          try {
+            ex = await this.workflows.run(workspaceId, wf.id, input ?? {}, 'MCP', true);
+          } catch (err) {
+            // Entrada incompleta (400): el cliente MCP recibe qué datos faltan en vez de un error genérico.
+            if (err instanceof BadRequestException) return text(err.message, true);
+            throw err;
+          }
           if (ex.status === 'SUCCEEDED') return text(ex.output);
           return text({ executionId: ex.id, status: ex.status, error: ex.error }, ex.status === 'FAILED');
         },

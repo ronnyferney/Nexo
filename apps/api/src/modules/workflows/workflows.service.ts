@@ -14,6 +14,7 @@ import { Queue, QueueEvents } from 'bullmq';
 import type { AuthContext } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AgentAccessService } from '../agent-access/agent-access.service';
+import { checkInput, inputErrorMessage, inputWarnings } from './engine/workflow-input';
 import type { WorkflowDefinition } from './engine/workflow.types';
 import { validateDefinition } from './engine/workflow.validator';
 import { CreateWorkflowDto, UpdateWorkflowDto } from './dto/workflow.dto';
@@ -206,7 +207,11 @@ export class WorkflowsService implements OnModuleInit, OnModuleDestroy {
     return { webhookToken };
   }
 
-  /** Encola una ejecución. Con `wait` espera el resultado (respuesta síncrona para webhooks / MCP). */
+  /**
+   * Encola una ejecución. Con `wait` espera el resultado (respuesta síncrona para webhooks / MCP).
+   * Antes de encolar comprueba la entrada (P2): un campo requerido del esquema del disparador ausente o con otro tipo
+   * responde 400 sin crear la ejecución; los campos que usan las plantillas y faltan vuelven en `inputWarnings`.
+   */
   async run(
     workspaceId: string,
     workflowId: string,
@@ -214,7 +219,11 @@ export class WorkflowsService implements OnModuleInit, OnModuleDestroy {
     trigger: TriggerType,
     wait = false,
   ) {
-    await this.get(workspaceId, workflowId);
+    const wf = await this.get(workspaceId, workflowId);
+    const check = checkInput(wf.definition as unknown as WorkflowDefinition, input);
+    const inputError = inputErrorMessage(check);
+    if (inputError) throw new BadRequestException(inputError);
+    const warnings = inputWarnings(check);
     const execution = await this.prisma.execution.create({
       data: { workflowId, workspaceId, trigger, input: json(input) },
     });
@@ -223,20 +232,27 @@ export class WorkflowsService implements OnModuleInit, OnModuleDestroy {
       removeOnComplete: 1000,
       removeOnFail: 5000,
     });
-    if (!wait || !this.events) return execution;
+    if (!wait || !this.events) return { ...execution, inputWarnings: warnings };
     try {
       await job.waitUntilFinished(this.events, MAX_WAIT_MS);
     } catch (err) {
       this.logger.debug(`Espera de ${execution.id} terminó: ${(err as Error).message}`);
     }
-    return this.prisma.execution.findUniqueOrThrow({ where: { id: execution.id } });
+    const finished = await this.prisma.execution.findUniqueOrThrow({ where: { id: execution.id } });
+    return { ...finished, inputWarnings: warnings };
   }
 
   async runByWebhook(token: string, input: Record<string, unknown>, wait: boolean) {
     const wf = await this.prisma.workflow.findUnique({ where: { webhookToken: token } });
     if (!wf || !wf.active) throw new NotFoundException('Webhook no encontrado o flujo inactivo');
     const execution = await this.run(wf.workspaceId, wf.id, input, 'WEBHOOK', wait);
-    return { executionId: execution.id, status: execution.status, output: execution.output, error: execution.error };
+    return {
+      executionId: execution.id,
+      status: execution.status,
+      output: execution.output,
+      error: execution.error,
+      inputWarnings: execution.inputWarnings,
+    };
   }
 
   async cancel(workspaceId: string, executionId: string) {

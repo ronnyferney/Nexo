@@ -75,7 +75,7 @@ claves cifrados con AES-256-GCM, `redirect: 'manual'` en el cliente HTTP, `postM
 | ID | Prio. | Punto | Estado |
 |---|---|---|---|
 | P1 | P0 | Agentes nuevos nacían con el modelo simulado cuando la plataforma no tenía clave | Hecho (249df02) |
-| P2 | P1 | Avisar al ejecutar un flujo sin los datos de entrada que espera (hoy falla en el primer nodo) | Pendiente |
+| P2 | P1 | Avisar al ejecutar un flujo sin los datos de entrada que espera (hoy falla en el primer nodo) | Hecho: `trigger.config.inputFields`, 400 con los campos que faltan y avisos en el panel «Ejecutar» |
 | P3 | P1 | Probar los inicios de sesión reales (Google, Microsoft, Hugging Face) contra los proveedores, no solo contra simuladores | Pendiente |
 | P4 | P1 | RPA con Claude real en el equipo del usuario | Pendiente |
 | P5 | P2 | Pruebas unitarias de la web (`ng test`) en CI para los componentes nuevos | Pendiente |

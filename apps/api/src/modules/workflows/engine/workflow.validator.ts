@@ -1,3 +1,4 @@
+import { validateInputFields } from './workflow-input';
 import type { NodeType, WorkflowDefinition } from './workflow.types';
 
 export const NODE_TYPES: NodeType[] = [
@@ -35,6 +36,7 @@ export function validateDefinition(def: WorkflowDefinition): string[] {
   }
   for (const t of triggers) {
     if (def.edges.some((e) => e.target === t.id)) errors.push('El disparador no puede tener entradas');
+    errors.push(...validateInputFields(t.config?.inputFields));
   }
   if (hasCycle(def)) errors.push('El flujo contiene ciclos; debe ser un grafo acíclico');
   return errors;

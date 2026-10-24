@@ -7,6 +7,7 @@ import type {
   WorkflowEdge,
   WorkflowNode,
 } from './workflow.types';
+import { checkInput, inputErrorMessage } from './workflow-input';
 import { validateDefinition } from './workflow.validator';
 
 export interface EngineHooks {
@@ -47,6 +48,10 @@ export class WorkflowEngine {
   async run(def: WorkflowDefinition, ctx: ExecutionContext, hooks: EngineHooks = {}): Promise<EngineResult> {
     const errors = validateDefinition(def);
     if (errors.length) return { status: 'FAILED', output: null, error: errors.join('; '), steps: [] };
+    // Esquema de entrada declarado en el disparador: se comprueba antes del primer nodo (cron, sub-flujos y bucles
+    // llegan aquí sin pasar por la API; las vías HTTP ya respondieron 400 antes de encolar).
+    const inputError = inputErrorMessage(checkInput(def, ctx.input));
+    if (inputError) return { status: 'FAILED', output: null, error: inputError, steps: [] };
 
     const sleep = hooks.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
     if (hooks.signal && !ctx.signal) ctx.signal = hooks.signal;

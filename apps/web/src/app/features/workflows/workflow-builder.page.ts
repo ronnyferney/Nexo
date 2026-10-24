@@ -24,6 +24,15 @@ import { JsonEditorComponent } from '../../shared/json-editor.component';
 import { TemplateRefPipe } from '../../shared/template-ref.pipe';
 import { StatusBadgeComponent } from '../../shared/status-badge.component';
 import { NODE_CATALOG, NODE_H, NODE_W, nodeMeta, OPERATORS, validateGraph } from './node-catalog';
+import {
+  type InputField,
+  inputFieldsProblem,
+  inputHints,
+  INPUT_FIELD_TYPES,
+  MAX_INPUT_FIELDS,
+  sampleInput,
+  typeLabel,
+} from './workflow-input';
 
 type Drag =
   | { kind: 'node'; id: string; dx: number; dy: number }
@@ -74,7 +83,25 @@ export class WorkflowBuilderPage implements OnInit, OnDestroy {
   readonly saving = signal(false);
   readonly panel = signal<'node' | 'run' | 'settings' | 'versions'>('settings');
   /** Primer problema estructural del grafo (bloquea Guardar). */
-  readonly graphError = computed(() => validateGraph(this.nodes(), this.edges()));
+  readonly inputFieldsError = computed(() => inputFieldsProblem(this.nodes()));
+  readonly graphError = computed(() => validateGraph(this.nodes(), this.edges()) ?? this.inputFieldsError());
+
+  // Datos de entrada (P2): esquema del disparador + campos que usan las plantillas.
+  readonly inputTypes = INPUT_FIELD_TYPES;
+  readonly maxInputFields = MAX_INPUT_FIELDS;
+  readonly typeLabel = typeLabel;
+  readonly runInput = signal<unknown>({});
+  readonly hints = computed(() => inputHints(this.nodes(), this.runInput()));
+  /** Campos que usan las plantillas y no están declarados en el disparador (para declararlos de un clic). */
+  readonly undeclaredRefs = computed(() => this.hints().referenced);
+  /** Requeridos ausentes o tipos incorrectos: la API respondería 400, así que se bloquea «Ejecutar ahora». */
+  readonly runBlocked = computed(() => this.hints().missingRequired.length > 0 || this.hints().invalid.length > 0);
+  /** Hay campos detectados (declarados o en plantillas) que aún no aparecen en el JSON de prueba. */
+  readonly canFillSample = computed(() => {
+    const cur = this.runInput();
+    const sample = sampleInput(this.hints(), cur);
+    return Object.keys(sample).length > Object.keys(cur && typeof cur === 'object' ? cur : {}).length;
+  });
 
   /** Otros flujos del workspace (sub-flujos, bucles y flujo de error). */
   readonly allWorkflows = signal<Workflow[]>([]);
@@ -116,7 +143,6 @@ export class WorkflowBuilderPage implements OnInit, OnDestroy {
   description = '';
   schedule = '';
   errorWorkflowId: string | null = null;
-  runInput: unknown = {};
   private drag: Drag | null = null;
   private poll?: ReturnType<typeof setInterval>;
 
@@ -131,6 +157,7 @@ export class WorkflowBuilderPage implements OnInit, OnDestroy {
     this.agents.set(agents);
     this.allWorkflows.set(workflows);
     this.apply(wf);
+    this.fillSample();
     setTimeout(() => this.fitView());
   }
 
@@ -383,6 +410,62 @@ export class WorkflowBuilderPage implements OnInit, OnDestroy {
     }
   }
 
+  // ---------- Datos de entrada del disparador ----------
+  inputFields(): InputField[] {
+    const raw = this.selectedNode()?.config['inputFields'];
+    return Array.isArray(raw) ? raw : [];
+  }
+
+  /** Guarda la lista en el disparador; sin campos se quita la clave para no alterar flujos antiguos. */
+  private setInputFields(fields: InputField[]) {
+    const node = this.selectedNode();
+    if (!node) return;
+    const config: Record<string, unknown> = { ...node.config, inputFields: fields };
+    if (!fields.length) delete config['inputFields'];
+    this.updateNode({ config });
+  }
+
+  addInputField(name = '') {
+    const fields = this.inputFields();
+    if (fields.length >= MAX_INPUT_FIELDS) return;
+    this.setInputFields([...fields, { name, type: 'string', required: true }]);
+  }
+
+  /** Declara de una vez los campos que usan las plantillas (requeridos, tipo libre) para que la API los exija. */
+  declareReferenced() {
+    const fields = this.inputFields();
+    const known = new Set(fields.map((f) => f.name));
+    const extra = this.undeclaredRefs().filter((n) => !known.has(n)).map((name) => ({ name, required: true }));
+    this.setInputFields([...fields, ...extra].slice(0, MAX_INPUT_FIELDS));
+  }
+
+  updateInputField(index: number, patch: Partial<InputField>) {
+    const fields = this.inputFields().map((f, i) => {
+      if (i !== index) return f;
+      const next = { ...f, ...patch };
+      if (!next.type) delete next.type;
+      if (!next.description) delete next.description;
+      return next;
+    });
+    this.setInputFields(fields);
+  }
+
+  removeInputField(index: number) {
+    this.setInputFields(this.inputFields().filter((_, i) => i !== index));
+  }
+
+  /** Abre la pestaña de ejecución; con la entrada vacía precarga el ejemplo con los campos detectados. */
+  openRun() {
+    const cur = this.runInput();
+    if (!cur || (typeof cur === 'object' && !Object.keys(cur).length)) this.fillSample();
+    this.panel.set('run');
+  }
+
+  /** Completa el JSON de prueba con los campos detectados que falten (sin pisar valores escritos). */
+  fillSample() {
+    this.runInput.set(sampleInput(this.hints(), this.runInput()));
+  }
+
   // ---------- Reglas de condición ----------
   updateRule(index: number, patch: Record<string, unknown>) {
     const rules = [...(this.selectedNode()?.config['rules'] ?? [])];
@@ -459,7 +542,7 @@ export class WorkflowBuilderPage implements OnInit, OnDestroy {
   async run() {
     if (this.dirty() && !(await this.save())) return;
     try {
-      const ex = await this.api.runWorkflow(this.id(), this.runInput);
+      const ex = await this.api.runWorkflow(this.id(), this.runInput());
       this.execution.set(ex);
       this.panel.set('run');
       clearInterval(this.poll);
@@ -555,7 +638,7 @@ export class WorkflowBuilderPage implements OnInit, OnDestroy {
     }
     this.pinned.set(entries);
     const ex = this.execution();
-    this.testInput = ex?.input !== undefined && ex?.input !== null ? structuredClone(ex.input) : structuredClone(this.runInput ?? {});
+    this.testInput = ex?.input !== undefined && ex?.input !== null ? structuredClone(ex.input) : structuredClone(this.runInput() ?? {});
     this.testResult.set(null);
     this.testError.set(null);
     this.testOpen.set(true);

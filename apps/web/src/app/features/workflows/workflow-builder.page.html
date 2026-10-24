@@ -8,7 +8,7 @@
       <span class="spacer"></span>
       @if (auth.canEdit()) {
         <button class="btn" (click)="toggleActive()">{{ wf.active ? 'Desactivar' : 'Activar' }}</button>
-        <button class="btn" (click)="panel.set('run')"><nx-icon name="play" />Ejecutar</button>
+        <button class="btn" (click)="openRun()"><nx-icon name="play" />Ejecutar</button>
         @if (graphError(); as ge) {
           <span class="wf-invalid small" role="status"><nx-icon name="alert" [size]="15" />{{ ge }}</span>
         }
@@ -68,7 +68,7 @@
       <aside class="inspector">
         <div class="tabs" style="margin-bottom:12px">
           <button class="tab" [class.active]="panel() === 'node'" [disabled]="!selectedNode()" (click)="panel.set('node')">Nodo</button>
-          <button class="tab" [class.active]="panel() === 'run'" (click)="panel.set('run')">Ejecución</button>
+          <button class="tab" [class.active]="panel() === 'run'" (click)="openRun()">Ejecución</button>
           <button class="tab" [class.active]="panel() === 'settings'" (click)="panel.set('settings')">Flujo</button>
           <button class="tab" [class.active]="panel() === 'versions'" (click)="openVersions()">Versiones</button>
         </div>
@@ -83,6 +83,41 @@
               @case ('trigger') {
                 <p class="muted small">Recibe la entrada del flujo. Acceda a ella con <code>{{ 'input.campo' | tpl }}</code>.</p>
                 <p class="muted small">Configure webhook y cron en la pestaña <strong>Flujo</strong>.</p>
+                <div class="field"><label>Datos de entrada</label>
+                  <span class="hint">Declare los campos que espera el flujo. Si falta uno requerido o tiene otro tipo, la ejecución
+                    se rechaza antes de empezar (manual, webhook, MCP y sub-flujos). Sin campos declarados, el flujo se ejecuta como siempre.</span></div>
+                @for (f of inputFields(); track $index; let i = $index) {
+                  <div class="rule">
+                    <div class="row">
+                      <input class="input mono" [attr.aria-label]="'Nombre del campo ' + (i + 1)" placeholder="nombre" [disabled]="!auth.canEdit()"
+                        [ngModel]="f.name" (ngModelChange)="updateInputField(i, { name: $event.trim() })" />
+                      <select class="input" [attr.aria-label]="'Tipo del campo ' + (i + 1)" [disabled]="!auth.canEdit()"
+                        [ngModel]="f.type ?? ''" (ngModelChange)="updateInputField(i, { type: $event || undefined })">
+                        <option value="">Cualquiera</option>
+                        @for (t of inputTypes; track t.id) { <option [value]="t.id">{{ t.label }}</option> }
+                      </select>
+                      @if (auth.canEdit()) { <button class="btn icon" title="Quitar campo" (click)="removeInputField(i)"><nx-icon name="trash" [size]="14" /></button> }
+                    </div>
+                    <div class="row">
+                      <label class="checkbox"><input type="checkbox" [disabled]="!auth.canEdit()" [ngModel]="!!f.required"
+                        (ngModelChange)="updateInputField(i, { required: $event })" />Requerido</label>
+                      <input class="input small" placeholder="Descripción (opcional, visible en MCP)" maxlength="300" [disabled]="!auth.canEdit()"
+                        [ngModel]="f.description ?? ''" (ngModelChange)="updateInputField(i, { description: $event })" />
+                    </div>
+                  </div>
+                }
+                @if (inputFieldsError(); as problem) { <div class="error-text">{{ problem }}</div> }
+                @if (auth.canEdit()) {
+                  <div class="row">
+                    <button class="btn sm" [disabled]="inputFields().length >= maxInputFields" (click)="addInputField()"><nx-icon name="plus" [size]="14" />Agregar campo</button>
+                    @if (undeclaredRefs().length) {
+                      <button class="btn sm" (click)="declareReferenced()">Declarar usados en plantillas ({{ undeclaredRefs().length }})</button>
+                    }
+                  </div>
+                }
+                @if (undeclaredRefs().length) {
+                  <span class="hint">Las plantillas usan sin declarar: <code>{{ undeclaredRefs().join(', ') }}</code>.</span>
+                }
               }
               @case ('connector') {
                 <div class="field"><label>Operación</label>
@@ -235,8 +270,26 @@
 
         @if (panel() === 'run') {
           <div class="stack">
-            <div class="field"><label>Entrada de prueba (JSON)</label><nx-json-editor [(value)]="runInput" [rows]="6" /></div>
-            <button class="btn primary" [disabled]="!auth.canEdit()" (click)="run()"><nx-icon name="play" />Ejecutar ahora</button>
+            <div class="field"><label>Entrada de prueba (JSON)</label><nx-json-editor [(value)]="runInput" [rows]="6" />
+              @if (hints().declared?.length) {
+                <span class="hint">Campos declarados:
+                  @for (f of hints().declared; track f.name; let last = $last) {
+                    <code>{{ f.name }}</code> ({{ typeLabel(f.type) }}{{ f.required ? ', requerido' : '' }}){{ last ? '' : ' · ' }}
+                  }</span>
+              }
+              @if (canFillSample()) { <button class="btn sm" style="align-self:flex-start" (click)="fillSample()">Agregar campos detectados</button> }
+            </div>
+            @if (hints().missingRequired.length || hints().invalid.length) {
+              <div class="callout danger" role="alert"><nx-icon name="alert" [size]="16" /><div>
+                @if (hints().missingRequired.length) { <div>Faltan: {{ hints().missingRequired.join(', ') }}</div> }
+                @for (i of hints().invalid; track i.name) { <div>«{{ i.name }}» debe ser {{ typeLabel(i.expected) }}</div> }
+              </div></div>
+            }
+            @if (hints().missingReferenced.length) {
+              <div class="callout warning"><nx-icon name="alert" [size]="16" /><div>Faltan: {{ hints().missingReferenced.join(', ') }}
+                <div class="muted small">Las plantillas los usan; si no los envía quedarán vacías. Declárelos en el disparador para exigirlos.</div></div></div>
+            }
+            <button class="btn primary" [disabled]="!auth.canEdit() || runBlocked()" (click)="run()"><nx-icon name="play" />Ejecutar ahora</button>
             @if (execution(); as ex) {
               <div class="divider"></div>
               <div class="row"><nx-status [status]="ex.status" /><span class="spacer"></span><a class="small" [routerLink]="['/executions', ex.id]">Ver detalle</a></div>
