@@ -100,3 +100,32 @@ claves cifrados con AES-256-GCM, `redirect: 'manual'` en el cliente HTTP, `postM
 | C-7b | P0 | Verificación de editor de la app de Microsoft (AI Cloud Partner Program) y verificación de Google (CASA para Gmail) | Pendiente (trámite externo; lo gestiona el negocio) |
 | C-7 | P2 | Apps menos usadas vía servidores MCP externos, opcionales y aprobados por un ADMIN | Pendiente (decisión de negocio) |
 
+## 5. Rediseño UX/UI empresarial (AI Studio)
+
+Iniciativa de rediseño integral (requerimiento v1.0). Prioridad de negocio: primero perfeccionar el
+chat del agente (P0) y luego extender el mismo estándar al resto de Nexo. Dueño = tipo de agente
+especializado asignado; el líder coordina y el chat tiene un solo dueño por archivo.
+
+| ID | Prio. | § | Punto | Dueño | Estado |
+|---|---|---|---|---|---|
+| RX-1 | P0 | 3.1 | Chat: separar Conversación / Actividad / Diagnóstico + agrupar eventos de protección de datos | Líder | Hecho (2b91fc9) |
+| RX-2 | P0 | 3.3 | Chat: máquina de estados visible (pensando / consultando… / esperando aprobación / completado / fallado / cancelado) ligada a eventos reales | Líder | En curso |
+| RX-3 | P0 | 3.4 | Chat: errores empresariales (mapeo de causas + acciones) y nombres legibles de herramienta | Líder | En parte (nombres legibles hechos) |
+| RX-4 | P0 | 3.6/3.7 | Chat: compositor (estado de conexión, anti-doble-envío) y sesiones de prueba (versión/ejecución que respondió) | Líder | Pendiente |
+| RX-5 | P1 | 4.3 | Panel de salud orientado a la acción (estado de publicación + hallazgos con acción) | nexo-frontend-ui | Hecho (83cd96d) |
+| RX-6 | P1 | 4.1 | Chat redimensionable / pantalla completa y distribución de 3 áreas | nexo-frontend-core | Pendiente |
+| RX-7 | P1 | 4.2 | Formularios de configuración por secciones con estado por sección | nexo-frontend-ui | Pendiente |
+| RX-8 | P1 | 4.4 | Diferenciar Guardar borrador / Probar / Publicar + confirmación de publicación | nexo-frontend-ui | Pendiente |
+| RX-9 | P1 | 5 | Design System: tokens y biblioteca de componentes (AppShell, Sidebar, Topbar, EmptyState, etc.) | nexo-frontend-core | Pendiente (hay tokens base en `styles.scss`) |
+| RX-10 | P1 | 5.4 | Tablas y listados estandarizados (agentes, integraciones, ejecuciones, usuarios) | nexo-frontend-ui | Pendiente |
+| RX-11 | P1 | 5.4 + 6 | **Rediseño del tablero de Agentes**: tarjetas KPI (totales, activos, ejecuciones 30 d, costo estimado, alertas con tendencias), pestañas con contadores (Todos/Activos/En pruebas/Borradores/Archivados), búsqueda + filtros (área, estado), vista tarjetas/lista, tarjeta de agente con favorito, métricas (ejecuciones, usuarios, costo), estado y salud, y paginación; con estados vacío/carga/error. Evoluciona `agents-list.page.ts`. | nexo-frontend-ui (UI) + nexo-backend-platform (agregación de KPIs y filtros por área/estado) | Pendiente |
+| RX-12 | P2 | 6 | Observabilidad: latencia al primer token, duración, tasas de éxito, reintentos, cancelaciones, eventos de seguridad | nexo-backend-platform | Pendiente (hay consumo y ejecuciones) |
+| RX-13 | P2 | 5.5 | Accesibilidad WCAG 2.2 AA (teclado, foco, contraste) y pruebas de regresión del chat | nexo-qa-e2e | Pendiente |
+
+> Nota de clasificación de RX-11: la UI es de `nexo-frontend-ui`, pero los KPIs del encabezado
+> (ejecuciones de 30 días, costo estimado, alertas, y las tendencias ↑%) y los contadores por
+> pestaña/filtro requieren **endpoints de agregación** del backend; por eso lleva también a
+> `nexo-backend-platform`. Las métricas por agente (ejecuciones, usuarios, costo) deben confirmarse
+> contra lo que ya expone la API antes de implementar. Relacionado con RX-10 (tablas/listados) y RX-12
+> (observabilidad); la visión de super-agentes multi-modelo está en L17/L18 (sección 2).
+
