@@ -27,14 +27,14 @@ iteración · **P3** higiene.
 | M3 | Media | P1 | Un ADMIN se asciende a OWNER y saca al fundador | Solo un OWNER otorga o retira OWNER | Hecho (6897876) |
 | M4 | Media | P1 | Valores del LLM sin codificar en ruta y query de conectores REST | `encodeURIComponent`; rechazar `..`, `?`, `#` y URL absolutas | Hecho (749f411) |
 | M5 | Media | P1 | Límite de 5 MB comprobado tras leer todo el cuerpo | Lectura por flujo con corte al superar el límite | Hecho (749f411) |
-| M6 | Media | P1 | La web no envía CSP, `X-Frame-Options`, HSTS ni `Referrer-Policy`; JWT en `localStorage` | Cabeceras en nginx; evaluar cookie HttpOnly para la sesión | Hecho en cabeceras (6897876); pendiente: JWT fuera de localStorage |
+| M6 | Media | P1 | La web no envía CSP, `X-Frame-Options`, HSTS ni `Referrer-Policy`; JWT en `localStorage` | Cabeceras en nginx; evaluar cookie HttpOnly para la sesión | Hecho: cabeceras (6897876); sesión en cookie HttpOnly + CSRF de doble envío firmado y `POST /auth/logout` (d6be879) |
 | M7 | Media | P1 | Sin dominio el piloto se publica por HTTP | Exigir TLS en el despliegue | Hecho (447b1aa): sin dominio con certificado el piloto no se sintetiza |
 | M8 | Media | P2 | ADR 0008 sin implementar: datos personales sin enmascarar hacia el LLM; conversaciones sin retención | DataGuard D1-D2 y retención D7 | Pendiente |
 | M9 | Media | P1 | Los secretos de ejemplo (`JWT_SECRET`, `ENCRYPTION_KEY` en ceros) pasan la validación | Rechazar placeholders y claves de baja entropía | Hecho (6897876) |
 | B1 | Baja | P2 | Token de webhook y `code`/`state` OAuth en los logs | Redactar rutas y query sensibles | Hecho (6897876) |
-| B2 | Baja | P2 | Uso único del `state` solo en memoria por instancia | `jti` en Redis/BD con `SET NX` | Pendiente |
+| B2 | Baja | P2 | Uso único del `state` solo en memoria por instancia | `jti` en Redis/BD con `SET NX` | Hecho (e1cbc74) para OAuth de LLM y OpenRouter; pendiente: adoptarlo en el OAuth de conectores |
 | B3 | Baja | P2 | JWT sin revocación; API keys sin expiración ni alcance | `tokenVersion`; expiración y alcance de API keys | `tokenVersion` hecho (2c14ff8); pendiente: expiración y alcance de API keys |
-| B4 | Baja | P2 | Enumeración de correos (registro y tiempo de login) | Respuesta genérica y bcrypt ficticio | Pendiente |
+| B4 | Baja | P2 | Enumeración de correos (registro y tiempo de login) | Respuesta genérica y bcrypt ficticio | Hecho (d6be879): registro con respuesta única sin sesión; login con hash ficticio |
 | B5 | Baja | P1 | `POST /connectors/:id/test` sin `@MinRole` | `@MinRole('EDITOR')` | Hecho (749f411) |
 | B6 | Baja | P2 | ReDoS por `pattern` del `inputSchema` | Ajv con RE2 o límite de longitud | Hecho (749f411) |
 | B7 | Baja | P2 | AES-GCM sin AAD ni versión de clave (rotación imposible) | Prefijo de versión + AAD; rotación con KMS (ADR 0008 fase 2) | Pendiente |
@@ -54,8 +54,8 @@ claves cifrados con AES-256-GCM, `redirect: 'manual'` en el cliente HTTP, `postM
 | ID | Prio. | Punto | Estado |
 |---|---|---|---|
 | L1 | P0 | Postura: Nexo no usa suscripciones personales (Claude Pro/Max, ChatGPT Plus) ni client_id de otros productos (ADR 0002 D8) | Hecho |
-| L2 | P1 | Workload Identity Federation para la API de Anthropic (sin claves; requiere emisor OIDC público de Nexo) | Pendiente |
-| L3 | P1 | Amazon Bedrock y Claude Platform on AWS con rol de IAM + `ExternalId` (sin claves de larga duración) | Pendiente |
+| L2 | P1 | Workload Identity Federation para la API de Anthropic (sin claves; requiere emisor OIDC público de Nexo) | Hecho (e1cbc74): requiere dominio público https para el emisor OIDC y `LLM_WIF_SIGNING_KEYS` |
+| L3 | P1 | Amazon Bedrock y Claude Platform on AWS con rol de IAM + `ExternalId` (sin claves de larga duración) | Hecho (e1cbc74): requiere `LLM_AWS_PRINCIPAL_ARN` y permiso `sts:AssumeRole` en la infraestructura |
 | L4 | P1 | Corregir el catálogo de Bedrock: hoy recomienda una clave de larga duración («solo para exploración» según AWS) | Hecho (bf53087): token de corta duración |
 | L5 | P1 | Retirar modelos retirados: Llama 4 Scout en Groq, Kimi K2 0905 en Fireworks | Hecho (bf53087); pendiente: sugerir reemplazos verificados |
 | L6 | P1 | Azure: alcance `https://ai.azure.com/.default`, host `services.ai.azure.com`, rol RBAC documentado | En parte (bf53087): alcance y roles de Foundry; pendiente: host y rol de recursos clásicos |
