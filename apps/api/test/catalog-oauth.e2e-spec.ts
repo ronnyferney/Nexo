@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { bindingTag } from '../src/common/oauth/browser-binding';
 import { OAuthStateService } from '../src/modules/oauth/oauth-state.service';
 import { SecretsService } from '../src/modules/workspaces/secrets.service';
 import { Api, createTestApp, prismaOf } from './utils/app';
@@ -152,8 +153,25 @@ describe('Catálogo de conectores y OAuth2 de usuario (E2E, ADR 0005)', () => {
   const catalog = async (s: Session) => (await s.api.get('/connector-catalog').expect(200)).body as CatalogItem[];
   const invoke = (s: Session, connectorId: string, opId: string, input: Record<string, unknown>) =>
     s.api.post(`/connectors/${connectorId}/operations/${opId}/invoke`, { input });
-  const callback = (query: Record<string, string>) =>
-    new Api(app).get(`/oauth/callback?${new URLSearchParams(query).toString()}`).redirects(0);
+  /** Callback del proveedor; `cookie` es la cookie de ligadura que presenta el navegador (M1b). */
+  const callback = (query: Record<string, string>, cookie?: string) => {
+    const req = new Api(app).get(`/oauth/callback?${new URLSearchParams(query).toString()}`).redirects(0);
+    return cookie ? req.set('Cookie', cookie) : req;
+  };
+  /** `nexo_connector_oauth=<nonce>` de la respuesta que inició el flujo. */
+  const bindingCookie = (res: { headers: Record<string, unknown> }): string => {
+    const cookies = ([] as string[]).concat((res.headers['set-cookie'] as string[] | string | undefined) ?? []);
+    const found = cookies.find((c) => c.startsWith('nexo_connector_oauth=') && !c.startsWith('nexo_connector_oauth=;'));
+    if (!found) throw new Error('La respuesta no entregó la cookie de ligadura OAuth');
+    return found.split(';')[0];
+  };
+  /** Nonce fijo para los `state` firmados directamente en las pruebas. */
+  const NONCE = 'nonce-de-prueba-0123456789abcdef';
+  const NONCE_COOKIE = `nexo_connector_oauth=${NONCE}`;
+  const startOAuth = async (s: Session, connectorId: string) => {
+    const res = await s.api.post(`/connectors/${connectorId}/oauth/start`).expect(200);
+    return { authorizeUrl: (res.body as { authorizeUrl: string }).authorizeUrl, cookie: bindingCookie(res) };
+  };
 
   beforeAll(async () => {
     // Sin app OAuth de la plataforma: la suite controla cuándo hay credenciales.
@@ -320,6 +338,13 @@ describe('Catálogo de conectores y OAuth2 de usuario (E2E, ADR 0005)', () => {
         .expect(201);
       hubspot = res.body as InstalledConnector;
       expect(JSON.stringify(hubspot)).not.toContain(provider.clientSecret);
+      // M1b: la URL de consentimiento que devuelve la instalación también queda ligada a este navegador.
+      expect(JSON.stringify(hubspot)).not.toContain(bindingCookie(res).split('=')[1]);
+      // A4: la app OAuth propia usa solo los secretos que se ingresaron al instalar.
+      expect(hubspot).toMatchObject({
+        allowedSecrets: ['HUBSPOT_CLIENT_ID', 'HUBSPOT_CLIENT_SECRET'],
+        blockedSecrets: [],
+      });
       expect(hubspot.auth).toMatchObject({
         type: 'oauth2_code',
         provider: 'hubspot',
@@ -354,13 +379,11 @@ describe('Catálogo de conectores y OAuth2 de usuario (E2E, ADR 0005)', () => {
         .expect(200);
 
       await viewer.api.post(`/connectors/${hubspot.id}/oauth/start`).expect(403);
-      const { authorizeUrl } = (await owner.api.post(`/connectors/${hubspot.id}/oauth/start`).expect(200)).body as {
-        authorizeUrl: string;
-      };
+      const { authorizeUrl, cookie } = await startOAuth(owner, hubspot.id);
       const { code, state, redirectUri } = provider.authorize(authorizeUrl);
       expect(redirectUri).toMatch(/\/api\/oauth\/callback$/);
 
-      const cb = await callback({ code, state, redirect: 'https://evil.example' }).expect(302);
+      const cb = await callback({ code, state, redirect: 'https://evil.example' }, cookie).expect(302);
       expect(cb.headers.location).toBe(`${webUrl}/connectors/${hubspot.id}?oauth=ok`);
 
       const status = (await owner.api.get(`/connectors/${hubspot.id}/oauth`).expect(200)).body as Record<string, any>;
@@ -382,7 +405,7 @@ describe('Catálogo de conectores y OAuth2 de usuario (E2E, ADR 0005)', () => {
       expect(provider.apiTokens.at(-1)).toBe(firstToken);
 
       // El mismo state no se puede reutilizar.
-      const replay = await callback({ code, state }).expect(302);
+      const replay = await callback({ code, state }, cookie).expect(302);
       expect(replay.headers.location).toBe(`${webUrl}/connectors?oauth=error&reason=invalid_state`);
     });
 
@@ -406,23 +429,62 @@ describe('Catálogo de conectores y OAuth2 de usuario (E2E, ADR 0005)', () => {
       expect(cred!.accountLabel).toBe('vendedora@acme.test');
     });
 
+    it('M1b: el state queda ligado al navegador que inició el flujo (cookie HttpOnly SameSite=Lax)', async () => {
+      const start = await owner.api.post(`/connectors/${hubspot.id}/oauth/start`).expect(200);
+      const setCookie = ([] as string[]).concat(start.headers['set-cookie'] ?? []).join('\n');
+      expect(setCookie).toMatch(/^nexo_connector_oauth=[\w-]+; .*Path=\/api\/oauth.*HttpOnly.*SameSite=Lax/im);
+      const cookie = bindingCookie(start);
+      expect(JSON.stringify(start.body)).not.toContain(cookie.split('=')[1]);
+
+      // Phishing de consentimiento: la víctima abre la URL del atacante en su navegador (sin la cookie del atacante).
+      const tokensBefore = await prismaOf(app).oAuthCredential.findUnique({ where: { connectorId: hubspot.id } });
+      const { code, state } = provider.authorize((start.body as { authorizeUrl: string }).authorizeUrl);
+      const issuedBefore = provider.issued;
+      const victim = await callback({ code, state }).expect(302);
+      expect(victim.headers.location).toBe(`${webUrl}/connectors/${hubspot.id}?oauth=error&reason=browser_mismatch`);
+      expect(provider.issued).toBe(issuedBefore);
+      const tokensAfter = await prismaOf(app).oAuthCredential.findUnique({ where: { connectorId: hubspot.id } });
+      expect(tokensAfter?.accessTokenCipher).toBe(tokensBefore?.accessTokenCipher);
+
+      // Tampoco sirve la cookie de otro inicio (otro navegador), y el state ya quedó consumido.
+      const other = await startOAuth(owner, hubspot.id);
+      const second = provider.authorize(other.authorizeUrl);
+      const wrong = await callback({ code: second.code, state: second.state }, cookie).expect(302);
+      expect(wrong.headers.location).toContain('reason=browser_mismatch');
+      const replay = await callback({ code: second.code, state: second.state }, other.cookie).expect(302);
+      expect(replay.headers.location).toContain('reason=invalid_state');
+    });
+
     it('state inválido, expirado o denegado → redirección con error a la web, sin redirección abierta', async () => {
       const garbage = await callback({ code: 'x', state: 'no-es-un-jwt' }).expect(302);
       expect(garbage.headers.location).toBe(`${webUrl}/connectors?oauth=error&reason=invalid_state`);
 
       const states = app.get(OAuthStateService);
-      const base = { workspaceId: owner.workspaceId, connectorId: hubspot.id, userId: owner.userId, codeVerifier: 'v' };
-      const expired = await callback({ code: 'x', state: await states.sign(base, -5) }).expect(302);
+      const base = {
+        workspaceId: owner.workspaceId,
+        connectorId: hubspot.id,
+        userId: owner.userId,
+        codeVerifier: 'v',
+        browserTag: bindingTag(NONCE),
+      };
+      const expired = await callback({ code: 'x', state: await states.sign(base, -5) }, NONCE_COOKIE).expect(302);
       expect(expired.headers.location).toBe(`${webUrl}/connectors?oauth=error&reason=invalid_state`);
 
-      const denied = await callback({ error: 'access_denied', state: await states.sign(base) }).expect(302);
+      const denied = await callback({ error: 'access_denied', state: await states.sign(base) }, NONCE_COOKIE).expect(
+        302,
+      );
       expect(denied.headers.location).toBe(`${webUrl}/connectors/${hubspot.id}?oauth=error&reason=access_denied`);
 
-      const bad = await callback({ code: 'codigo-inexistente', state: await states.sign(base) }).expect(302);
+      const bad = await callback({ code: 'codigo-inexistente', state: await states.sign(base) }, NONCE_COOKIE).expect(
+        302,
+      );
       expect(bad.headers.location).toBe(`${webUrl}/connectors/${hubspot.id}?oauth=error&reason=exchange_failed`);
 
       // Un state de un usuario sin permisos de edición no se acepta.
-      const asViewer = await callback({ code: 'x', state: await states.sign({ ...base, userId: viewer.userId }) });
+      const asViewer = await callback(
+        { code: 'x', state: await states.sign({ ...base, userId: viewer.userId }) },
+        NONCE_COOKIE,
+      );
       expect(asViewer.headers.location).toBe(`${webUrl}/connectors/${hubspot.id}?oauth=error&reason=forbidden`);
       for (const r of [garbage, expired, denied, bad, asViewer])
         expect(r.headers.location.startsWith(webUrl)).toBe(true);
@@ -440,15 +502,19 @@ describe('Catálogo de conectores y OAuth2 de usuario (E2E, ADR 0005)', () => {
       expect(secrets.map((s) => s.name)).not.toContain('HUBSPOT_CLIENT_SECRET');
       // Un state firmado para el workspace A con un usuario de B no conecta nada.
       const states = app.get(OAuthStateService);
-      const cross = await callback({
-        code: 'x',
-        state: await states.sign({
-          workspaceId: owner.workspaceId,
-          connectorId: hubspot.id,
-          userId: other.userId,
-          codeVerifier: 'v',
-        }),
-      });
+      const cross = await callback(
+        {
+          code: 'x',
+          state: await states.sign({
+            workspaceId: owner.workspaceId,
+            connectorId: hubspot.id,
+            userId: other.userId,
+            codeVerifier: 'v',
+            browserTag: bindingTag(NONCE),
+          }),
+        },
+        NONCE_COOKIE,
+      );
       expect(cross.headers.location).toContain('reason=forbidden');
     });
 
@@ -466,11 +532,9 @@ describe('Catálogo de conectores y OAuth2 de usuario (E2E, ADR 0005)', () => {
         })
         .expect(200);
       const connect = async () => {
-        const { authorizeUrl } = (await owner.api.post(`/connectors/${sf.id}/oauth/start`).expect(200)).body as {
-          authorizeUrl: string;
-        };
+        const { authorizeUrl, cookie } = await startOAuth(owner, sf.id);
         const { code, state } = provider.authorize(authorizeUrl);
-        return (await callback({ code, state }).expect(302)).headers.location;
+        return (await callback({ code, state }, cookie).expect(302)).headers.location;
       };
       try {
         provider.instanceUrl = 'https://evil.example';

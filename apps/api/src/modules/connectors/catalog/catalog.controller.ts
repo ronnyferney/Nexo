@@ -1,7 +1,9 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { CurrentAuth, type AuthContext } from '../../../common/decorators/current-user.decorator';
 import { MinRole } from '../../../common/decorators/roles.decorator';
+import { CONNECTOR_OAUTH_COOKIE, OAuthService } from '../../oauth/oauth.service';
 import { InstallCatalogDto } from './catalog.dto';
 import { CatalogService } from './catalog.service';
 
@@ -10,7 +12,10 @@ import { CatalogService } from './catalog.service';
 @ApiBearerAuth()
 @Controller('connector-catalog')
 export class CatalogController {
-  constructor(private readonly catalog: CatalogService) {}
+  constructor(
+    private readonly catalog: CatalogService,
+    private readonly oauth: OAuthService,
+  ) {}
 
   @Get()
   list(@CurrentAuth() a: AuthContext) {
@@ -25,7 +30,15 @@ export class CatalogController {
 
   @MinRole('EDITOR')
   @Post(':id/install')
-  install(@CurrentAuth() a: AuthContext, @Param('id') id: string, @Body() dto: InstallCatalogDto) {
-    return this.catalog.install(a, id, dto);
+  async install(
+    @CurrentAuth() a: AuthContext,
+    @Param('id') id: string,
+    @Body() dto: InstallCatalogDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { body, browserNonce } = await this.catalog.install(a, id, dto);
+    // OAuth: el consentimiento que abre `authorizeUrl` queda ligado a este navegador (M1b).
+    if (browserNonce) CONNECTOR_OAUTH_COOKIE.set(res, browserNonce, this.oauth.secureCookies);
+    return body;
   }
 }

@@ -2,11 +2,13 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { ConfigService } from '@nestjs/config';
 import type { Connector, OAuthCredential } from '@prisma/client';
 import { CryptoService } from '../../common/crypto/crypto.service';
+import { bindingMatches, browserBindingCookie, newBrowserBinding } from '../../common/oauth/browser-binding';
 import { ROLE_RANK } from '../../common/decorators/roles.decorator';
 import { HttpClientService } from '../../common/http/http-client.service';
 import { getPath, render } from '../../common/template/template.engine';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import type { OAuth2CodeAuth } from '../connectors/domain/connector.types';
+import { assertSecretRefsAllowed, collectSecretRefs } from '../connectors/domain/secret-refs';
 import { SecretsService } from '../workspaces/secrets.service';
 import { OAUTH_PROVIDERS, platformEnvName } from './oauth.providers';
 import { createPkce, OAuthStateService } from './oauth-state.service';
@@ -14,9 +16,19 @@ import { createPkce, OAuthStateService } from './oauth-state.service';
 /** Renovar si el access token expira en menos de este margen. */
 export const REFRESH_MARGIN_MS = 60_000;
 
+/** Cookie de ligadura al navegador del OAuth de conectores (M1b): solo viaja al callback `/api/oauth/callback`. */
+export const CONNECTOR_OAUTH_COOKIE = browserBindingCookie('nexo_connector_oauth', '/api/oauth');
+
 /** Motivos de error que la web recibe en `?oauth=error&reason=` (nunca detalles del proveedor). */
 export type OAuthErrorReason =
-  'invalid_state' | 'access_denied' | 'missing_code' | 'forbidden' | 'not_found' | 'not_configured' | 'exchange_failed';
+  | 'invalid_state'
+  | 'browser_mismatch'
+  | 'access_denied'
+  | 'missing_code'
+  | 'forbidden'
+  | 'not_found'
+  | 'not_configured'
+  | 'exchange_failed';
 
 interface ResolvedApp {
   clientId: string;
@@ -73,12 +85,26 @@ export class OAuthService {
     return `${this.publicUrl}/api/oauth/callback`;
   }
 
+  /** Cookie `Secure` cuando la API se publica por https. */
+  get secureCookies(): boolean {
+    return this.publicUrl.startsWith('https://');
+  }
+
   // ---------- Consentimiento ----------
-  async start(workspaceId: string, connectorId: string, userId?: string): Promise<{ authorizeUrl: string }> {
+  /**
+   * URL de consentimiento. `browserNonce` debe entregarse al navegador solo en la cookie HttpOnly
+   * `CONNECTOR_OAUTH_COOKIE` (nunca en el cuerpo): el `state` lleva su huella y el callback la exige (M1b).
+   */
+  async start(
+    workspaceId: string,
+    connectorId: string,
+    userId?: string,
+  ): Promise<{ authorizeUrl: string; browserNonce: string }> {
     if (!userId) throw new BadRequestException('Inicie la conexión OAuth desde una sesión de usuario (no con API key)');
     const { auth, app } = await this.load(workspaceId, connectorId);
     const { codeVerifier, codeChallenge } = createPkce();
-    const state = await this.state.sign({ workspaceId, connectorId, userId, codeVerifier });
+    const binding = newBrowserBinding();
+    const state = await this.state.sign({ workspaceId, connectorId, userId, codeVerifier, browserTag: binding.tag });
 
     const url = new URL(app.authorizeUrl);
     for (const [k, v] of Object.entries(auth.authorizeParams ?? {})) url.searchParams.set(k, String(v));
@@ -91,14 +117,19 @@ export class OAuthService {
       url.searchParams.set('code_challenge', codeChallenge);
       url.searchParams.set('code_challenge_method', 'S256');
     }
-    return { authorizeUrl: url.toString() };
+    return { authorizeUrl: url.toString(), browserNonce: binding.nonce };
   }
 
-  /** Procesa el callback público y devuelve la URL (siempre bajo `webUrl`) a la que se redirige al navegador. */
-  async callback(query: { code?: string; state?: string; error?: string }): Promise<string> {
+  /**
+   * Procesa el callback público y devuelve la URL (siempre bajo `webUrl`) a la que se redirige al navegador.
+   * @param browserNonce valor de la cookie `CONNECTOR_OAUTH_COOKIE` que presentó el navegador.
+   */
+  async callback(query: { code?: string; state?: string; error?: string }, browserNonce?: string): Promise<string> {
     const payload = query.state ? await this.state.consume(query.state) : null;
     if (!payload) return this.webRedirect(null, 'invalid_state');
     const { workspaceId, connectorId, userId, codeVerifier } = payload;
+    // El consentimiento debe volver al mismo navegador que lo inició (M1b); el `state` ya quedó consumido.
+    if (!bindingMatches(payload.browserTag, browserNonce)) return this.webRedirect(connectorId, 'browser_mismatch');
     if (query.error) return this.webRedirect(connectorId, 'access_denied');
     if (!query.code) return this.webRedirect(connectorId, 'missing_code');
 
@@ -222,8 +253,14 @@ export class OAuthService {
 
   private async load(workspaceId: string, connectorId: string) {
     const connector = await this.connector(workspaceId, connectorId);
-    const auth = render<OAuth2CodeAuth>(connector.auth, { secrets: await this.secrets.resolveAll(workspaceId) });
+    const auth = render<OAuth2CodeAuth>(connector.auth, { secrets: await this.connectorSecrets(connector) });
     return { connector, auth, app: this.resolveApp(auth) };
+  }
+
+  /** Secretos que usa la autenticación del conector, solo si están entre sus secretos permitidos (A4). */
+  private async connectorSecrets(connector: Connector): Promise<Record<string, string>> {
+    const names = assertSecretRefsAllowed(collectSecretRefs(connector.auth), connector.allowedSecrets);
+    return this.secrets.resolveMany(connector.workspaceId, names);
   }
 
   /** App OAuth propia (secretos del workspace) o de la plataforma (entorno, con URLs fijas del registro). */
@@ -351,9 +388,7 @@ export class OAuthService {
   }
 
   private async revoke(connector: Connector, cred: OAuthCredential): Promise<void> {
-    const auth = render<OAuth2CodeAuth>(connector.auth, {
-      secrets: await this.secrets.resolveAll(connector.workspaceId),
-    });
+    const auth = render<OAuth2CodeAuth>(connector.auth, { secrets: await this.connectorSecrets(connector) });
     let app: ResolvedApp;
     try {
       app = this.resolveApp(auth);

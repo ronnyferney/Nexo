@@ -274,22 +274,24 @@ model Secret {
 
 /// Sistema externo: API REST, servicio SOAP, endpoint GraphQL o servidor MCP.
 model Connector {
-  id          String               @id @default(cuid())
-  name        String
-  description String?
-  type        ConnectorType
+  id             String               @id @default(cuid())
+  name           String
+  description    String?
+  type           ConnectorType
   /// Configuración específica del tipo (baseUrl, wsdl, transporte MCP, headers...).
-  config      Json                 @default("{}")
+  config         Json                 @default("{}")
   /// Autenticación: { type: none|apiKey|bearer|basic|oauth2, ... } con referencias a secretos.
-  auth        Json                 @default("{\"type\":\"none\"}")
+  auth           Json                 @default("{\"type\":\"none\"}")
   /// Integración del catálogo que originó el conector (ADR 0005), si aplica.
-  catalogId   String?
-  workspaceId String
-  workspace   Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  operations  ConnectorOperation[]
-  oauth       OAuthCredential?
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
+  catalogId      String?
+  /// Secretos de la bóveda que el conector puede resolver (auditoría A4). Solo un ADMIN amplía la lista.
+  allowedSecrets String[]             @default([])
+  workspaceId    String
+  workspace      Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  operations     ConnectorOperation[]
+  oauth          OAuthCredential?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
 
   @@index([workspaceId])
 }

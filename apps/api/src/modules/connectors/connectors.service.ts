@@ -1,15 +1,42 @@
-import { BadRequestException, HttpException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  HttpException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import type { Connector, ConnectorOperation, ConnectorType, Prisma } from '@prisma/client';
 import Ajv, { type ValidateFunction } from 'ajv';
 import addFormats from 'ajv-formats';
+import type { AuthContext } from '../../common/decorators/current-user.decorator';
+import { ROLE_RANK } from '../../common/decorators/roles.decorator';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { SecretsService } from '../workspaces/secrets.service';
 import { CONNECTOR_ADAPTERS, type ConnectorAdapter, type DiscoverOptions } from './domain/connector-adapter';
 import type { ConnectorAuth, ConnectorRuntime, InvocationResult } from './domain/connector.types';
 import { assertSafeSchemaPatterns, safeRegExp, UnsafePatternError } from './domain/safe-pattern';
+import {
+  assertSecretRefsAllowed,
+  collectSecretRefs,
+  destinationFingerprint,
+  disallowedSecretRefs,
+} from './domain/secret-refs';
 import { CreateConnectorDto, CreateOperationDto, UpdateConnectorDto, UpdateOperationDto } from './dto/connector.dto';
 
 const json = (v: unknown) => v as Prisma.InputJsonValue;
+const isAdmin = (a: AuthContext) => ROLE_RANK[a.role] >= ROLE_RANK.ADMIN;
+
+/**
+ * Secretos que un ADMIN/OWNER autoriza implícitamente al guardar: los que su propio cambio introduce (no estaban en la
+ * versión guardada). Así un ADMIN que guarda una configuración donde un EDITOR dejó una referencia no la aprueba sin
+ * querer; esa solo se aprueba de forma explícita en «Secretos permitidos».
+ */
+function introducedRefs(before: unknown[], after: unknown[]): string[] {
+  const prev = new Set(collectSecretRefs(...before).names);
+  return collectSecretRefs(...after).names.filter((n) => !prev.has(n));
+}
+const union = (a: readonly string[], b: readonly string[]) => [...new Set([...a, ...b])].sort();
 
 @Injectable()
 export class ConnectorsService {
@@ -46,22 +73,67 @@ export class ConnectorsService {
     return c;
   }
 
-  create(workspaceId: string, dto: CreateConnectorDto) {
-    return this.prisma.connector.create({
-      data: { ...dto, workspaceId, config: json(dto.config), auth: json(dto.auth ?? { type: 'none' }) },
-    });
+  /** Detalle para la API: incluye las referencias a secretos y cuáles están bloqueadas (sin consultar la bóveda). */
+  async detail(workspaceId: string, id: string) {
+    return this.withSecretStatus(await this.get(workspaceId, id));
   }
 
-  async update(workspaceId: string, id: string, dto: UpdateConnectorDto) {
-    await this.get(workspaceId, id);
-    return this.prisma.connector.update({
+  /**
+   * Un EDITOR (o una API key) crea el conector sin secretos permitidos: sus referencias quedan bloqueadas hasta que
+   * un ADMIN las autorice. Si lo crea un ADMIN, se permiten las referencias que escribió.
+   */
+  async create(a: AuthContext, dto: CreateConnectorDto) {
+    const auth = dto.auth ?? { type: 'none' };
+    const created = await this.prisma.connector.create({
+      data: {
+        ...dto,
+        workspaceId: a.workspaceId,
+        config: json(dto.config),
+        auth: json(auth),
+        allowedSecrets: isAdmin(a) ? collectSecretRefs(dto.config, auth).names : [],
+      },
+    });
+    return this.withSecretStatus({ ...created, operations: [] });
+  }
+
+  /** Editar nunca amplía la lista para un EDITOR; un ADMIN aprueba solo las referencias que su cambio introduce. */
+  async update(a: AuthContext, id: string, dto: UpdateConnectorDto) {
+    const current = await this.get(a.workspaceId, id);
+    // Sin esto, un EDITOR apuntaría un conector ya autorizado a su servidor y recibiría sus secretos.
+    if (
+      !isAdmin(a) &&
+      current.allowedSecrets.length &&
+      destinationFingerprint(current.config, current.auth) !==
+        destinationFingerprint(dto.config ?? current.config, dto.auth ?? current.auth)
+    ) {
+      throw new ForbiddenException(
+        'Solo un administrador puede cambiar el destino (URL, host, puerto o URLs OAuth) de un conector con secretos ' +
+          'permitidos: sus credenciales se enviarían a otro servidor',
+      );
+    }
+    const allowedSecrets = isAdmin(a)
+      ? union(
+          current.allowedSecrets,
+          introducedRefs([current.config, current.auth], [dto.config ?? current.config, dto.auth ?? current.auth]),
+        )
+      : undefined;
+    await this.prisma.connector.update({
       where: { id },
       data: {
         ...dto,
         config: dto.config ? json(dto.config) : undefined,
         auth: dto.auth ? json(dto.auth) : undefined,
+        allowedSecrets,
       },
     });
+    return this.detail(a.workspaceId, id);
+  }
+
+  /** `PUT /connectors/:id/allowed-secrets` (ADMIN): reemplaza la lista de secretos que el conector puede resolver. */
+  async setAllowedSecrets(workspaceId: string, id: string, names: string[]) {
+    await this.get(workspaceId, id);
+    await this.prisma.connector.update({ where: { id }, data: { allowedSecrets: union([], names) } });
+    return this.detail(workspaceId, id);
   }
 
   async remove(workspaceId: string, id: string) {
@@ -70,9 +142,10 @@ export class ConnectorsService {
   }
 
   // ---------- Operaciones ----------
-  async createOperation(workspaceId: string, connectorId: string, dto: CreateOperationDto) {
-    await this.get(workspaceId, connectorId);
+  async createOperation(a: AuthContext, connectorId: string, dto: CreateOperationDto) {
+    const connector = await this.get(a.workspaceId, connectorId);
     assertSchemaPatterns(dto.inputSchema);
+    if (isAdmin(a)) await this.allowIntroduced(connector, [], [dto.definition]);
     return this.prisma.connectorOperation.create({
       data: {
         ...dto,
@@ -83,9 +156,10 @@ export class ConnectorsService {
     });
   }
 
-  async updateOperation(workspaceId: string, connectorId: string, opId: string, dto: UpdateOperationDto) {
-    await this.getOperation(workspaceId, opId, connectorId);
+  async updateOperation(a: AuthContext, connectorId: string, opId: string, dto: UpdateOperationDto) {
+    const op = await this.getOperation(a.workspaceId, opId, connectorId);
     assertSchemaPatterns(dto.inputSchema);
+    if (isAdmin(a) && dto.definition) await this.allowIntroduced(op.connector, [op.definition], [dto.definition]);
     return this.prisma.connectorOperation.update({
       where: { id: opId },
       data: {
@@ -126,9 +200,11 @@ export class ConnectorsService {
     const adapter = this.adapter(connector.type);
     if (!adapter.discover)
       throw new BadRequestException(`El tipo ${connector.type} no soporta descubrimiento automático`);
+    // Fuera del try: un secreto no permitido responde 403 con su propio mensaje, no como fallo del descubrimiento.
+    const runtime = await this.runtime(connector);
     let discovered;
     try {
-      discovered = await adapter.discover(await this.runtime(connector), options);
+      discovered = await adapter.discover(runtime, options);
     } catch (err) {
       throw new BadRequestException(`Descubrimiento fallido: ${(err as Error).message}`);
     }
@@ -155,8 +231,9 @@ export class ConnectorsService {
     const adapter = this.adapter(connector.type);
     if (!adapter.describeSchema)
       throw new BadRequestException(`El tipo ${connector.type} no expone un esquema de datos`);
+    const runtime = await this.runtime(connector);
     try {
-      return await adapter.describeSchema(await this.runtime(connector));
+      return await adapter.describeSchema(runtime);
     } catch (err) {
       if (err instanceof HttpException) throw err;
       throw new BadRequestException(`No se pudo leer el esquema: ${(err as Error).message}`);
@@ -172,9 +249,10 @@ export class ConnectorsService {
     input: Record<string, unknown>,
   ): Promise<InvocationResult> {
     this.validateInput(op, input);
+    const definition = op.definition as Record<string, unknown>;
     return this.adapter(op.connector.type).invoke(
-      await this.runtime(op.connector),
-      { key: op.key, definition: op.definition as Record<string, unknown> },
+      await this.runtime(op.connector, definition),
+      { key: op.key, definition },
       input,
     );
   }
@@ -206,14 +284,44 @@ export class ConnectorsService {
     return a;
   }
 
-  private async runtime(c: Connector): Promise<ConnectorRuntime> {
+  /**
+   * Contexto de ejecución. Solo se descifran los secretos que la configuración, la autenticación y (si se invoca) la
+   * definición de la operación referencian, y únicamente si están en `allowedSecrets` (A4): cualquier otra
+   * referencia falla con 403 antes de leer la bóveda.
+   */
+  private async runtime(c: Connector, definition?: Record<string, unknown>): Promise<ConnectorRuntime> {
+    const names = assertSecretRefsAllowed(collectSecretRefs(c.config, c.auth, definition), c.allowedSecrets);
     return {
       id: c.id,
       workspaceId: c.workspaceId,
       type: c.type,
       config: c.config as Record<string, unknown>,
       auth: c.auth as unknown as ConnectorAuth,
-      secrets: await this.secrets.resolveAll(c.workspaceId),
+      secrets: await this.secrets.resolveMany(c.workspaceId, names),
+    };
+  }
+
+  /** Agrega a la lista los secretos que introduce un cambio hecho por un ADMIN (ver `introducedRefs`). */
+  private async allowIntroduced(c: Connector, before: unknown[], after: unknown[]): Promise<void> {
+    const added = introducedRefs(before, after).filter((n) => !c.allowedSecrets.includes(n));
+    if (!added.length) return;
+    await this.prisma.connector.update({
+      where: { id: c.id },
+      data: { allowedSecrets: union(c.allowedSecrets, added) },
+    });
+  }
+
+  /** Referencias a secretos del conector (configuración, autenticación y operaciones) y las que están bloqueadas. */
+  private withSecretStatus<T extends Connector & { operations: ConnectorOperation[] }>(c: T) {
+    const refs = collectSecretRefs(
+      c.config,
+      c.auth,
+      c.operations.map((o) => o.definition),
+    );
+    return {
+      ...c,
+      secretReferences: refs.wholeVault ? ['secrets', ...refs.names] : refs.names,
+      blockedSecrets: disallowedSecretRefs(refs, c.allowedSecrets),
     };
   }
 }

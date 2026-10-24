@@ -39,6 +39,12 @@ export interface Connector {
   operations?: Operation[];
   /** Definición del catálogo de la que se instaló (ADR 0005 D2). */
   catalogId?: string | null;
+  /** Secretos de la bóveda que el conector puede resolver; solo un ADMIN los fija (auditoría A4). */
+  allowedSecrets?: string[];
+  /** Secretos que referencian la configuración, la autenticación y las operaciones (solo en el detalle). */
+  secretReferences?: string[];
+  /** Referencias sin permiso: fallan al ejecutar hasta que un ADMIN las permita (solo en el detalle). */
+  blockedSecrets?: string[];
   _count?: { operations: number };
   updatedAt: string;
 }

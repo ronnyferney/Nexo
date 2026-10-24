@@ -9,6 +9,7 @@ import { SkillsService, slugify } from '../../skills/skills.service';
 import { SecretsService } from '../../workspaces/secrets.service';
 import { ConnectorsService } from '../connectors.service';
 import type { ConnectorAuth } from '../domain/connector.types';
+import { collectSecretRefs } from '../domain/secret-refs';
 import { CATALOG, findCatalogEntry } from './catalog.index';
 import type { InstallCatalogDto } from './catalog.dto';
 import { secretName, type CatalogAuthMethod, type CatalogEntry } from './catalog.types';
@@ -44,7 +45,15 @@ export class CatalogService {
     return CATALOG.map((e) => this.view(e, installed.get(e.id) ?? 0));
   }
 
-  async install(a: AuthContext, id: string, dto: InstallCatalogDto) {
+  /**
+   * Instala la integración. En OAuth devuelve además `browserNonce`, que el controlador entrega solo en la cookie
+   * de ligadura al navegador (M1b) y nunca en el cuerpo.
+   */
+  async install(
+    a: AuthContext,
+    id: string,
+    dto: InstallCatalogDto,
+  ): Promise<{ body: Record<string, unknown>; browserNonce?: string }> {
     const entry = findCatalogEntry(id);
     if (!entry) throw new NotFoundException('Integración no encontrada en el catálogo');
     const methods = Object.keys(entry.auth) as CatalogAuthMethod[];
@@ -66,6 +75,16 @@ export class CatalogService {
     await this.assertCanWriteSecrets(a, entry, secretValues);
     for (const [name, value] of Object.entries(secretValues)) await this.secrets.upsert(a.workspaceId, name, value);
 
+    // A4: las plantillas del catálogo son del servidor, pero un EDITOR solo obtiene permiso sobre los secretos que él
+    // mismo ingresó; los demás `<SLUG>_*` de la bóveda (p. ej. de un ADMIN) requieren autorización explícita.
+    const referenced = collectSecretRefs(
+      entry.config,
+      auth,
+      entry.operations.map((op) => op.definition),
+    ).names;
+    const allowedSecrets =
+      ROLE_RANK[a.role] >= ROLE_RANK.ADMIN ? referenced : referenced.filter((name) => name in secretValues);
+
     const created = await this.prisma.connector.create({
       data: {
         workspaceId: a.workspaceId,
@@ -73,6 +92,7 @@ export class CatalogService {
         description: entry.description,
         type: entry.connectorType,
         catalogId: entry.id,
+        allowedSecrets,
         config: json(entry.config),
         auth: json(auth),
         operations: {
@@ -97,13 +117,15 @@ export class CatalogService {
       }
     }
 
-    const connector = await this.connectors.get(a.workspaceId, created.id);
+    const connector = await this.connectors.detail(a.workspaceId, created.id);
     const result: Record<string, unknown> = { ...connector, secrets: Object.keys(secretValues) };
     if (discoveryError) result.discoveryError = discoveryError;
     if (auth.type === 'oauth2_code' && a.userId) {
-      result.authorizeUrl = (await this.oauth.start(a.workspaceId, created.id, a.userId)).authorizeUrl;
+      const { authorizeUrl, browserNonce } = await this.oauth.start(a.workspaceId, created.id, a.userId);
+      result.authorizeUrl = authorizeUrl;
+      return { body: result, browserNonce };
     }
-    return result;
+    return { body: result };
   }
 
   /** Crea (si no existen por slug) las skills comerciales del kit y devuelve sus ids. */

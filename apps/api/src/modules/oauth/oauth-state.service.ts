@@ -13,6 +13,8 @@ export interface OAuthStatePayload {
   connectorId: string;
   userId: string;
   codeVerifier: string;
+  /** Huella de la cookie de ligadura al navegador (M1b, `common/oauth/browser-binding.ts`). */
+  browserTag?: string;
 }
 
 interface StateClaims {
@@ -23,6 +25,8 @@ interface StateClaims {
   /** code_verifier cifrado (AES-256-GCM): el `state` viaja por el navegador y el proveedor. */
   cv: string;
   jti: string;
+  /** Huella de la cookie de ligadura al navegador, si el flujo la usa. */
+  bt?: string;
 }
 
 /** PKCE (RFC 7636): verificador aleatorio de 43 caracteres base64url y desafío S256. */
@@ -63,6 +67,7 @@ export class OAuthStateService {
       uid: payload.userId,
       cv: this.crypto.encrypt(payload.codeVerifier),
       jti: randomBytes(12).toString('base64url'),
+      ...(payload.browserTag ? { bt: payload.browserTag } : {}),
     };
     return this.jwt.signAsync(claims, { secret: this.secret, audience: AUDIENCE, expiresIn: ttlSeconds });
   }
@@ -88,7 +93,13 @@ export class OAuthStateService {
     } catch {
       return null;
     }
-    return { workspaceId: claims.ws, connectorId: claims.cid, userId: claims.uid, codeVerifier };
+    return {
+      workspaceId: claims.ws,
+      connectorId: claims.cid,
+      userId: claims.uid,
+      codeVerifier,
+      ...(typeof claims.bt === 'string' ? { browserTag: claims.bt } : {}),
+    };
   }
 
   private sweep(): void {

@@ -85,6 +85,8 @@ export class ApiService {
   createConnector = (data: Partial<Connector>) => this.post<Connector>('/connectors', data);
   updateConnector = (id: string, data: Partial<Connector>) => this.patch<Connector>(`/connectors/${id}`, data);
   deleteConnector = (id: string) => this.delete(`/connectors/${id}`);
+  setConnectorAllowedSecrets = (id: string, names: string[]) =>
+    this.put<Connector>(`/connectors/${id}/allowed-secrets`, { names });
   testConnector = (id: string) => this.post<{ ok: boolean; message: string }>(`/connectors/${id}/test`);
   discoverConnector = (id: string) => this.post<{ imported: number; operations: string[] }>(`/connectors/${id}/discover`);
   createOperation = (cid: string, data: Partial<Operation>) => this.post<Operation>(`/connectors/${cid}/operations`, data);

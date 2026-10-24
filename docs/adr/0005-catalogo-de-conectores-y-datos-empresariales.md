@@ -46,6 +46,10 @@ de datos **en redes privadas**, que la nube de Nexo no debe alcanzar directament
 - `state` firmado (JWT de 10 min con workspace, conector, usuario y `code_verifier`), PKCE S256, callback público
   `GET /api/oauth/callback` que redirige a la web. Tokens cifrados (AES-256-GCM) en `OAuthCredential`; renovación
   automática con `refresh_token` antes de expirar; revocación al desconectar.
+- Ligadura al navegador (auditoría M1b): `oauth/start` (y la instalación OAuth del catálogo) entregan la cookie
+  `nexo_connector_oauth` (HttpOnly, SameSite=Lax, `Path=/api/oauth`, 10 min) con un nonce aleatorio; el `state` lleva
+  solo su huella (`bt`). El callback exige la cookie correspondiente o redirige con `reason=browser_mismatch` sin canjear
+  el código. Helper compartido con el OAuth de proveedores LLM: `apps/api/src/common/oauth/browser-binding.ts`.
 - `PUBLIC_URL` (URL pública de la API) y `WEB_URL` (para la redirección final) en configuración.
 
 ### D4. Conector de base de datos (`ConnectorType.DATABASE`)
@@ -82,6 +86,23 @@ de datos **en redes privadas**, que la nube de Nexo no debe alcanzar directament
 - `POST /connectors/:id/oauth/start` → `{ authorizeUrl }` (EDITOR+) · `GET /oauth/callback?code&state` (público, redirige a
   `WEB_URL/connectors/:id?oauth=ok|error`) · `GET /connectors/:id/oauth` → `{ connected; accountLabel; scope; expiresAt }`
   · `DELETE /connectors/:id/oauth` (desconectar).
+### Secretos permitidos por conector (auditoría A4)
+- `Connector.allowedSecrets`: secretos de la bóveda que el conector puede resolver. Al ejecutar (invocar, probar,
+  descubrir, esquema, OAuth) solo se descifran los secretos referenciados **y** permitidos; cualquier otra referencia en
+  `config`, `auth` o la definición de la operación responde 403 («El conector referencia secretos no permitidos: X…»)
+  antes de leer la bóveda, por lo que el error no revela si el secreto existe. `{{ secrets }}` (la bóveda completa)
+  nunca se permite.
+- `PUT /connectors/:id/allowed-secrets` `{ names: string[] }` (ADMIN+). `GET /connectors/:id` (y las respuestas de
+  crear/editar) incluyen `allowedSecrets`, `secretReferences` y `blockedSecrets`.
+- Un EDITOR o una API key nunca amplían la lista: crean conectores con la lista vacía y sus referencias nuevas quedan
+  bloqueadas. Un ADMIN que crea o edita un conector (o una operación) permite solo las referencias que **su** cambio
+  introduce; guardar una referencia que dejó un EDITOR no la aprueba. La instalación del catálogo permite los secretos
+  que el instalador ingresó (un ADMIN: todos los de la plantilla).
+- Un EDITOR no puede cambiar el destino (`baseUrl`, `endpoint`, `url`, `openApiUrl`, `wsdlUrl`, host/puerto/Edge de
+  BD, URLs OAuth) de un conector con secretos permitidos (403): equivaldría a reenviar esos secretos a otro servidor.
+- Migración `20261024040030_secretos_permitidos_por_conector`: cada conector existente queda autorizado para los
+  secretos que ya referenciaba (configuración, autenticación u operaciones) y que existían en la bóveda de su workspace
+  al migrar; los demás quedan bloqueados hasta que un ADMIN los permita.
 ### Base de datos
 - Conector `type: 'DATABASE'`, `config = { engine, mode: 'direct'|'edge', edgeId?, connectionKey?, host?, port?, database?,
   user?, password?: '{{ secrets.X }}', ssl?: boolean, allowWrites?: boolean }`.

@@ -80,12 +80,19 @@ describe('safeRegExp con Ajv', () => {
 
 describe('ConnectorsService: inputSchema con pattern peligroso', () => {
   const adapter = { type: 'REST', invoke: jest.fn().mockResolvedValue({ ok: true, data: {}, durationMs: 1 }) };
-  const connector = { id: 'c1', workspaceId: 'w1', type: 'REST', config: {}, auth: { type: 'none' } };
+  const connector = {
+    id: 'c1',
+    workspaceId: 'w1',
+    type: 'REST',
+    config: {},
+    auth: { type: 'none' },
+    allowedSecrets: [],
+  };
   const prisma = {
     connector: { findFirst: jest.fn().mockResolvedValue(connector) },
     connectorOperation: { create: jest.fn().mockResolvedValue({}) },
   };
-  const secrets = { resolveAll: jest.fn().mockResolvedValue({}) };
+  const secrets = { resolveMany: jest.fn().mockResolvedValue({}) };
   const service = new ConnectorsService(prisma as never, secrets as never, [adapter as never]);
   const op = (inputSchema: object) =>
     ({
@@ -112,7 +119,7 @@ describe('ConnectorsService: inputSchema con pattern peligroso', () => {
 
   it('crear la operación con un pattern peligroso responde 400', async () => {
     await expect(
-      service.createOperation('w1', 'c1', {
+      service.createOperation({ workspaceId: 'w1', role: 'EDITOR', via: 'jwt' }, 'c1', {
         key: 'buscar',
         name: 'Buscar',
         definition: {},

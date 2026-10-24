@@ -5,6 +5,8 @@
 const OAUTH_ERROR_MESSAGES: Record<string, string> = {
   invalid_state:
     'La solicitud de conexión expiró o ya fue usada. Abra el conector y pulse «Conectar cuenta» de nuevo.',
+  browser_mismatch:
+    'La autorización volvió a un navegador distinto del que inició la conexión (o se bloquearon sus cookies). Por seguridad no se guardó nada: pulse «Conectar cuenta» de nuevo en este mismo navegador.',
   access_denied: 'Se canceló o rechazó el consentimiento en el proveedor. Vuelva a intentarlo y acepte los permisos solicitados.',
   missing_code: 'El proveedor no devolvió un código de autorización. Intente conectar la cuenta de nuevo.',
   forbidden: 'Su rol ya no permite conectar cuentas en este espacio de trabajo. Se requiere rol Editor o superior.',

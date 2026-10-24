@@ -11,10 +11,12 @@ import { OAUTH_QUERY_CLEAR, oauthErrorMessage } from '../../shared/oauth-result'
 import { TemplateRefPipe } from '../../shared/template-ref.pipe';
 import { AUTH_TYPES, DEFAULT_DEFINITION, DEFAULT_SCHEMA } from './connector-presets';
 import { ConnectorOAuthComponent } from './connector-oauth.component';
+import { ConnectorSecretsComponent } from './connector-secrets.component';
 import { DatabaseConfigComponent } from './database-config.component';
 import { QueryResultTableComponent } from './query-result-table.component';
 import { SchemaExplorerComponent } from './schema-explorer.component';
 import { SqlOperationEditorComponent } from './sql-operation-editor.component';
+import { blockedRefs, secretRefs } from './secret-refs';
 import { asSqlResult, detectSqlParams } from './sql-params';
 
 type InvokeResult = { ok: boolean; status?: number; data: unknown; durationMs: number };
@@ -30,6 +32,7 @@ type OpDraft = Partial<Operation> & { isNew?: boolean };
     JsonEditorComponent,
     TemplateRefPipe,
     ConnectorOAuthComponent,
+    ConnectorSecretsComponent,
     DatabaseConfigComponent,
     SchemaExplorerComponent,
     SqlOperationEditorComponent,
@@ -44,7 +47,7 @@ type OpDraft = Partial<Operation> & { isNew?: boolean };
     .op-item.active { border-color: var(--primary); background: var(--primary-50); }
     .op-item code { color: var(--muted); font-size: 11.5px; }
     .result { margin-top: 8px; }
-    .oauth { display: block; margin-bottom: 16px; }
+    .oauth, .secrets { display: block; margin-bottom: 16px; }
     @media (max-width: 900px) { .ops { grid-template-columns: 1fr; } }
   `,
 })
@@ -207,6 +210,23 @@ export class ConnectorDetailPage implements OnInit {
 
   discoverLabel(type: string) {
     return { REST: 'Importar OpenAPI', SOAP: 'Importar WSDL', MCP: 'Descubrir tools MCP' }[type] ?? 'Descubrir';
+  }
+
+  /** Referencias a secretos del editor sin guardar: configuración, autenticación y la operación abierta. */
+  draftSecretRefs(): string[] {
+    const config = this.connector()?.type === 'DATABASE' ? this.config : { ...this.config, headers: this.headers };
+    return secretRefs(config, this.authCfg, this.selected()?.definition);
+  }
+
+  /** Referencias del editor que no están entre los secretos permitidos del conector (A4). */
+  draftBlocked(definition?: unknown): string[] {
+    const refs = definition === undefined ? secretRefs(this.config, this.headers, this.authCfg) : secretRefs(definition);
+    return blockedRefs(refs, this.connector()?.allowedSecrets);
+  }
+
+  onSecretsSaved(c: Connector) {
+    this.connector.update((cur) => (cur ? { ...cur, ...c, operations: cur.operations } : c));
+    void this.load();
   }
 
   json(v: unknown) {

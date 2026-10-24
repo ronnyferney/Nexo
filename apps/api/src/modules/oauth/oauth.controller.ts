@@ -1,11 +1,11 @@
-import { Controller, Delete, Get, HttpCode, Param, Post, Query, Res } from '@nestjs/common';
+import { Controller, Delete, Get, HttpCode, Param, Post, Query, Req, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiExcludeEndpoint, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { CurrentAuth, type AuthContext } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { MinRole } from '../../common/decorators/roles.decorator';
-import { OAuthService } from './oauth.service';
+import { CONNECTOR_OAUTH_COOKIE, OAuthService } from './oauth.service';
 
 const asString = (v: unknown): string | undefined => (typeof v === 'string' && v.length <= 4096 ? v : undefined);
 
@@ -19,8 +19,11 @@ export class OAuthController {
   @MinRole('EDITOR')
   @HttpCode(200)
   @Post('connectors/:id/oauth/start')
-  start(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
-    return this.oauth.start(a.workspaceId, id, a.userId);
+  async start(@CurrentAuth() a: AuthContext, @Param('id') id: string, @Res({ passthrough: true }) res: Response) {
+    const { authorizeUrl, browserNonce } = await this.oauth.start(a.workspaceId, id, a.userId);
+    // El valor viaja solo en la cookie HttpOnly; el `state` lleva su huella (M1b).
+    CONNECTOR_OAUTH_COOKIE.set(res, browserNonce, this.oauth.secureCookies);
+    return { authorizeUrl };
   }
 
   @Get('connectors/:id/oauth')
@@ -39,12 +42,12 @@ export class OAuthController {
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @ApiExcludeEndpoint()
   @Get('oauth/callback')
-  async callback(@Query() query: Record<string, unknown>, @Res() res: Response) {
-    const target = await this.oauth.callback({
-      code: asString(query.code),
-      state: asString(query.state),
-      error: asString(query.error),
-    });
+  async callback(@Query() query: Record<string, unknown>, @Req() req: Request, @Res() res: Response) {
+    const target = await this.oauth.callback(
+      { code: asString(query.code), state: asString(query.state), error: asString(query.error) },
+      CONNECTOR_OAUTH_COOKIE.read(req),
+    );
+    CONNECTOR_OAUTH_COOKIE.clear(res, this.oauth.secureCookies);
     res.redirect(302, target);
   }
 }

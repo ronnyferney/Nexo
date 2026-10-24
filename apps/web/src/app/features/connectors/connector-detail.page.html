@@ -33,6 +33,7 @@
     }
 
     @if (isOAuth()) { <nx-connector-oauth class="oauth" [connectorId]="c.id" /> }
+    <nx-connector-secrets class="secrets" [connector]="c" [draftRefs]="draftSecretRefs()" (saved)="onSecretsSaved($event)" />
 
     <div class="tabs scroll" role="tablist">
       <button class="tab" role="tab" [attr.aria-selected]="tab() === 'config'" [class.active]="tab() === 'config'" (click)="tab.set('config')">Configuración</button>
@@ -136,6 +137,13 @@
         </div>
         }
       </div>
+      @if (draftBlocked(); as blocked) {
+        @if (blocked.length) {
+          <div class="callout warning" role="alert" style="margin-top:16px"><nx-icon name="alert" [size]="16" />
+            <span>Esta configuración referencia secretos no permitidos: @for (b of blocked; track b) { <code>{{ b }}</code>{{ $last ? '' : ', ' }} }.
+              Puede guardarla, pero el conector fallará al ejecutarse hasta que un administrador los autorice en «Secretos permitidos».</span></div>
+        }
+      }
       @if (auth.canEdit()) {
         <div class="row" style="margin-top:16px"><span class="spacer"></span>
           <button class="btn primary" [disabled]="busy()" (click)="save()"><nx-icon name="save" />Guardar cambios</button></div>
@@ -177,6 +185,13 @@
                     <span class="hint">Use <code>{{ 'input.campo' | tpl }}</code> para mapear la entrada.</span></div>
                   <div class="field"><label>JSON Schema de entrada</label><nx-json-editor [value]="op.inputSchema" (valueChange)="patchSelected({ inputSchema: $any($event) })" [rows]="10" /></div>
                 </div>
+              }
+              @if (draftBlocked(op.definition ?? {}); as blocked) {
+                @if (blocked.length) {
+                  <div class="callout warning" role="alert"><nx-icon name="alert" [size]="16" />
+                    <span>La definición referencia secretos no permitidos: @for (b of blocked; track b) { <code>{{ b }}</code>{{ $last ? '' : ', ' }} }.
+                      La operación fallará hasta que un administrador los autorice en «Secretos permitidos».</span></div>
+                }
               }
               @if (auth.canEdit()) {
                 <div class="row"><span class="spacer"></span><button class="btn primary" [disabled]="busy() || !op.key || !op.name" (click)="saveOperation()"><nx-icon name="save" />Guardar operación</button></div>

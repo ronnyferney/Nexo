@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { createHash } from 'node:crypto';
 import { CryptoService } from '../../common/crypto/crypto.service';
+import { bindingTag } from '../../common/oauth/browser-binding';
 import { slack, SLACK_BOT_SCOPES } from '../connectors/catalog/integrations/slack';
 import type { OAuth2CodeAuth } from '../connectors/domain/connector.types';
 import { OAUTH_PROVIDERS, platformEnvName } from './oauth.providers';
@@ -44,6 +45,12 @@ describe('state OAuth firmado', () => {
     expect(JSON.stringify(claims)).not.toContain('verificador-secreto');
     expect((claims.exp as number) - (claims.iat as number)).toBe(600);
     await expect(svc.consume(state)).resolves.toEqual(payload);
+  });
+
+  it('conserva la huella de la cookie de ligadura al navegador (M1b)', async () => {
+    const svc = new OAuthStateService(jwt, crypto, cfg);
+    const bound = { ...payload, browserTag: bindingTag('nonce-0123456789abcdef') };
+    await expect(svc.consume(await svc.sign(bound))).resolves.toEqual(bound);
   });
 
   it('es de un solo uso', async () => {
@@ -119,14 +126,28 @@ describe('OAuthService con Slack (OAuth v2, "Agregar a Slack")', () => {
   const cfg = config();
   const crypto = new CryptoService(cfg);
   const slackAuth = slack.auth.oauth2_code as OAuth2CodeAuth;
-  const statePayload = { workspaceId: 'ws1', connectorId: 'c1', userId: 'u1', codeVerifier: 'verificador' };
+  /** Valor de la cookie de ligadura que presenta el navegador que inició el flujo (M1b). */
+  const NONCE = 'nonce-del-navegador-0123456789';
+  const statePayload = {
+    workspaceId: 'ws1',
+    connectorId: 'c1',
+    userId: 'u1',
+    codeVerifier: 'verificador',
+    browserTag: bindingTag(NONCE),
+  };
 
   /** Servicio con dobles de Prisma, bóveda, state y cliente HTTP; `tokenBody` es la respuesta de oauth.v2.access. */
-  const setup = (auth: OAuth2CodeAuth, tokenBody: unknown) => {
+  const setup = (
+    auth: OAuth2CodeAuth,
+    tokenBody: unknown,
+    allowedSecrets: string[] = ['SLACK_CLIENT_ID', 'SLACK_CLIENT_SECRET'],
+  ) => {
     let stored: Record<string, unknown> | null = null;
     const httpCalls: { url: string; body?: string }[] = [];
     const prisma = {
-      connector: { findFirst: () => Promise.resolve({ id: 'c1', workspaceId: 'ws1', auth, config: {} }) },
+      connector: {
+        findFirst: () => Promise.resolve({ id: 'c1', workspaceId: 'ws1', auth, config: {}, allowedSecrets }),
+      },
       membership: { findUnique: () => Promise.resolve({ role: 'OWNER' }) },
       oAuthCredential: {
         findUnique: () => Promise.resolve(stored),
@@ -136,7 +157,12 @@ describe('OAuthService con Slack (OAuth v2, "Agregar a Slack")', () => {
         },
       },
     };
-    const secrets = { resolveAll: () => Promise.resolve({ SLACK_CLIENT_ID: '123.456', SLACK_CLIENT_SECRET: 'cs' }) };
+    const vault: Record<string, string> = { SLACK_CLIENT_ID: '123.456', SLACK_CLIENT_SECRET: 'cs', OTRO: 'ajeno' };
+    const secrets = {
+      resolveMany: jest.fn((_ws: string, names: string[]) =>
+        Promise.resolve(Object.fromEntries(names.filter((n) => n in vault).map((n) => [n, vault[n]]))),
+      ),
+    };
     const state = { sign: () => Promise.resolve('state-firmado'), consume: () => Promise.resolve(statePayload) };
     const http = {
       request: (req: { url: string; body?: string }) => {
@@ -152,7 +178,7 @@ describe('OAuthService con Slack (OAuth v2, "Agregar a Slack")', () => {
       state as never,
       config({ publicUrl: 'https://api.nexo.test', webUrl: 'https://app.nexo.test' }),
     );
-    return { svc, httpCalls, stored: () => stored };
+    return { svc, httpCalls, secrets, stored: () => stored };
   };
 
   it('pide los scopes de bot separados por coma y sin PKCE', async () => {
@@ -197,7 +223,7 @@ describe('OAuthService con Slack (OAuth v2, "Agregar a Slack")', () => {
       enterprise: null,
       authed_user: { id: 'U0HUMANO' },
     });
-    await expect(svc.callback({ code: 'codigo', state: 'state-firmado' })).resolves.toBe(
+    await expect(svc.callback({ code: 'codigo', state: 'state-firmado' }, NONCE)).resolves.toBe(
       'https://app.nexo.test/connectors/c1?oauth=ok',
     );
     expect(httpCalls).toHaveLength(1);
@@ -230,15 +256,40 @@ describe('OAuthService con Slack (OAuth v2, "Agregar a Slack")', () => {
       scope: 'chat:write',
       team: { id: 'T0TEAM', name: 'Acme' },
     });
-    await svc.callback({ code: 'codigo', state: 'state-firmado' });
+    await svc.callback({ code: 'codigo', state: 'state-firmado' }, NONCE);
     const cred = stored()!;
     expect(crypto.decrypt(cred.refreshTokenCipher as string)).toBe('xoxe-1-refresh');
     expect((cred.expiresAt as Date).getTime()).toBeGreaterThan(Date.now() + 43_000_000);
   });
 
+  it('start entrega el nonce de la cookie y el state lleva solo su huella (M1b)', async () => {
+    const { svc } = setup(slackAuth, {});
+    const { authorizeUrl, browserNonce } = await svc.start('ws1', 'c1', 'u1');
+    expect(browserNonce).toMatch(/^[A-Za-z0-9_-]{32}$/);
+    expect(authorizeUrl).not.toContain(browserNonce);
+  });
+
+  it('callback sin la cookie del navegador que inició el flujo → browser_mismatch sin canjear el código (M1b)', async () => {
+    const { svc, httpCalls, stored } = setup(slackAuth, { ok: true, access_token: 'xoxb-1' });
+    for (const nonce of [undefined, 'otro-navegador-0123456789abcdef']) {
+      await expect(svc.callback({ code: 'codigo', state: 'state-firmado' }, nonce)).resolves.toBe(
+        'https://app.nexo.test/connectors/c1?oauth=error&reason=browser_mismatch',
+      );
+    }
+    expect(httpCalls).toHaveLength(0);
+    expect(stored()).toBeNull();
+  });
+
+  it('una app OAuth propia que referencia un secreto no permitido se rechaza sin leer la bóveda (A4)', async () => {
+    const auth: OAuth2CodeAuth = { ...slackAuth, clientSecretRef: '{{ secrets.OTRO }}' };
+    const { svc, secrets } = setup(auth, {});
+    await expect(svc.start('ws1', 'c1', 'u1')).rejects.toThrow(/secretos no permitidos: OTRO/);
+    expect(secrets.resolveMany).not.toHaveBeenCalled();
+  });
+
   it('un ok:false de oauth.v2.access (HTTP 200) es un intercambio fallido y no guarda nada', async () => {
     const { svc, stored } = setup(slackAuth, { ok: false, error: 'invalid_code' });
-    await expect(svc.callback({ code: 'viejo', state: 'state-firmado' })).resolves.toBe(
+    await expect(svc.callback({ code: 'viejo', state: 'state-firmado' }, NONCE)).resolves.toBe(
       'https://app.nexo.test/connectors/c1?oauth=error&reason=exchange_failed',
     );
     expect(stored()).toBeNull();

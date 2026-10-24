@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { ConnectorType } from '@prisma/client';
+import { MAX_ALLOWED_SECRETS, SECRET_NAME_PATTERN } from '../domain/secret-refs';
 import {
   ArrayMaxSize,
   IsArray,
@@ -45,4 +46,14 @@ export class DiscoverConnectorDto {
   @IsString({ each: true })
   @MaxLength(256, { each: true })
   tables?: string[];
+}
+
+/** `PUT /connectors/:id/allowed-secrets` (ADMIN): nombres de la bóveda que el conector puede resolver (A4). */
+export class SetAllowedSecretsDto {
+  @ApiProperty({ type: [String], example: ['CRM_TOKEN'] })
+  @IsArray()
+  @ArrayMaxSize(MAX_ALLOWED_SECRETS)
+  @IsString({ each: true })
+  @Matches(SECRET_NAME_PATTERN, { each: true, message: 'Nombres de secreto en MAYUSCULAS_CON_GUIONES (ej. CRM_TOKEN)' })
+  names!: string[];
 }
