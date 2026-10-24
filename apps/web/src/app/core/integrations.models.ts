@@ -55,6 +55,8 @@ export interface CatalogAccount {
   oauth: boolean;
   connected: boolean;
   accountLabel: string | null;
+  /** App OAuth que usará «Conectar»: de la plataforma o propia (guardada en la bóveda), con su client ID abreviado. */
+  app?: { kind: 'platform' | 'own' | null; clientIdHint: string | null; problem: string | null };
 }
 
 /** Qué usa un conector (`GET /connectors/:id/usage`): lo que deja de funcionar al desconectarlo. */

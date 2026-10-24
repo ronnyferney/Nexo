@@ -68,6 +68,12 @@ import { oauthProvider } from './integration-logos';
                   <span class="grow">
                     <strong>{{ acc.accountLabel || acc.name }}</strong>
                     <span class="muted small block">{{ acc.connected ? 'Conectada' : 'Sin conectar: los agentes no pueden usarla' }}</span>
+                    @if (!acc.connected && acc.app; as app) {
+                      <span class="small block" [class.warn-text]="app.kind !== 'platform'">
+                        @if (app.problem) { {{ app.problem }} }
+                        @else { App {{ app.kind === 'own' ? 'propia' : 'de Nexo' }} · client ID <code>{{ app.clientIdHint }}</code> }
+                      </span>
+                    }
                   </span>
                   @if (auth.canEdit()) {
                     @if (acc.oauth) {
@@ -157,6 +163,7 @@ import { oauthProvider } from './integration-logos';
     .accounts .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warning); flex-shrink: 0; }
     .accounts .dot.ok { background: var(--success); }
     .accounts .add { margin-left: -6px; }
+    .warn-text { color: var(--warning); }
     .caps { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
     .cap-label { font-size: 12px; font-weight: 600; color: var(--muted); min-width: 64px; }
     .cap-label.warn { color: var(--warning); }

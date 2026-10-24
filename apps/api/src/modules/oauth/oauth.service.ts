@@ -198,7 +198,7 @@ export class OAuthService {
    * por el que no se puede usar. Permite diagnosticar en Nexo un client ID equivocado antes de que el proveedor lo
    * rechace en su pantalla (p. ej. AADSTS700016 en Microsoft). El client ID no es secreto; el secreto nunca se expone.
    */
-  private async appSummary(
+  async appSummary(
     workspaceId: string,
     connectorId: string,
   ): Promise<{ kind: 'platform' | 'own' | null; clientIdHint: string | null; problem: string | null }> {

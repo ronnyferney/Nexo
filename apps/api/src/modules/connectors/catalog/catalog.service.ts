@@ -59,17 +59,21 @@ export class CatalogService {
       orderBy: { createdAt: 'asc' },
       select: { id: true, name: true, auth: true, oauth: { select: { accountLabel: true, expiresAt: true } } },
     });
-    return rows.map((r) => {
-      const oauth = (r.auth as { type?: string } | null)?.type === 'oauth2_code';
-      return {
-        connectorId: r.id,
-        name: r.name,
-        oauth,
-        // Sin OAuth (clave de API, MCP) la cuenta queda lista al instalar.
-        connected: oauth ? !!r.oauth : true,
-        accountLabel: r.oauth?.accountLabel ?? null,
-      };
-    });
+    return Promise.all(
+      rows.map(async (r) => {
+        const oauth = (r.auth as { type?: string } | null)?.type === 'oauth2_code';
+        return {
+          connectorId: r.id,
+          name: r.name,
+          oauth,
+          // Sin OAuth (clave de API, MCP) la cuenta queda lista al instalar.
+          connected: oauth ? !!r.oauth : true,
+          accountLabel: r.oauth?.accountLabel ?? null,
+          // Qué app usará «Conectar» (propia guardada en la bóveda o de la plataforma): diagnóstico sin adivinar.
+          ...(oauth ? { app: await this.oauth.appSummary(workspaceId, r.id) } : {}),
+        };
+      }),
+    );
   }
 
   /**

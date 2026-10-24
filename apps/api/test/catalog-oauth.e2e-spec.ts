@@ -407,7 +407,14 @@ describe('Catálogo de conectores y OAuth2 de usuario (E2E, ADR 0005)', () => {
       expect((await catalog(owner)).find((i) => i.id === 'hubspot')).toMatchObject({ installed: 1, pendingAuth: 1 });
       const pending = await owner.api.get('/connector-catalog/hubspot/accounts').expect(200);
       expect(pending.body).toEqual([
-        { connectorId: hubspot.id, name: expect.any(String), oauth: true, connected: false, accountLabel: null },
+        {
+          connectorId: hubspot.id,
+          name: expect.any(String),
+          oauth: true,
+          connected: false,
+          accountLabel: null,
+          app: { kind: 'own', clientIdHint: maskClientId(provider.clientId), problem: null },
+        },
       ]);
       const inv = await invoke(owner, hubspot.id, searchOpId, { query: 'ana' }).expect(400);
       expect(JSON.stringify(inv.body)).toContain('Conecte la cuenta OAuth del conector');
