@@ -158,40 +158,13 @@ Módulo puro y determinista (sin IA, sin red) que analiza texto y estructuras JS
   contenido.
 - **Web** — «Administración → Ajustes» incluye la tarjeta «Protección de datos»: modo, retención y prueba de detección.
 
-**Persistencia provisional (pendiente de esquema).** El esquema no tiene columnas para estos ajustes y su dueño es otro
-agente: `PrivacySettingsService` los guarda en el Redis de la aplicación (hash `nexo:privacy:settings`, sin expiración).
-Si Redis no responde, se aplica `mask` (el dato nunca sale en claro) y la purga se omite (no se borra con una política
-desconocida). Migración propuesta (solo cambia `PrivacySettingsService`):
-
-```prisma
-enum DataGuardMode {
-  OFF
-  MASK
-  BLOCK
-}
-
-model Workspace {
-  // …
-  /// Política de DataGuard hacia los modelos de IA (ADR 0008 D2).
-  dataGuardMode             DataGuardMode @default(MASK)
-  /// Días que se conservan conversaciones y mensajes (ADR 0008 D7). Null = sin límite.
-  conversationRetentionDays Int?
-  /// Null = el workspace nunca guardó su política: rige `CONVERSATIONS_RETENTION_DAYS` de la plataforma.
-  privacySettingsUpdatedAt  DateTime?
-}
-
-model Conversation {
-  // …
-  @@index([updatedAt])            // purga diaria
-}
-
-model CopilotSession {
-  // …
-  @@index([workspaceId, updatedAt]) // purga diaria
-}
-```
-Al aplicarla: copiar una vez el hash de Redis a las columnas y luego reemplazar las lecturas/escrituras de
-`PrivacySettingsService`.
+**Persistencia.** Los ajustes son columnas de `Workspace` (`dataGuardMode` con enum `DataGuardMode`, por defecto
+`MASK`; `conversationRetentionDays`, null = sin límite; `privacySettingsUpdatedAt`, null = rige
+`CONVERSATIONS_RETENTION_DAYS` de la plataforma), migración `ajustes_proteccion_datos_workspace`, con índices para la
+purga diaria en `Conversation(updatedAt)` y `CopilotSession(workspaceId, updatedAt)`. Una primera versión los guardaba
+en Redis (hash `nexo:privacy:settings`): al arrancar, `PrivacySettingsService` copia una sola vez esos valores a los
+workspaces que aún no tienen ajustes y los borra del hash. Si la base de datos falla al leer, se aplica `mask` (el
+dato nunca sale en claro) y la purga se omite (no se borra con una política desconocida).
 
 **Pendiente (fuera de este alcance)**
 - Política por categoría y cadena agente → unidad → empresa (`DataPolicy`), acción `ALERT`, categorías `ADDRESS`,

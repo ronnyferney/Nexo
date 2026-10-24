@@ -29,7 +29,7 @@ iteración · **P3** higiene.
 | M5 | Media | P1 | Límite de 5 MB comprobado tras leer todo el cuerpo | Lectura por flujo con corte al superar el límite | Hecho (749f411) |
 | M6 | Media | P1 | La web no envía CSP, `X-Frame-Options`, HSTS ni `Referrer-Policy`; JWT en `localStorage` | Cabeceras en nginx; evaluar cookie HttpOnly para la sesión | Hecho: cabeceras (6897876); sesión en cookie HttpOnly + CSRF de doble envío firmado y `POST /auth/logout` (d6be879) |
 | M7 | Media | P1 | Sin dominio el piloto se publica por HTTP | Exigir TLS en el despliegue | Hecho (447b1aa): sin dominio con certificado el piloto no se sintetiza |
-| M8 | Media | P2 | ADR 0008 sin implementar: datos personales sin enmascarar hacia el LLM; conversaciones sin retención | DataGuard D1-D2 y retención D7 | Hecho en parte (6274fb6): DataGuard D1-D2 (off/mask/block) y retención D7; en curso: ajustes en PostgreSQL; pendiente: D3-D6 y política por categoría |
+| M8 | Media | P2 | ADR 0008 sin implementar: datos personales sin enmascarar hacia el LLM; conversaciones sin retención | DataGuard D1-D2 y retención D7 | Hecho en parte (6274fb6): DataGuard D1-D2 (off/mask/block) y retención D7; ajustes en PostgreSQL (2593633); pendiente: D3-D6 y política por categoría |
 | M9 | Media | P1 | Los secretos de ejemplo (`JWT_SECRET`, `ENCRYPTION_KEY` en ceros) pasan la validación | Rechazar placeholders y claves de baja entropía | Hecho (6897876) |
 | B1 | Baja | P2 | Token de webhook y `code`/`state` OAuth en los logs | Redactar rutas y query sensibles | Hecho (6897876) |
 | B2 | Baja | P2 | Uso único del `state` solo en memoria por instancia | `jti` en Redis/BD con `SET NX` | Hecho: OAuth de LLM y OpenRouter (e1cbc74) y de conectores (6274fb6), con fallo cerrado |
