@@ -108,6 +108,17 @@ export function claudeSdkClient(credentials: LlmCredentials): () => Promise<Anth
 }
 
 /**
+ * Mensaje de un error HTTP del proveedor sin el cuerpo crudo de la respuesta (podría ser el de un servicio interno):
+ * solo el `error.message` con la forma de la API de Anthropic, acotado; si no, el estado HTTP.
+ */
+export function providerErrorMessage(err: { status?: number; error?: unknown }): string {
+  const body = err.error as { error?: { type?: unknown; message?: unknown } } | undefined;
+  const message = body?.error?.message;
+  if (typeof body?.error?.type === 'string' && typeof message === 'string') return message.slice(0, 300);
+  return `El proveedor respondió HTTP ${err.status ?? 'desconocido'}`;
+}
+
+/**
  * Cliente Claude (Messages API) con bucle de tool use manual:
  * streaming, thinking adaptativo + effort, caché automática de prompts (ahorro de costos),
  * fallback server-side ante rechazos por política e historial nativo append-only.
@@ -138,7 +149,7 @@ class AnthropicClient implements LlmClient {
       await this.probe(() => this.countTokens(client));
       return { ok: true, message: 'Conexión correcta' };
     }
-    const page = await client.models.list({ limit: 5 });
+    const page = await this.probe(() => client.models.list({ limit: 5 }, { timeout: 15_000, maxRetries: 0 }));
     return { ok: true, message: `Conexión correcta: ${page.data.map((m) => m.id).join(', ')}` };
   }
 
@@ -155,7 +166,7 @@ class AnthropicClient implements LlmClient {
       return await fn();
     } catch (err) {
       if (err instanceof Anthropic.APIError && typeof err.status === 'number') {
-        throw new LlmHttpError(err.status, err.message.slice(0, 300));
+        throw new LlmHttpError(err.status, providerErrorMessage(err));
       }
       throw err;
     }
@@ -221,7 +232,7 @@ class AnthropicClient implements LlmClient {
         { signal: req.signal },
       );
       stream.on('text', (delta) => req.onEvent?.({ type: 'text', text: delta }));
-      const message = await stream.finalMessage();
+      const message = await this.probe(() => stream.finalMessage());
 
       const u = message.usage;
       usage.inputTokens += u.input_tokens;

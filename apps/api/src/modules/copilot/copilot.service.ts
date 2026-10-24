@@ -136,7 +136,8 @@ export class CopilotService {
   ) {
     const { auth, session } = prepared ?? (await this.prepareTurn(a, id));
     const ws = auth.workspaceId;
-    const resolved = await this.gateway.resolve(ws, session.providerId, session.model);
+    // El Copilot lo paga Nexo con su propio cupo (CopilotQuotaService), no con el de la conexión de plataforma.
+    const resolved = await this.gateway.resolve(ws, session.providerId, session.model, { platformQuota: false });
     const [user, workspace] = await Promise.all([
       this.prisma.user.findUnique({ where: { id: auth.userId }, select: { name: true } }),
       this.prisma.workspace.findUnique({ where: { id: ws }, select: { name: true } }),

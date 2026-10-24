@@ -105,6 +105,32 @@ describe('Vinculación de agentes con proveedores IA (E2E)', () => {
     await prismaOf(app).agent.delete({ where: { id: backup.id } });
   });
 
+  it('A2: el destino de una conexión con credenciales no se puede redirigir por la API', async () => {
+    // Manual: cambiar la URL exige la clave nueva en la misma petición.
+    await owner.api
+      .patch(`/admin/llm/connections/${connectionId}`, { baseUrl: 'https://atacante.example.com/v1' })
+      .expect(400);
+    await owner.api.patch(`/admin/llm/connections/${connectionId}`, { kind: 'OPENAI_COMPATIBLE' }).expect(400);
+    // Del catálogo: la URL y el tipo son inmutables aunque se envíe una clave.
+    const catalog = await prismaOf(app).llmConnection.create({
+      data: {
+        workspaceId: owner.workspaceId,
+        name: 'Claude en Foundry',
+        kind: 'ANTHROPIC',
+        providerId: 'claude-foundry',
+        baseUrl: 'https://mi-recurso.services.ai.azure.com/anthropic',
+      },
+    });
+    const res = await owner.api
+      .patch(`/admin/llm/connections/${catalog.id}`, { baseUrl: 'https://atacante.example.com', apiKey: 'k' })
+      .expect(400);
+    expect((res.body as { message: string }).message).toMatch(/no se pueden cambiar/);
+    await owner.api.patch(`/admin/llm/connections/${catalog.id}`, { name: 'Renombrada' }).expect(200);
+    const row = await prismaOf(app).llmConnection.findUniqueOrThrow({ where: { id: catalog.id } });
+    expect(row.baseUrl).toBe('https://mi-recurso.services.ai.azure.com/anthropic');
+    await prismaOf(app).llmConnection.delete({ where: { id: catalog.id } });
+  });
+
   it('si la conexión principal está deshabilitada o con la sesión cerrada, el agente usa su respaldo', async () => {
     const agent = await createAgent(owner, {
       provider: connectionId,

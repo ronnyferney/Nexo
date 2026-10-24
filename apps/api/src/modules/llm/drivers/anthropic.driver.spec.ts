@@ -3,7 +3,7 @@ import { AnthropicFoundry } from '@anthropic-ai/foundry-sdk';
 import { AnthropicGoogleCloud } from '@anthropic-ai/google-cloud-sdk';
 import { AnthropicVertex } from '@anthropic-ai/vertex-sdk';
 import { parseClaudeOptions } from '../llm-gateway.service';
-import { claudeSdkClient, isCustomAnthropicEndpoint } from './anthropic.driver';
+import { claudeSdkClient, isCustomAnthropicEndpoint, providerErrorMessage } from './anthropic.driver';
 
 describe('Driver de Claude por canal', () => {
   const token = () => Promise.resolve('token-google');
@@ -66,5 +66,23 @@ describe('Driver de Claude por canal', () => {
     expect(parseClaudeOptions({ channel: 'bedrock' })).toBeNull();
     expect(parseClaudeOptions('vertex')).toBeNull();
     expect(parseClaudeOptions({ channel: 'foundry', resource: 'x'.repeat(500) })).toEqual({ channel: 'foundry' });
+  });
+});
+
+describe('A1 · errores del proveedor sin el cuerpo crudo', () => {
+  it('solo el mensaje con forma de la API de Anthropic; si no, el estado HTTP', () => {
+    expect(
+      providerErrorMessage({
+        status: 401,
+        error: { type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } },
+      }),
+    ).toBe('invalid x-api-key');
+    // Respuesta de un servicio interno (p. ej. metadatos): nunca se devuelve su contenido.
+    expect(providerErrorMessage({ status: 404, error: { secreto_interno: 'datos-de-red-privada' } })).toBe(
+      'El proveedor respondió HTTP 404',
+    );
+    expect(providerErrorMessage({ status: 500, error: '<html>interno</html>' })).toBe(
+      'El proveedor respondió HTTP 500',
+    );
   });
 });

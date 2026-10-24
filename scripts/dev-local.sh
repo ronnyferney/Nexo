@@ -93,6 +93,8 @@ sync_env_ports() {
     s = s.replace(/^DATABASE_URL=.*$/m, `DATABASE_URL=${url}`).replace(/^REDIS_PORT=.*$/m, `REDIS_PORT=${process.env.RD}`);
     // Proveedor IA simulado (solo desarrollo): se agrega si falta; si el usuario lo definió, se respeta su valor.
     if (!/^LLM_DEV_SIMULATOR=/m.test(s)) s = s.replace(/\n*$/, "\n\n# Proveedor IA simulado (solo desarrollo)\nLLM_DEV_SIMULATOR=true\n");
+    // Entorno de desarrollo explícito (el simulador y las validaciones de desarrollo lo exigen).
+    if (!/^NODE_ENV=/m.test(s)) s = s.replace(/\n*$/, "\nNODE_ENV=development\n");
     fs.writeFileSync(process.env.FILE, s);
   '
 }

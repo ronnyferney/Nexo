@@ -29,6 +29,13 @@ export interface AppConfig {
      * (`LLM_DEV_SIMULATOR=true`), para probar el flujo completo en local sin cuentas ni dominio. Nunca en producción.
      */
     devSimulator: boolean;
+    /**
+     * Cupo mensual (USD) por workspace de la conexión «Incluido por Nexo» (`ANTHROPIC_API_KEY`, la paga la plataforma):
+     * `PLATFORM_LLM_MONTHLY_USD`, por defecto 5; 0 la deshabilita. `PLATFORM_LLM_UNLIMITED_WORKSPACES` (ids separados
+     * por coma) exime a workspaces propios o con plan pagado.
+     */
+    platformMonthlyUsd: number;
+    platformUnlimitedWorkspaces: string[];
   };
   http: { timeoutMs: number; allowPrivateNetworks: boolean };
   executions: { retentionDays: number };
@@ -126,7 +133,14 @@ export default (): AppConfig => ({
     providerUrlOverrides: parseUrlOverrides(process.env.LLM_PROVIDER_URL_OVERRIDES),
     openrouterAuthUrl: process.env.OPENROUTER_AUTH_URL || 'https://openrouter.ai/auth',
     oauthEndpointOverrides: parseOAuthEndpointOverrides(process.env.LLM_OAUTH_ENDPOINT_OVERRIDES),
-    devSimulator: process.env.LLM_DEV_SIMULATOR === 'true' && process.env.NODE_ENV !== 'production',
+    // Solo con un entorno de desarrollo o pruebas explícito: un servidor sin NODE_ENV nunca lo expone.
+    devSimulator:
+      process.env.LLM_DEV_SIMULATOR === 'true' && ['development', 'test'].includes(process.env.NODE_ENV ?? ''),
+    platformMonthlyUsd: nonNegative(process.env.PLATFORM_LLM_MONTHLY_USD, 5),
+    platformUnlimitedWorkspaces: (process.env.PLATFORM_LLM_UNLIMITED_WORKSPACES ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
   },
   http: {
     timeoutMs: parseInt(process.env.CONNECTOR_TIMEOUT_MS ?? '30000', 10),

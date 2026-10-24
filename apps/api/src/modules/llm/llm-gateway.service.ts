@@ -12,6 +12,7 @@ import {
   type LlmDriver,
 } from './llm-provider';
 import { LlmTokenService } from './llm-token.service';
+import { quotaPeriod } from '../copilot/copilot-quota.service';
 import { ConnectionUnavailableException } from './llm-errors';
 import { SYSTEM_ANTHROPIC_MODELS, SYSTEM_MOCK_MODELS, type CatalogModel, type ModelPricing } from './pricing';
 
@@ -101,7 +102,7 @@ export class LlmGatewayService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
-    config: ConfigService,
+    private readonly config: ConfigService,
     @Inject(LLM_DRIVERS) drivers: LlmDriver[],
     private readonly tokens: LlmTokenService,
   ) {
@@ -112,6 +113,47 @@ export class LlmGatewayService {
   /** La plataforma tiene `ANTHROPIC_API_KEY` (conexión de sistema «Incluido por Nexo»). */
   get platformAnthropicConfigured(): boolean {
     return !!this.anthropicKey;
+  }
+
+  /** Cupo mensual del workspace en la conexión de la plataforma (`null` = sin tope). */
+  platformQuotaUsd(workspaceId: string): number | null {
+    const unlimited = this.config.get<string[]>('llm.platformUnlimitedWorkspaces') ?? [];
+    if (unlimited.includes(workspaceId)) return null;
+    return this.config.get<number>('llm.platformMonthlyUsd') ?? 5;
+  }
+
+  /**
+   * La clave de plataforma la paga Nexo: cada workspace tiene un cupo mensual (como el Copilot, ADR 0006 D2) para que
+   * un registro gratuito no consuma la cuenta sin tope. Agotado, la conexión queda no disponible y el agente usa su
+   * cadena de respaldo. No cuenta el consumo del Copilot, que tiene su propio cupo.
+   */
+  private async assertPlatformQuota(workspaceId: string): Promise<void> {
+    const limit = this.platformQuotaUsd(workspaceId);
+    if (limit === null) return;
+    const used =
+      limit > 0
+        ? Number(
+            (
+              await this.prisma.usageRecord.aggregate({
+                where: {
+                  workspaceId,
+                  providerId: SYSTEM_PROVIDERS.anthropic,
+                  source: { not: 'COPILOT' },
+                  createdAt: { gte: quotaPeriod().start },
+                },
+                _sum: { costUsd: true },
+              })
+            )._sum.costUsd ?? 0,
+          )
+        : 0;
+    if (limit <= 0 || used >= limit) {
+      throw new ConnectionUnavailableException(
+        limit <= 0
+          ? 'Claude incluido por Nexo no está habilitado para este workspace: conecte su propia cuenta en Proveedores IA'
+          : `Se agotó el cupo mensual de Claude incluido por Nexo (${limit} USD): conecte su propia cuenta en Proveedores IA`,
+        'disabled',
+      );
+    }
   }
 
   async catalog(workspaceId: string, includeDisabled = false): Promise<CatalogEntry[]> {
@@ -126,7 +168,8 @@ export class LlmGatewayService {
         label: 'Anthropic Claude (plataforma)',
         kind: 'ANTHROPIC',
         system: true,
-        configured: !!this.anthropicKey,
+        // Con cupo 0 (o sin clave) la conexión de plataforma no está disponible para este workspace.
+        configured: !!this.anthropicKey && this.platformQuotaUsd(workspaceId) !== 0,
         models: SYSTEM_ANTHROPIC_MODELS.map(strip),
       },
       {
@@ -154,11 +197,21 @@ export class LlmGatewayService {
     return [...system, ...custom];
   }
 
-  async resolve(workspaceId: string, providerId: string, model: string): Promise<ResolvedModel> {
+  /**
+   * Proveedor y modelo listos para llamar. `platformQuota: false` solo para el Copilot, que tiene su propio cupo
+   * (ADR 0006 D2) y no consume el de la conexión «Incluido por Nexo».
+   */
+  async resolve(
+    workspaceId: string,
+    providerId: string,
+    model: string,
+    opts: { platformQuota?: boolean } = {},
+  ): Promise<ResolvedModel> {
     if (providerId === SYSTEM_PROVIDERS.anthropic || providerId === SYSTEM_PROVIDERS.mock) {
       const isMock = providerId === SYSTEM_PROVIDERS.mock;
       if (!isMock && !this.anthropicKey)
         throw new BadRequestException('ANTHROPIC_API_KEY no está configurada en la plataforma');
+      if (!isMock && opts.platformQuota !== false) await this.assertPlatformQuota(workspaceId);
       const entry = (isMock ? SYSTEM_MOCK_MODELS : SYSTEM_ANTHROPIC_MODELS).find((m) => m.id === model);
       if (!entry) throw new BadRequestException(`Modelo no disponible en ${providerId}: ${model}`);
       const kind: LlmKind = isMock ? 'MOCK' : 'ANTHROPIC';

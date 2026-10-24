@@ -93,8 +93,16 @@ export class CopilotProposalsService {
     const ws = auth.workspaceId;
     const refs = await this.tools.workspaceRefs(ws);
     const warnings: string[] = [];
-    if (!refs.models.has(`${draft.provider}:${draft.model}`)) {
-      warnings.push(`El modelo "${draft.provider}:${draft.model}" no está disponible ahora; revíselo en el agente.`);
+    // Nunca se guarda un modelo fuera de los proveedores del workspace (multi-tenant): se usa uno disponible.
+    let { provider, model } = draft;
+    if (!refs.models.has(`${provider}:${model}`)) {
+      const fallback = fallbackModel(refs.models);
+      if (!fallback)
+        throw new BadRequestException('No hay modelos de IA disponibles: conecte un proveedor en Proveedores IA');
+      warnings.push(
+        `El modelo "${draft.provider}:${draft.model}" no está disponible; se usó "${fallback.provider}:${fallback.model}".`,
+      );
+      ({ provider, model } = fallback);
     }
     const operations = await this.approvalAwareOperations(ws, draft.operations ?? [], refs, warnings);
     const skills = this.filterSkills(auth, draft.skills ?? [], refs, warnings);
@@ -107,8 +115,8 @@ export class CopilotProposalsService {
           workspaceId: ws,
           name: draft.name,
           description: draft.description ?? null,
-          provider: draft.provider,
-          model: draft.model,
+          provider,
+          model,
           effort: draft.effort,
           systemPrompt: draft.systemPrompt ?? '',
           profile: json(normalizeProfile(draft.profile)),
@@ -156,8 +164,10 @@ export class CopilotProposalsService {
     const agentId = proposal.agentId;
     const refs = await this.tools.workspaceRefs(ws);
     const warnings: string[] = [];
-    if (c.provider && c.model && !refs.models.has(`${c.provider}:${c.model}`)) {
-      warnings.push(`El modelo "${c.provider}:${c.model}" no está disponible ahora; revíselo en el agente.`);
+    // Un modelo fuera de los proveedores del workspace no se aplica (el agente conserva el suyo).
+    const modelOk = c.provider !== undefined && c.model !== undefined && refs.models.has(`${c.provider}:${c.model}`);
+    if (c.provider && c.model && !modelOk) {
+      warnings.push(`El modelo "${c.provider}:${c.model}" no está disponible; el agente conserva su modelo actual.`);
     }
     const operations = await this.approvalAwareOperations(ws, c.addOperations ?? [], refs, warnings);
     const skills = this.filterSkills(auth, c.addSkills ?? [], refs, warnings);
@@ -173,7 +183,7 @@ export class CopilotProposalsService {
           ...(c.description !== undefined ? { description: c.description } : {}),
           ...(c.systemPrompt !== undefined ? { systemPrompt: c.systemPrompt } : {}),
           ...(c.profile !== undefined ? { profile: json(normalizeProfile(c.profile)) } : {}),
-          ...(c.provider !== undefined && c.model !== undefined ? { provider: c.provider, model: c.model } : {}),
+          ...(modelOk ? { provider: c.provider, model: c.model } : {}),
           ...(c.effort !== undefined ? { effort: c.effort } : {}),
           ...(c.targetScore !== undefined ? { targetScore: c.targetScore } : {}),
         },
@@ -443,4 +453,17 @@ export class CopilotProposalsService {
     const have = new Set(installed.map((c) => c.catalogId));
     return wanted.filter((id) => !have.has(id));
   }
+}
+
+/**
+ * Modelo disponible para un agente del Copilot cuando el propuesto no existe en el workspace: el modelo por defecto
+ * de Nexo (Claude Opus 5.5) en el primer proveedor que lo tenga, si no el primer modelo real y el simulado al final.
+ */
+export function fallbackModel(models: ReadonlySet<string>): { provider: string; model: string } | null {
+  const list = [...models];
+  const real = list.filter((r) => !r.startsWith('mock:'));
+  const pick = real.find((r) => r.endsWith(':claude-opus-5-5')) ?? real[0] ?? list[0];
+  if (!pick) return null;
+  const i = pick.indexOf(':');
+  return { provider: pick.slice(0, i), model: pick.slice(i + 1) };
 }

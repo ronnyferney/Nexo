@@ -11,6 +11,7 @@ import {
   Post,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import type { LlmConnection } from '@prisma/client';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { CurrentAuth, type AuthContext } from '../../common/decorators/current-user.decorator';
 import { MinRole } from '../../common/decorators/roles.decorator';
@@ -36,6 +37,35 @@ export class LlmCatalogController {
   @Get('catalog')
   catalog(@CurrentAuth() a: AuthContext) {
     return this.gateway.catalog(a.workspaceId);
+  }
+}
+
+/**
+ * Las credenciales guardadas (clave cifrada o token OAuth) nunca viajan a un destino distinto del que se verificó al
+ * conectarlas: un administrador no debe poder redirigir hacia un host propio una clave que la consola no le muestra.
+ * - Conexiones del catálogo (`providerId`) o con inicio de sesión: URL y tipo inmutables (se vuelven a conectar).
+ * - Conexiones manuales: cambiar URL o tipo exige ingresar de nuevo la clave en la misma petición.
+ * - Una conexión OAuth no acepta una clave de API (sus tokens los gestiona el inicio de sesión).
+ */
+export function assertSafeDestinationChange(
+  c: Pick<LlmConnection, 'providerId' | 'credentialType' | 'baseUrl' | 'kind'>,
+  dto: UpdateLlmConnectionDto,
+): void {
+  const baseUrlChanges = dto.baseUrl !== undefined && (dto.baseUrl || null) !== (c.baseUrl || null);
+  const kindChanges = dto.kind !== undefined && dto.kind !== c.kind;
+  if (c.credentialType === 'OAUTH' && dto.apiKey) {
+    throw new BadRequestException('Esta conexión usa inicio de sesión: no admite una clave de API');
+  }
+  if (!baseUrlChanges && !kindChanges) return;
+  if (c.providerId || c.credentialType === 'OAUTH') {
+    throw new BadRequestException(
+      'La URL y el tipo de una conexión del catálogo no se pueden cambiar: conecte el proveedor de nuevo',
+    );
+  }
+  if (!dto.apiKey) {
+    throw new BadRequestException(
+      'Para cambiar la URL o el tipo de la conexión ingrese de nuevo la clave: la guardada no se envía a un destino nuevo',
+    );
   }
 }
 
@@ -75,8 +105,9 @@ export class LlmAdminController {
 
   @Patch('connections/:id')
   async update(@CurrentAuth() a: AuthContext, @Param('id') id: string, @Body() dto: UpdateLlmConnectionDto) {
-    await this.connection(a.workspaceId, id);
+    const c = await this.connection(a.workspaceId, id);
     const { apiKey, ...rest } = dto;
+    assertSafeDestinationChange(c, dto);
     const row = await this.prisma.llmConnection.update({
       where: { id },
       data: { ...rest, ...(apiKey ? { apiKeyCipher: this.crypto.encrypt(apiKey) } : {}) },
