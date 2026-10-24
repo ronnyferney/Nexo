@@ -109,17 +109,17 @@ especializado asignado; el líder coordina y el chat tiene un solo dueño por ar
 | ID | Prio. | § | Punto | Dueño | Estado |
 |---|---|---|---|---|---|
 | RX-1 | P0 | 3.1 | Chat: separar Conversación / Actividad / Diagnóstico + agrupar eventos de protección de datos | Líder | Hecho (2b91fc9) |
-| RX-2 | P0 | 3.3 | Chat: máquina de estados visible (pensando / consultando… / esperando aprobación / completado / fallado / cancelado) ligada a eventos reales | Líder | En curso |
-| RX-3 | P0 | 3.4 | Chat: errores empresariales (mapeo de causas + acciones) y nombres legibles de herramienta | Líder | En parte (nombres legibles hechos) |
+| RX-2 | P0 | 3.3 | Chat: máquina de estados visible (pensando / consultando… / esperando aprobación / completado / fallado / cancelado) ligada a eventos reales | Líder | Hecho (d872ea3) |
+| RX-3 | P0 | 3.4 | Chat: errores empresariales (mapeo de causas + acciones) y nombres legibles de herramienta | Líder | Hecho (ade7502) |
 | RX-4 | P0 | 3.6/3.7 | Chat: compositor (estado de conexión, anti-doble-envío) y sesiones de prueba (versión/ejecución que respondió) | Líder | Pendiente |
 | RX-5 | P1 | 4.3 | Panel de salud orientado a la acción (estado de publicación + hallazgos con acción) | nexo-frontend-ui | Hecho (83cd96d) |
 | RX-6 | P1 | 4.1 | Chat redimensionable / pantalla completa y distribución de 3 áreas | nexo-frontend-core | Pendiente |
 | RX-7 | P1 | 4.2 | Formularios de configuración por secciones con estado por sección | nexo-frontend-ui | Pendiente |
 | RX-8 | P1 | 4.4 | Diferenciar Guardar borrador / Probar / Publicar + confirmación de publicación | nexo-frontend-ui | Pendiente |
-| RX-9 | P1 | 5 | Design System: tokens y biblioteca de componentes (AppShell, Sidebar, Topbar, EmptyState, etc.) | nexo-frontend-core | Pendiente (hay tokens base en `styles.scss`) |
+| RX-9 | P1 | 5 | Design System: tokens y biblioteca de componentes (AppShell, Sidebar, Topbar, EmptyState, etc.) | nexo-frontend-core | Base hecha (45550d0): EmptyState/LoadingState/ErrorState + guía de tokens; falta adoptarlos en las páginas y los componentes de shell |
 | RX-10 | P1 | 5.4 | Tablas y listados estandarizados (agentes, integraciones, ejecuciones, usuarios) | nexo-frontend-ui | Pendiente |
-| RX-11 | P1 | 5.4 + 6 | **Rediseño del tablero de Agentes**: tarjetas KPI (totales, activos, ejecuciones 30 d, costo estimado, alertas con tendencias), pestañas con contadores (Todos/Activos/En pruebas/Borradores/Archivados), búsqueda + filtros (área, estado), vista tarjetas/lista, tarjeta de agente con favorito, métricas (ejecuciones, usuarios, costo), estado y salud, y paginación; con estados vacío/carga/error. Evoluciona `agents-list.page.ts`. | nexo-frontend-ui (UI) + nexo-backend-platform (agregación de KPIs y filtros por área/estado) | Pendiente |
-| RX-12 | P2 | 6 | Observabilidad: latencia al primer token, duración, tasas de éxito, reintentos, cancelaciones, eventos de seguridad | nexo-backend-platform | Pendiente (hay consumo y ejecuciones) |
+| RX-11 | P1 | 5.4 + 6 | **Rediseño del tablero de Agentes**: tarjetas KPI (totales, activos, ejecuciones 30 d, costo estimado, alertas con tendencias), pestañas con contadores (Todos/Activos/En pruebas/Borradores/Archivados), búsqueda + filtros (área, estado), vista tarjetas/lista, tarjeta de agente con favorito, métricas (ejecuciones, usuarios, costo), estado y salud, y paginación; con estados vacío/carga/error. Evoluciona `agents-list.page.ts`. | nexo-frontend-ui (UI) + nexo-backend-platform (agregación de KPIs y filtros por área/estado) | Backend hecho (f937b5f): `GET /agents/dashboard`; UI pendiente. Con datos faltantes (ver nota) |
+| RX-12 | P2 | 6 | Observabilidad: latencia al primer token, duración, tasas de éxito, reintentos, cancelaciones, eventos de seguridad | nexo-backend-platform | Primer corte hecho (f937b5f): `GET /agents/analytics` (consumo por origen + rutinas con estado/duración); faltan métricas por turno de chat |
 | RX-13 | P2 | 5.5 | Accesibilidad WCAG 2.2 AA (teclado, foco, contraste) y pruebas de regresión del chat | nexo-qa-e2e | Pendiente |
 
 > Nota de clasificación de RX-11: la UI es de `nexo-frontend-ui`, pero los KPIs del encabezado
@@ -128,4 +128,14 @@ especializado asignado; el líder coordina y el chat tiene un solo dueño por ar
 > `nexo-backend-platform`. Las métricas por agente (ejecuciones, usuarios, costo) deben confirmarse
 > contra lo que ya expone la API antes de implementar. Relacionado con RX-10 (tablas/listados) y RX-12
 > (observabilidad); la visión de super-agentes multi-modelo está en L17/L18 (sección 2).
+
+> **Datos faltantes del tablero/observabilidad (requieren decisión de producto + migración; no se inventan números —§6).**
+> Hoy la API los devuelve como `null`: (1) estado «en pruebas» y pestaña/KPI correspondiente — el ciclo de vida
+> del agente solo tiene DRAFT/LAUNCHED; (2) «archivado» — el borrado de agentes es físico (haría falta
+> `Agent.archivedAt`/soft-delete); (3) «% de ejecuciones exitosas» por turno de chat — `UsageRecord` no guarda
+> éxito/fallo por llamada; (4) latencia al primer token, duración, reintentos y cancelaciones de chat — no
+> instrumentados; (5) recuento de eventos de protección de datos (DataGuard) — hoy no se persiste nada. Fuente
+> propuesta para (3)(4)(5): una tabla run-level de agente (`AgentRun` con status/error/tiempos y time-to-first-token)
+> y un `DataGuardEvent`. «favorito/estrella» y «área» como concepto propio también requieren campos nuevos. La UI de
+> RX-11 debe degradar con elegancia los `null` (ocultar la métrica o marcarla «sin datos»), nunca mostrar cifras falsas.
 
