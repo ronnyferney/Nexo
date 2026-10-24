@@ -64,6 +64,11 @@ export class ProviderConnectComponent implements OnInit {
   readonly provider = input.required<ProviderView>();
   /** Inicia el mecanismo principal al abrir (código de dispositivo o detección local tras pulsar «+»). */
   readonly autostart = input(false);
+  /**
+   * «Volver a iniciar sesión» en una conexión existente: el servidor reutiliza sus campos y reemplaza sus tokens
+   * (conserva modelos y agentes). Solo se ofrece el mecanismo con que se creó.
+   */
+  readonly reauth = input<{ connectionId: string; mechanism: MechanismType; name: string } | null>(null);
   /** Error del retorno OAuth para este proveedor (lo fija la página). */
   readonly oauthError = input<string | null>(null);
   readonly closed = output<void>();
@@ -89,8 +94,12 @@ export class ProviderConnectComponent implements OnInit {
   readonly mode = computed<ProviderMechanism>(
     () => this.mechanisms().find((m) => m.type === this.modeType()) ?? this.mechanisms()[0],
   );
-  readonly others = computed(() => this.mechanisms().filter((m) => m.type !== this.mode().type));
-  readonly preFields = computed(() => (this.mode().type === 'OAUTH' ? oauthFields(this.provider(), this.mode()) : []));
+  readonly others = computed(() =>
+    this.reauth() ? [] : this.mechanisms().filter((m) => m.type !== this.mode().type),
+  );
+  readonly preFields = computed(() =>
+    this.mode().type === 'OAUTH' && !this.reauth() ? oauthFields(this.provider(), this.mode()) : [],
+  );
   readonly waiting = computed(() => this.oauth.pending()?.providerId === this.provider().id);
   readonly oauthReady = computed(() =>
     this.preFields().every((f) => {
@@ -172,7 +181,7 @@ export class ProviderConnectComponent implements OnInit {
     }
     this.error.set(null);
     try {
-      await this.oauth.start(this.provider(), fields);
+      await this.oauth.start(this.provider(), fields, this.reauth()?.connectionId);
     } catch (e) {
       this.error.set(errorMessage(e));
     }
@@ -189,6 +198,8 @@ export class ProviderConnectComponent implements OnInit {
   }
 
   ngOnInit() {
+    const r = this.reauth();
+    if (r) this.modeType.set(r.mechanism);
     this.selected.set(new Set((this.provider().suggestedModels ?? []).map((m) => m.id)));
   }
 

@@ -122,7 +122,7 @@ export class LlmGatewayService {
       label: c.name,
       kind: c.kind,
       system: false,
-      configured: c.enabled && (c.kind !== 'ANTHROPIC' || !!c.apiKeyCipher),
+      configured: c.enabled && ((c.kind !== 'ANTHROPIC' && c.credentialType !== 'OAUTH') || !!c.apiKeyCipher),
       models: c.models.map((m) => strip(toCatalogModel(m))),
     }));
     return [...system, ...custom];

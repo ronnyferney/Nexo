@@ -29,7 +29,8 @@ export class LlmProvidersApi {
   oauthStart = (id: string, data: OAuthStartInput = {}) =>
     firstValueFrom(this.http.post<{ authorizeUrl: string }>(`${this.url(id)}/oauth/start`, data));
   /** Flujo de código de dispositivo (RFC 8628, p. ej. Hugging Face). */
-  deviceStart = (id: string) => firstValueFrom(this.http.post<DeviceStartResult>(`${this.url(id)}/device/start`, {}));
+  deviceStart = (id: string, data: OAuthStartInput = {}) =>
+    firstValueFrom(this.http.post<DeviceStartResult>(`${this.url(id)}/device/start`, data));
   devicePoll = (id: string, flowId: string) =>
     firstValueFrom(this.http.post<DevicePollResult>(`${this.url(id)}/device/poll`, { flowId }));
   /** Detección de un servidor local (Ollama, LM Studio) y de sus modelos instalados. */

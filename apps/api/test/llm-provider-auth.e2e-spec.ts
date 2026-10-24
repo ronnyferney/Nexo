@@ -463,12 +463,75 @@ describe('Mecanismos oficiales de conexión de proveedores IA (E2E)', () => {
       await prismaOf(app).agent.delete({ where: { id: agent.id } });
     });
 
+    it('cerrar sesión revoca y borra los tokens pero conserva la conexión, sus modelos y los agentes', async () => {
+      const agent = await createAgent(owner, { provider: connectionId, model: 'google/gemini-e2e' });
+      const row = await prismaOf(app).llmConnection.findUniqueOrThrow({ where: { id: connectionId } });
+      const refresh = app.get(CryptoService).decrypt(row.oauthRefreshCipher!);
+      await other.api.post(`/admin/llm/connections/${connectionId}/sign-out`, {}).expect(404);
+
+      const res = await owner.api.post(`/admin/llm/connections/${connectionId}/sign-out`, {}).expect(200);
+      expect(res.body).toMatchObject({
+        revoked: true,
+        connection: { id: connectionId, signedOut: true, hasApiKey: false, oauthRenewable: false },
+      });
+      expect(idp.revoked).toContain(refresh);
+      const after = await prismaOf(app).llmConnection.findUniqueOrThrow({
+        where: { id: connectionId },
+        include: { models: true },
+      });
+      expect(after).toMatchObject({
+        apiKeyCipher: null,
+        oauthRefreshCipher: null,
+        oauthExpiresAt: null,
+        enabled: true,
+      });
+      expect(after.models.map((m) => m.modelId)).toEqual(['google/gemini-e2e']);
+      await expect(chat(owner, agent.id, 'Hola')).rejects.toThrow(/sesión de esta conexión está cerrada/);
+      const catalog = (await owner.api.get('/llm/catalog').expect(200)).body as { id: string; configured: boolean }[];
+      expect(catalog.find((c) => c.id === connectionId)?.configured).toBe(false);
+      await prismaOf(app).agent.delete({ where: { id: agent.id } });
+    });
+
+    it('volver a iniciar sesión reemplaza los tokens de la misma conexión (mismo id, campos y modelos)', async () => {
+      const agent = await createAgent(owner, { provider: connectionId, model: 'google/gemini-e2e' });
+      const before = await prismaOf(app).llmConnection.count({ where: { workspaceId: owner.workspaceId } });
+      await other.api.post('/admin/llm/providers/vertex/oauth/start', { connectionId }).expect(404);
+      await owner.api.post('/admin/llm/providers/azure-openai/oauth/start', { connectionId }).expect(400);
+
+      // Los campos guardados (proyecto y región) mandan sobre los del cuerpo.
+      const start = await owner.api
+        .post('/admin/llm/providers/vertex/oauth/start', { connectionId, fields: { projectId: 'otro', region: 'x' } })
+        .expect(200);
+      const { code, state } = idp.authorize((start.body as { authorizeUrl: string }).authorizeUrl, {
+        path: '/google/auth',
+        clientId: 'nexo-vertex.apps.googleusercontent.com',
+        scope: 'https://www.googleapis.com/auth/cloud-platform',
+        provider: 'vertex',
+      });
+      const res = await callback('vertex', { code, state }).expect(302);
+      expect(connectedId(res.headers.location, 'vertex')).toBe(connectionId);
+      expect(await prismaOf(app).llmConnection.count({ where: { workspaceId: owner.workspaceId } })).toBe(before);
+
+      const row = await prismaOf(app).llmConnection.findUniqueOrThrow({
+        where: { id: connectionId },
+        include: { models: true },
+      });
+      expect(row).toMatchObject({
+        name: 'Vertex producción',
+        providerFields: { projectId: 'mi-proyecto-123', region: 'global' },
+      });
+      expect(row.oauthRefreshCipher).toBeTruthy();
+      expect(row.models.map((m) => m.modelId)).toEqual(['google/gemini-e2e']);
+      expect((await chat(owner, agent.id, 'De vuelta')).text).toBe('Respuesta con OAuth');
+      await prismaOf(app).agent.delete({ where: { id: agent.id } });
+    });
+
     it('desconectar revoca el grant en Google y borra la conexión', async () => {
       const row = await prismaOf(app).llmConnection.findUniqueOrThrow({ where: { id: connectionId } });
       const refresh = app.get(CryptoService).decrypt(row.oauthRefreshCipher!);
       const res = await owner.api.delete(`/admin/llm/connections/${connectionId}`).expect(200);
       expect(res.body).toEqual({ deleted: true, revoked: true });
-      expect(idp.revoked).toEqual([refresh]);
+      expect(idp.revoked).toContain(refresh);
       expect(await prismaOf(app).llmConnection.count({ where: { id: connectionId } })).toBe(0);
     });
 

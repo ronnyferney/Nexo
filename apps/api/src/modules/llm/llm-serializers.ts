@@ -43,6 +43,8 @@ export function serializeConnection(c: LlmConnection & { models?: LlmModel[] }) 
     oauthExpiresAt: c.oauthExpiresAt ?? null,
     /** El token OAuth se renueva solo (hay refresh token); si es false, al expirar hay que volver a iniciar sesión. */
     oauthRenewable: c.credentialType === 'OAUTH' ? !!c.oauthRefreshCipher : null,
+    /** Conexión OAuth con la sesión cerrada (sin tokens): conserva modelos y agentes hasta volver a iniciar sesión. */
+    signedOut: c.credentialType === 'OAUTH' && !c.apiKeyCipher,
     enabled: c.enabled,
     /** Entrada del catálogo de proveedores; null en conexiones manuales. */
     providerId: c.providerId,

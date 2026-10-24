@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   ConflictException,
   Controller,
@@ -92,6 +93,29 @@ export class LlmAdminController {
     const revoked = await this.tokens.revoke(c);
     await this.prisma.llmConnection.delete({ where: { id } });
     return { deleted: true, revoked };
+  }
+
+  /**
+   * «Cerrar sesión» de una conexión OAuth: revoca el grant si el proveedor lo permite y borra los tokens, pero conserva
+   * la conexión, sus modelos y tarifas y los agentes que la usan. Mientras la sesión esté cerrada, las llamadas fallan
+   * con un mensaje claro; «Volver a iniciar sesión» (`oauth/start` o `device/start` con `connectionId`) la reactiva.
+   */
+  @HttpCode(200)
+  @Post('connections/:id/sign-out')
+  async signOut(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
+    const c = await this.connection(a.workspaceId, id);
+    if (c.credentialType !== 'OAUTH') {
+      throw new BadRequestException(
+        'Solo las conexiones con inicio de sesión admiten «Cerrar sesión»; use «Desconectar»',
+      );
+    }
+    const revoked = await this.tokens.revoke(c);
+    const row = await this.prisma.llmConnection.update({
+      where: { id },
+      data: { apiKeyCipher: null, oauthRefreshCipher: null, oauthExpiresAt: null },
+      include: { models: { orderBy: { label: 'asc' } } },
+    });
+    return { connection: serializeConnection(row), revoked };
   }
 
   /** Modelos de la conexión con nivel, especialidades, contexto y tarifas (filtros de la consola). */

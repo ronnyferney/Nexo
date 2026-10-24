@@ -59,6 +59,16 @@ export class LlmFlowStartDto {
   @MinLength(1, { each: true })
   @MaxLength(120, { each: true })
   models?: string[];
+
+  @ApiPropertyOptional({
+    description:
+      'Volver a iniciar sesión en una conexión OAuth existente: renueva sus tokens y conserva modelos y agentes',
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(64)
+  connectionId?: string;
 }
 
 export class LlmOAuthStartDto extends LlmFlowStartDto {

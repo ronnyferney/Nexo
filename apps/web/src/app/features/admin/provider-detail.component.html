@@ -68,7 +68,17 @@
     <span class="spacer"></span>
     @if (d.models.length) { <button type="button" class="btn pill" (click)="goModels.emit()">Gestionar modelos</button> }
     @if (d.canDisconnect) {
-      <button type="button" class="btn danger pill" (click)="disconnect.emit()"><nx-icon [name]="d.signedIn ? 'logout' : 'unlink'" [size]="15" />{{ d.signedIn ? 'Cerrar sesión' : 'Desconectar' }}</button>
+      @if (d.signedIn) {
+        <button type="button" class="btn ghost pill danger" (click)="disconnect.emit()"><nx-icon name="trash" [size]="15" />Eliminar conexión</button>
+        @if (!d.signedOut) {
+          <button type="button" class="btn danger pill" (click)="signOut.emit()"><nx-icon name="logout" [size]="15" />Cerrar sesión</button>
+        }
+        @if (d.canReauth) {
+          <button type="button" class="btn pill" [class.primary]="d.signedOut" (click)="reauth.emit()"><nx-icon name="refresh" [size]="15" />{{ d.signedOut ? 'Iniciar sesión de nuevo' : 'Volver a iniciar sesión' }}</button>
+        }
+      } @else {
+        <button type="button" class="btn danger pill" (click)="disconnect.emit()"><nx-icon name="unlink" [size]="15" />Desconectar</button>
+      }
     }
   </div>
 </dialog>

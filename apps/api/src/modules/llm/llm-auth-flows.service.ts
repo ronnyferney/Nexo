@@ -7,7 +7,7 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { createPkce, OAuthStateService, STATE_TTL_SECONDS } from '../oauth/oauth-state.service';
 import { LlmProvidersService } from './llm-providers.service';
 import { serializeConnection } from './llm-serializers';
-import { LlmTokenService, OAuthTokenError, tokensFrom, type OAuthTokens } from './llm-token.service';
+import { LlmTokenService, OAuthTokenError, stringValues, tokensFrom, type OAuthTokens } from './llm-token.service';
 import { findMechanism, type OAuthAppSpec, type ProviderCatalogEntry, type ValidatedFields } from './providers';
 
 /** Prefijo del `connectorId` del `state` firmado: `llm-provider:<proveedor>:<flujo>` (ADR 0002 D8, ADR 0005 D3). */
@@ -29,6 +29,8 @@ export interface FlowInput {
   name?: string;
   fields?: Record<string, string>;
   models?: string[];
+  /** «Volver a iniciar sesión»: conexión OAuth existente cuyos tokens se reemplazan (conserva modelos y agentes). */
+  connectionId?: string;
 }
 
 export interface DeviceStartResult {
@@ -112,7 +114,8 @@ export class LlmAuthFlowsService {
     if (!userId) throw new BadRequestException('Inicie la conexión OAuth desde una sesión de usuario (no con API key)');
     const entry = this.providers.provider(providerId);
     const spec = this.spec(entry, 'OAUTH');
-    const validated = this.providers.validate(entry, input.fields ?? {}, 'OAUTH');
+    const target = await this.reauthTarget(workspaceId, entry, input.connectionId);
+    const validated = this.providers.validate(entry, target?.fields ?? input.fields ?? {}, 'OAUTH');
     const app = this.tokens.app(entry, spec, validated.values);
     await this.sweep();
 
@@ -125,6 +128,7 @@ export class LlmAuthFlowsService {
         name: input.name?.trim() || null,
         fields: validated.values,
         models: input.models ?? [],
+        connectionId: target?.id ?? null,
         expiresAt: new Date(Date.now() + STATE_TTL_SECONDS * 1000),
       },
     });
@@ -202,7 +206,8 @@ export class LlmAuthFlowsService {
     if (!userId) throw new BadRequestException('Inicie la conexión desde una sesión de usuario (no con API key)');
     const entry = this.providers.provider(providerId);
     const spec = this.spec(entry, 'DEVICE_CODE');
-    const validated = this.providers.validate(entry, input.fields ?? {}, 'DEVICE_CODE');
+    const target = await this.reauthTarget(workspaceId, entry, input.connectionId);
+    const validated = this.providers.validate(entry, target?.fields ?? input.fields ?? {}, 'DEVICE_CODE');
     const app = this.tokens.app(entry, spec, validated.values);
     await this.sweep();
 
@@ -235,6 +240,7 @@ export class LlmAuthFlowsService {
         name: input.name?.trim() || null,
         fields: validated.values,
         models: input.models ?? [],
+        connectionId: target?.id ?? null,
         deviceCodeCipher: this.crypto.encrypt(deviceCode),
         intervalSec: interval,
         nextPollAt: new Date(Date.now() + interval * 1000),
@@ -335,12 +341,47 @@ export class LlmAuthFlowsService {
   }
 
   // ---------- Internos ----------
-  /** Prueba el token contra el endpoint del proveedor (como Bearer) y crea la conexión OAuth del workspace del flujo. */
+  /**
+   * Conexión OAuth del workspace y del mismo proveedor sobre la que se vuelve a iniciar sesión. Se reutilizan sus campos
+   * guardados (proyecto, región, recurso) para que la sesión nueva apunte al mismo destino.
+   */
+  private async reauthTarget(workspaceId: string, entry: ProviderCatalogEntry, connectionId: string | undefined) {
+    if (!connectionId) return null;
+    const c = await this.prisma.llmConnection.findFirst({ where: { id: connectionId, workspaceId } });
+    if (!c) throw new NotFoundException('Conexión no encontrada');
+    if (c.providerId !== entry.id) throw new BadRequestException(`La conexión no pertenece al proveedor ${entry.name}`);
+    if (c.credentialType !== 'OAUTH') {
+      throw new BadRequestException('La conexión usa clave de API: actualice la clave en lugar de iniciar sesión');
+    }
+    return { id: c.id, fields: stringValues(c.providerFields) };
+  }
+
+  /**
+   * Prueba el token contra el endpoint del proveedor (como Bearer) y crea la conexión OAuth del workspace del flujo o,
+   * si el flujo es «Volver a iniciar sesión», reemplaza los tokens de la conexión existente (mismo id, modelos y agentes).
+   */
   private async save(flow: LlmAuthFlow, entry: ProviderCatalogEntry, tokens: OAuthTokens) {
     const values = (flow.fields ?? {}) as Record<string, string>;
     const base = this.providers.validate(entry, values, flow.type === 'OAUTH' ? 'OAUTH' : 'DEVICE_CODE');
     const validated: ValidatedFields = { ...base, apiKey: tokens.accessToken };
     const discovered = await this.providers.probe(entry, validated, 'bearer');
+    if (flow.connectionId) {
+      const renewed = await this.prisma.llmConnection.updateMany({
+        where: { id: flow.connectionId, workspaceId: flow.workspaceId, providerId: entry.id, credentialType: 'OAUTH' },
+        data: {
+          apiKeyCipher: this.crypto.encrypt(tokens.accessToken),
+          oauthRefreshCipher: tokens.refreshToken ? this.crypto.encrypt(tokens.refreshToken) : null,
+          oauthExpiresAt: tokens.expiresAt,
+          oauthScope: tokens.scope,
+        },
+      });
+      if (!renewed.count) throw new BadRequestException('La conexión ya no existe: conéctela de nuevo');
+      const row = await this.prisma.llmConnection.findUniqueOrThrow({
+        where: { id: flow.connectionId },
+        include: { models: { orderBy: { label: 'asc' } } },
+      });
+      return serializeConnection(row);
+    }
     const saved = await this.providers.saveConnection(flow.workspaceId, entry, {
       name: flow.name ?? undefined,
       validated: { ...base, apiKey: undefined },

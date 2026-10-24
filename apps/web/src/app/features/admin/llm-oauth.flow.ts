@@ -63,12 +63,15 @@ export class LlmOAuthFlow {
    * Inicia sesión con el proveedor. Debe llamarse directamente desde el manejador del clic.
    * Lanza el error de la API (p. ej. app OAuth no configurada) para que la vista lo muestre.
    */
-  async start(p: ProviderView, fields?: Record<string, string>) {
+  async start(p: ProviderView, fields?: Record<string, string>, connectionId?: string) {
     this.cancel();
     this.popup = this.openPopup(p.name);
     this.pending.set({ providerId: p.id, name: p.name });
     try {
-      const { authorizeUrl } = await this.api.oauthStart(p.id, fields && Object.keys(fields).length ? { fields } : {});
+      const { authorizeUrl } = await this.api.oauthStart(p.id, {
+        ...(fields && Object.keys(fields).length ? { fields } : {}),
+        ...(connectionId ? { connectionId } : {}),
+      });
       if (!isHttpUrl(authorizeUrl)) throw new Error('El proveedor devolvió una dirección de autorización no válida.');
       if (this.pending()?.providerId !== p.id) return; // cancelado mientras se pedía la URL
       if (this.popup && !this.popup.closed) {

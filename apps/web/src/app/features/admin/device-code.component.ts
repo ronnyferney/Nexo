@@ -81,6 +81,8 @@ export class DeviceCodeComponent implements OnInit {
   readonly mechanism = input.required<ProviderMechanism>();
   /** Genera el código al abrir (el usuario pulsó «+» en la galería). */
   readonly autostart = input(false);
+  /** «Volver a iniciar sesión»: conexión cuyos tokens se renuevan en lugar de crear otra. */
+  readonly connectionId = input<string | null>(null);
   readonly connected = output<DevicePollResult>();
 
   readonly state = signal<State>('idle');
@@ -139,7 +141,8 @@ export class DeviceCodeComponent implements OnInit {
     this.failures = 0;
     this.announce.set('Generando código…');
     try {
-      const f = await this.api.deviceStart(this.provider().id);
+      const id = this.connectionId();
+      const f = await this.api.deviceStart(this.provider().id, id ? { connectionId: id } : {});
       if (run !== this.run) return;
       this.flow.set(f);
       this.interval = Math.max(1, f.interval || 5);

@@ -60,6 +60,10 @@ export interface ProviderDetailData {
   signedIn: boolean;
   /** Estado del token OAuth: «La sesión se renueva automáticamente» o cuándo volver a iniciar sesión. */
   sessionNote: string | null;
+  /** Sesión cerrada (conexión OAuth sin tokens): se ofrece «Iniciar sesión de nuevo». */
+  signedOut: boolean;
+  /** Se puede volver a iniciar sesión sobre la misma conexión (OAuth o código de dispositivo disponible). */
+  canReauth: boolean;
   canDisconnect: boolean;
   models: DetailModel[];
 }
@@ -77,7 +81,12 @@ export class ProviderDetailComponent {
 
   readonly data = input.required<ProviderDetailData>();
   readonly closed = output<void>();
+  /** Desconectar (clave de API) o eliminar la conexión. */
   readonly disconnect = output<void>();
+  /** Cerrar sesión conservando la conexión. */
+  readonly signOut = output<void>();
+  /** Volver a iniciar sesión en la misma conexión. */
+  readonly reauth = output<void>();
   readonly goModels = output<void>();
 
   readonly specialties = SPECIALTIES;

@@ -143,6 +143,9 @@ export class ApiService {
   updateLlmConnection = (id: string, data: LlmConnectionUpdateInput) =>
     this.patch<LlmConnection>(`/admin/llm/connections/${id}`, data);
   deleteLlmConnection = (id: string) => this.delete(`/admin/llm/connections/${id}`);
+  /** Cierra la sesión OAuth (borra y revoca los tokens) conservando la conexión, sus modelos y agentes. */
+  signOutLlmConnection = (id: string) =>
+    this.post<{ connection: LlmConnection; revoked: boolean }>(`/admin/llm/connections/${id}/sign-out`);
   testLlmConnection = (id: string) => this.post<{ ok: boolean; message: string }>(`/admin/llm/connections/${id}/test`);
   createLlmModel = (connectionId: string, data: LlmModelInput) =>
     this.post<LlmModel>(`/admin/llm/connections/${connectionId}/models`, data);

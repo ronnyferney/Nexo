@@ -118,6 +118,8 @@ export interface LlmConnectionMeta extends LlmConnection {
   oauthExpiresAt?: string | null;
   /** `true`: el token se renueva solo; `false`: al expirar hay que volver a iniciar sesión. */
   oauthRenewable?: boolean | null;
+  /** Conexión OAuth con la sesión cerrada: conserva modelos y agentes hasta volver a iniciar sesión. */
+  signedOut?: boolean;
 }
 
 /** `POST /admin/llm/providers/:id/oauth/start` (también `device/start`). `limit` solo aplica a OpenRouter (USD). */
@@ -126,6 +128,8 @@ export interface OAuthStartInput {
   fields?: Record<string, string>;
   models?: string[];
   limit?: number;
+  /** «Volver a iniciar sesión» en esta conexión OAuth (renueva sus tokens; no crea otra). */
+  connectionId?: string;
 }
 
 /** `POST /admin/llm/providers/:id/device/start` (p. ej. Hugging Face). `expiresIn` e `interval` en segundos. */

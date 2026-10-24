@@ -139,7 +139,7 @@ export class LlmTokenService {
    */
   async accessToken(connectionId: string): Promise<string> {
     const c = await this.prisma.llmConnection.findUnique({ where: { id: connectionId } });
-    if (!c?.apiKeyCipher) throw new BadRequestException('La conexión no tiene sesión OAuth: vuelva a conectarla');
+    if (!c?.apiKeyCipher) throw new BadRequestException(SIGNED_OUT_MESSAGE);
     if (!this.expiringSoon(c)) return this.crypto.decrypt(c.apiKeyCipher);
     const inflight = this.refreshing.get(connectionId);
     if (inflight) return inflight;
@@ -154,7 +154,7 @@ export class LlmTokenService {
 
   private async refresh(connectionId: string): Promise<string> {
     const c = await this.prisma.llmConnection.findUnique({ where: { id: connectionId } });
-    if (!c?.apiKeyCipher) throw new BadRequestException('La conexión no tiene sesión OAuth: vuelva a conectarla');
+    if (!c?.apiKeyCipher) throw new BadRequestException(SIGNED_OUT_MESSAGE);
     if (!this.expiringSoon(c)) return this.crypto.decrypt(c.apiKeyCipher);
     const entry = c.providerId ? findProvider(c.providerId) : undefined;
     const spec = entry ? this.oauthSpec(entry) : undefined;
@@ -221,6 +221,10 @@ export class LlmTokenService {
     }
   }
 }
+
+/** Error al usar una conexión OAuth cuya sesión se cerró. */
+export const SIGNED_OUT_MESSAGE =
+  'La sesión de esta conexión está cerrada: vuelva a iniciar sesión en Administración → Proveedores IA';
 
 export function stringValues(raw: unknown): Record<string, string> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
