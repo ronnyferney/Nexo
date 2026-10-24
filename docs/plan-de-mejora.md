@@ -28,7 +28,7 @@ iteración · **P3** higiene.
 | M4 | Media | P1 | Valores del LLM sin codificar en ruta y query de conectores REST | `encodeURIComponent`; rechazar `..`, `?`, `#` y URL absolutas | Hecho (749f411) |
 | M5 | Media | P1 | Límite de 5 MB comprobado tras leer todo el cuerpo | Lectura por flujo con corte al superar el límite | Hecho (749f411) |
 | M6 | Media | P1 | La web no envía CSP, `X-Frame-Options`, HSTS ni `Referrer-Policy`; JWT en `localStorage` | Cabeceras en nginx; evaluar cookie HttpOnly para la sesión | Hecho en cabeceras (6897876); pendiente: JWT fuera de localStorage |
-| M7 | Media | P1 | Sin dominio el piloto se publica por HTTP | Exigir TLS en el despliegue | Pendiente |
+| M7 | Media | P1 | Sin dominio el piloto se publica por HTTP | Exigir TLS en el despliegue | Hecho (447b1aa): sin dominio con certificado el piloto no se sintetiza |
 | M8 | Media | P2 | ADR 0008 sin implementar: datos personales sin enmascarar hacia el LLM; conversaciones sin retención | DataGuard D1-D2 y retención D7 | Pendiente |
 | M9 | Media | P1 | Los secretos de ejemplo (`JWT_SECRET`, `ENCRYPTION_KEY` en ceros) pasan la validación | Rechazar placeholders y claves de baja entropía | Hecho (6897876) |
 | B1 | Baja | P2 | Token de webhook y `code`/`state` OAuth en los logs | Redactar rutas y query sensibles | Hecho (6897876) |
@@ -38,7 +38,7 @@ iteración · **P3** higiene.
 | B5 | Baja | P1 | `POST /connectors/:id/test` sin `@MinRole` | `@MinRole('EDITOR')` | Hecho (749f411) |
 | B6 | Baja | P2 | ReDoS por `pattern` del `inputSchema` | Ajv con RE2 o límite de longitud | Hecho (749f411) |
 | B7 | Baja | P2 | AES-GCM sin AAD ni versión de clave (rotación imposible) | Prefijo de versión + AAD; rotación con KMS (ADR 0008 fase 2) | Pendiente |
-| B8 | Baja | P2 | Redis sin AUTH/TLS; RDS sin protección contra borrado; ECS Exec activo | Endurecer la infraestructura | Pendiente |
+| B8 | Baja | P2 | Redis sin AUTH/TLS; RDS sin protección contra borrado; ECS Exec activo | Endurecer la infraestructura | Hecho en infraestructura (447b1aa); `REDIS_TLS` en la API se sube junto con C1 |
 | B9 | Baja | P2 | El Copilot guarda agentes con modelos fuera del catálogo | Reusar `LlmUsageService.assertAgentModels` | Hecho (3f84936) |
 | B10 | Baja | P2 | Swagger público en producción | Solo fuera de producción o autenticado | Hecho (6897876) |
 | I1 | Info | P2 | El simulador LLM depende de `NODE_ENV=production` | No registrar el controlador fuera de desarrollo + prueba del bloqueo | Hecho (3f84936): exige `NODE_ENV=development` o `test` |
@@ -78,7 +78,8 @@ claves cifrados con AES-256-GCM, `redirect: 'manual'` en el cliente HTTP, `postM
 | P2 | P1 | Avisar al ejecutar un flujo sin los datos de entrada que espera (hoy falla en el primer nodo) | Hecho: `trigger.config.inputFields`, 400 con los campos que faltan y avisos en el panel «Ejecutar» |
 | P3 | P1 | Probar los inicios de sesión reales (Google, Microsoft, Hugging Face) contra los proveedores, no solo contra simuladores | Pendiente |
 | P4 | P1 | RPA con Claude real en el equipo del usuario | Pendiente |
-| P5 | P2 | Pruebas unitarias de la web (`ng test`) en CI para los componentes nuevos | Pendiente |
+| P5 | P2 | Pruebas unitarias de la web (`ng test`) en CI para los componentes nuevos | Hecho (717cfa9) |
 | P6 | P2 | Implementar ADR 0008 (protección de datos y observabilidad) | Pendiente |
 | P7 | P2 | Decidir la regla de exposición de flujos por MCP | Pendiente |
 | P8 | P3 | 19 advertencias de lint en la API | Pendiente |
+| P9 | P0 | Los programadores cron de flujos y rutinas viven solo en Redis: al reemplazar Redis (B8) o perder sus datos dejan de ejecutarse | Reconciliar al arrancar desde la base de datos | En curso |
