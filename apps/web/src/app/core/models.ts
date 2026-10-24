@@ -77,6 +77,8 @@ export interface Agent {
   tools?: AgentToolBinding[];
   skills?: import('./studio.models').AgentSkillRef[];
   knowledgeBases?: import('./studio.models').AgentKnowledgeRef[];
+  /** Bases asignadas con su permiso de escritura (auto-aprendizaje). */
+  knowledge?: import('./studio.models').AgentKnowledgeEntry[];
   examplesCount?: number;
   /** Meta de calidad del bucle de mejora (0–1, por defecto 0.85; ADR 0004). */
   targetScore?: number;

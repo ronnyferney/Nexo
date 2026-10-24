@@ -111,9 +111,9 @@ describe('Estudio de agentes · perfil, skills, conocimiento, ejemplos y respald
         fallbackModels: ['mock:mock-echo'],
         skills: [],
         knowledgeBases: [],
+        knowledge: [],
         examplesCount: 0,
       });
-      expect(got).not.toHaveProperty('knowledge');
       expect(got).not.toHaveProperty('examples');
 
       await owner.api.patch(`/agents/${id}`, { profile: { tone: 'Formal' } }).expect(200);
@@ -338,6 +338,65 @@ describe('Estudio de agentes · perfil, skills, conocimiento, ejemplos y respald
       expect(nothing.text).toContain('No se encontró información');
 
       await owner.api.put(`/agents/${agentId}/knowledge`, { knowledgeBaseIds: ['no-existe'] }).expect(400);
+    });
+
+    it('el agente aprende con save_knowledge cuando la base es escribible', async () => {
+      // writableIds debe ser subconjunto de knowledgeBaseIds.
+      await owner.api
+        .put(`/agents/${agentId}/knowledge`, { knowledgeBaseIds: [kbId], writableIds: ['otra'] })
+        .expect(400);
+
+      const assigned = (
+        await owner.api
+          .put(`/agents/${agentId}/knowledge`, { knowledgeBaseIds: [kbId], writableIds: [kbId] })
+          .expect(200)
+      ).body as { knowledge: { knowledgeBaseId: string; canWrite: boolean; knowledgeBase: { description: string } }[] };
+      expect(assigned.knowledge).toEqual([
+        {
+          knowledgeBaseId: kbId,
+          canWrite: true,
+          knowledgeBase: { id: kbId, name: 'Políticas', description: 'Manual interno' },
+        },
+      ]);
+
+      const detail = (await owner.api.get(`/agents/${agentId}`).expect(200)).body as {
+        knowledge: { knowledgeBaseId: string; canWrite: boolean }[];
+      };
+      expect(detail.knowledge).toEqual([
+        {
+          knowledgeBaseId: kbId,
+          canWrite: true,
+          knowledgeBase: { id: kbId, name: 'Políticas', description: 'Manual interno' },
+        },
+      ]);
+
+      const saved = await chat(
+        owner,
+        agentId,
+        '/tool save_knowledge {"title":"Perfil de Ana Torres","content":"Ana Torres es gerenta de compras; prefiere correos breves y directos."}',
+      );
+      expect(saved.text).toContain('Guardado en la base de conocimiento: Perfil de Ana Torres');
+
+      const doc = await prismaOf(app).knowledgeDocument.findFirst({
+        where: { knowledgeBaseId: kbId, title: 'Perfil de Ana Torres' },
+      });
+      expect(doc).toMatchObject({ sourceType: 'TEXT', status: 'READY' });
+
+      const hits = (
+        await owner.api.post(`/knowledge-bases/${kbId}/search`, { query: 'gerenta de compras' }).expect(200)
+      ).body as Hit[];
+      expect(hits[0].title).toBe('Perfil de Ana Torres');
+      expect(hits[0].content).toContain('correos breves');
+    });
+
+    it('sin base escribible, save_knowledge no se ofrece ni se ejecuta', async () => {
+      await owner.api.put(`/agents/${agentId}/knowledge`, { knowledgeBaseIds: [kbId] }).expect(200);
+      const preview = (await owner.api.get(`/agents/${agentId}/prompt-preview`).expect(200)).body as {
+        tools: { name: string }[];
+      };
+      expect(preview.tools.map((t) => t.name)).not.toContain('save_knowledge');
+      const r = await chat(owner, agentId, '/tool save_knowledge {"title":"x","content":"y"}');
+      expect(r.text).toContain('Tool desconocida: save_knowledge');
     });
   });
 

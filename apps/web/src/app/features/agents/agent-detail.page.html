@@ -273,7 +273,7 @@
               <div class="stack">
                 <div class="card stack">
                   <div class="row wrap"><nx-icon name="book" [size]="16" /><strong>Bases de conocimiento</strong><span class="spacer"></span><a class="small" routerLink="/knowledge">Gestionar bases</a></div>
-                  <p class="muted small m0">Con bases asignadas el agente recibe la herramienta <code>search_knowledge</code> para buscar en ellas.</p>
+                  <p class="muted small m0">Con bases asignadas el agente recibe la herramienta <code>search_knowledge</code> para buscar en ellas. Si además le permite <strong>aprender</strong> en una base, podrá guardar lo que descubra (perfiles de contactos, estructura de la organización) con <code>save_knowledge</code> y mejorar con el tiempo.</p>
                   @if (kbError()) {
                     <div class="callout danger"><nx-icon name="alert" [size]="16" /><span>No se pudieron cargar las bases: {{ kbError() }}</span>
                       <button class="btn sm" (click)="loadKnowledgeBases()">Reintentar</button></div>
@@ -282,10 +282,18 @@
                   } @else {
                     <div class="checklist">
                       @for (k of knowledgeBases(); track k.id) {
-                        <label class="choice">
-                          <input type="checkbox" [disabled]="!canEditAgent()" [checked]="kbSelection().has(k.id)" (change)="toggleKb(k.id, $any($event.target).checked)" />
-                          <span><strong>{{ k.name }}</strong><span class="muted small block">{{ k.documentCount | num }} documentos · {{ k.chunkCount | num }} fragmentos</span></span>
-                        </label>
+                        <div class="kb-item">
+                          <label class="choice">
+                            <input type="checkbox" [disabled]="!canEditAgent()" [checked]="kbSelection().has(k.id)" (change)="toggleKb(k.id, $any($event.target).checked)" />
+                            <span><strong>{{ k.name }}</strong><span class="muted small block">{{ k.documentCount | num }} documentos · {{ k.chunkCount | num }} fragmentos</span></span>
+                          </label>
+                          @if (kbSelection().has(k.id)) {
+                            <label class="checkbox small learn">
+                              <input type="checkbox" [disabled]="!canEditAgent()" [checked]="kbWritable().has(k.id)" (change)="toggleKbWrite(k.id, $any($event.target).checked)" />
+                              <nx-icon name="sparkles" [size]="13" />Permitir que el agente aprenda aquí (escribir en la base)
+                            </label>
+                          }
+                        </div>
                       } @empty {
                         <p class="muted small">No hay bases de conocimiento. <a routerLink="/knowledge">Cree una</a> y cargue documentos.</p>
                       }

@@ -46,6 +46,13 @@ export interface AgentKnowledgeRef {
   name: string;
 }
 
+/** Base de conocimiento asignada a un agente, con el permiso de escritura (auto-aprendizaje). */
+export interface AgentKnowledgeEntry {
+  knowledgeBaseId: string;
+  canWrite: boolean;
+  knowledgeBase: { id: string; name: string; description: string | null };
+}
+
 /** `GET /agents/:id/prompt-preview`. */
 export interface PromptPreview {
   system: string;

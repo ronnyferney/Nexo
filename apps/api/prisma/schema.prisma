@@ -708,6 +708,8 @@ model KnowledgeBase {
 model AgentKnowledge {
   agentId         String
   knowledgeBaseId String
+  // Si es true, el agente puede escribir (aprender) en esta base con la herramienta interna `save_knowledge`.
+  canWrite        Boolean       @default(false)
   agent           Agent         @relation(fields: [agentId], references: [id], onDelete: Cascade)
   knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
 

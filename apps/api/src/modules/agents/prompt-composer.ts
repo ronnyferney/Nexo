@@ -38,10 +38,13 @@ export interface ComposeSystemPromptInput {
   skills?: PromptSkill[];
   knowledgeBases?: PromptKnowledgeBase[];
   examples?: PromptExample[];
+  /** Si el agente tiene al menos una base escribible, se le explica cómo recordar información con `save_knowledge`. */
+  canWrite?: boolean;
 }
 
 export const LOAD_SKILL_TOOL = 'load_skill';
 export const SEARCH_KNOWLEDGE_TOOL = 'search_knowledge';
+export const SAVE_KNOWLEDGE_TOOL = 'save_knowledge';
 
 const clean = (s: unknown): string => (typeof s === 'string' ? s.trim() : '');
 const cleanList = (items: unknown): string[] => (Array.isArray(items) ? items.map(clean).filter(Boolean) : []);
@@ -109,16 +112,19 @@ export function composeSystemPrompt(input: ComposeSystemPromptInput): string {
     );
   }
   if (bases.length) {
-    extras.push(
-      section(
-        'Conocimiento',
-        [
-          `Tienes acceso a la base de conocimiento de la empresa. Antes de responder sobre temas de la empresa (productos, servicios, políticas, procesos o datos internos), usa la herramienta \`${SEARCH_KNOWLEDGE_TOOL}\` y basa tu respuesta en los fragmentos encontrados, citando el documento. Si no encuentras información, dilo en lugar de inventarla.`,
-          'Bases disponibles:',
-          bullets(bases.map((b) => (b.description ? `${b.name}: ${b.description}` : b.name))),
-        ].join('\n'),
-      ),
+    const lines = [
+      `Tienes acceso a la base de conocimiento de la empresa. Antes de responder sobre temas de la empresa (productos, servicios, políticas, procesos o datos internos), usa la herramienta \`${SEARCH_KNOWLEDGE_TOOL}\` y basa tu respuesta en los fragmentos encontrados, citando el documento. Si no encuentras información, dilo en lugar de inventarla.`,
+    ];
+    if (input.canWrite) {
+      lines.push(
+        `Puedes recordar información duradera y útil para tu trabajo (por ejemplo: el perfil de un remitente o destinatario —cargo, área, cómo tratar sus correos—, la estructura de la organización, o una preferencia del usuario) guardándola con la herramienta \`${SAVE_KNOWLEDGE_TOOL}\` (un título claro y el contenido). No guardes datos efímeros ni secretos. Antes de responder consulta primero con \`${SEARCH_KNOWLEDGE_TOOL}\` lo que ya recuerdas.`,
+      );
+    }
+    lines.push(
+      'Bases disponibles:',
+      bullets(bases.map((b) => (b.description ? `${b.name}: ${b.description}` : b.name))),
     );
+    extras.push(section('Conocimiento', lines.join('\n')));
   }
   if (examples.length) {
     extras.push(

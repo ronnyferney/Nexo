@@ -234,7 +234,12 @@ describe('AgentRuntimeService · herramientas internas', () => {
         },
       ],
       knowledge: [
-        { agentId: 'a1', knowledgeBaseId: 'kb1', knowledgeBase: { id: 'kb1', name: 'Precios', description: null } },
+        {
+          agentId: 'a1',
+          knowledgeBaseId: 'kb1',
+          canWrite: false,
+          knowledgeBase: { id: 'kb1', name: 'Precios', description: null },
+        },
       ],
     } as AgentWithTools;
     await runtime.run(a, { message: 'hola', context: { source: 'CHAT' } });
@@ -246,4 +251,80 @@ describe('AgentRuntimeService · herramientas internas', () => {
     expect(seen[2]).toBe('true');
     expect(searches).toEqual([['ws', ['kb1'], 'precios', 5]]);
   });
+
+  it('save_knowledge solo está disponible con una base escribible y guarda en la primera', async () => {
+    const kbBase = (canWrite: boolean) => ({
+      agentId: 'a1',
+      knowledgeBaseId: 'kb1',
+      canWrite,
+      knowledgeBase: { id: 'kb1', name: 'Memoria', description: null },
+    });
+
+    // Sin base escribible: la tool no se ofrece y, si se invoca igual, es desconocida.
+    {
+      let names: string[] = [];
+      const outcomes: ToolOutcomeLike[] = [];
+      const behavior: Behavior = async (req) => {
+        names = req.tools.map((t) => t.name);
+        outcomes.push(await req.executeTool({ id: '1', name: 'save_knowledge', input: { title: 't', content: 'c' } }));
+        return ok('fin')(req);
+      };
+      const { runtime } = setup({ 'p1:m1': { kind: 'MOCK', behavior } });
+      const added: unknown[] = [];
+      (runtime as unknown as { knowledge: Partial<KnowledgeService> }).knowledge = {
+        addDocument: async (...args: unknown[]) => void added.push(args) as unknown as never,
+      };
+      await runtime.run(
+        { ...agent([]), knowledge: [kbBase(false)] },
+        {
+          message: 'hola',
+          context: { source: 'CHAT' },
+        },
+      );
+      expect(names).toEqual(['search_knowledge']);
+      expect(outcomes[0].isError).toBe(true);
+      expect(added).toHaveLength(0);
+    }
+
+    // Con base escribible: la tool aparece y persiste el documento.
+    {
+      let names: string[] = [];
+      const outcomes: ToolOutcomeLike[] = [];
+      const behavior: Behavior = async (req) => {
+        names = req.tools.map((t) => t.name);
+        outcomes.push(
+          await req.executeTool({
+            id: '1',
+            name: 'save_knowledge',
+            input: { title: 'Perfil de Ana', content: 'Gerenta de compras; prefiere correos breves.' },
+          }),
+        );
+        return ok('fin')(req);
+      };
+      const { runtime, calls } = setup({ 'p1:m1': { kind: 'MOCK', behavior } });
+      const added: unknown[] = [];
+      (runtime as unknown as { knowledge: Partial<KnowledgeService> }).knowledge = {
+        addDocument: async (...args: unknown[]) => void added.push(args) as unknown as never,
+      };
+      await runtime.run(
+        { ...agent([]), knowledge: [kbBase(true)] },
+        {
+          message: 'hola',
+          context: { source: 'CHAT' },
+        },
+      );
+      expect(names).toEqual(['search_knowledge', 'save_knowledge']);
+      expect(calls[0].req.system).toContain('`save_knowledge`');
+      expect(outcomes[0].isError).toBeFalsy();
+      expect(outcomes[0].content).toBe('Guardado en la base de conocimiento: Perfil de Ana');
+      expect(added).toEqual([
+        ['ws', 'kb1', { title: 'Perfil de Ana', text: 'Gerenta de compras; prefiere correos breves.' }],
+      ]);
+    }
+  });
 });
+
+interface ToolOutcomeLike {
+  content: string;
+  isError?: boolean;
+}

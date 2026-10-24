@@ -15,7 +15,11 @@ import {
   MaxLength,
   Min,
   MinLength,
+  Validate,
   ValidateNested,
+  ValidatorConstraint,
+  type ValidationArguments,
+  type ValidatorConstraintInterface,
 } from 'class-validator';
 
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
@@ -183,12 +187,39 @@ export class SetAgentSkillsDto {
   @ApiProperty({ type: [String] }) @IsArray() @ArrayMaxSize(50) @IsString({ each: true }) skillIds!: string[];
 }
 
+/** Valida que `writableIds` sea un subconjunto de `knowledgeBaseIds`. */
+@ValidatorConstraint({ name: 'writableIdsSubset', async: false })
+export class WritableIdsSubsetConstraint implements ValidatorConstraintInterface {
+  validate(writableIds: unknown, args: ValidationArguments): boolean {
+    if (writableIds === undefined) return true;
+    if (!Array.isArray(writableIds)) return false;
+    const base = (args.object as SetAgentKnowledgeDto).knowledgeBaseIds;
+    const allowed = new Set<unknown>(Array.isArray(base) ? base : []);
+    return (writableIds as unknown[]).every((id) => allowed.has(id));
+  }
+
+  defaultMessage(): string {
+    return 'writableIds debe ser un subconjunto de knowledgeBaseIds';
+  }
+}
+
 export class SetAgentKnowledgeDto {
   @ApiProperty({ type: [String] })
   @IsArray()
   @ArrayMaxSize(20)
   @IsString({ each: true })
   knowledgeBaseIds!: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Subconjunto de knowledgeBaseIds en las que el agente podrá escribir (save_knowledge)',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  @Validate(WritableIdsSubsetConstraint)
+  writableIds?: string[];
 }
 
 export class CreateAgentExampleDto {

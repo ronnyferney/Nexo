@@ -22,11 +22,14 @@ import { ConnectionUnavailableException } from '../llm/llm-errors';
 import { LlmGatewayService } from '../llm/llm-gateway.service';
 import type { AgentEvent, Effort, LlmRunResult, ToolCall, ToolOutcome, ToolSpec } from '../llm/llm-provider';
 import { costUsd } from '../llm/pricing';
-import { composeSystemPrompt, LOAD_SKILL_TOOL, SEARCH_KNOWLEDGE_TOOL } from './prompt-composer';
+import { composeSystemPrompt, LOAD_SKILL_TOOL, SAVE_KNOWLEDGE_TOOL, SEARCH_KNOWLEDGE_TOOL } from './prompt-composer';
 
 const MAX_TOOL_OUTPUT = 50_000;
 /** Fragmentos que devuelve `search_knowledge`. */
 const KNOWLEDGE_TOOL_RESULTS = 5;
+/** Límites del documento que el agente guarda con `save_knowledge`. */
+const SAVE_TITLE_MAX = 200;
+const SAVE_CONTENT_MAX = 10_000;
 
 type OperationWithConnector = ConnectorOperation & { connector: Connector };
 
@@ -76,6 +79,8 @@ export interface PreparedAgent {
   bindings: Map<string, ToolBinding>;
   skills: Skill[];
   knowledgeBaseIds: string[];
+  /** Bases en las que el agente puede escribir con `save_knowledge` (subconjunto de `knowledgeBaseIds`). */
+  writableKnowledgeBaseIds: string[];
 }
 
 /** Nombre de tool estable y válido para el LLM: <conector>__<operación>. */
@@ -115,7 +120,7 @@ const label = (r: ResolvedModel) => `${r.model} (${r.providerLabel})`;
 /**
  * Orquesta la ejecución de un agente: aplica el gobierno de costos (centro de costo, modelos permitidos,
  * presupuestos y degradación), compone el system prompt (perfil, skills, conocimiento, ejemplos), arma las tools
- * (conectores, operaciones de skills e internas `load_skill`/`search_knowledge`), delega el bucle al proveedor,
+ * (conectores, operaciones de skills e internas `load_skill`/`search_knowledge`/`save_knowledge`), delega el bucle al proveedor,
  * mide cada turno y, si el proveedor falla, recorre la cadena de respaldo `fallbackModels` (ADR 0003, D1).
  */
 @Injectable()
@@ -135,6 +140,7 @@ export class AgentRuntimeService {
   async prepare(agent: AgentWithTools): Promise<PreparedAgent> {
     const skills = (agent.skills ?? []).map((s) => s.skill).sort((a, b) => a.slug.localeCompare(b.slug));
     const bases = (agent.knowledge ?? []).map((k) => k.knowledgeBase);
+    const writableKnowledgeBaseIds = (agent.knowledge ?? []).filter((k) => k.canWrite).map((k) => k.knowledgeBase.id);
 
     const bindings = new Map<string, ToolBinding>();
     for (const binding of agent.tools) {
@@ -203,6 +209,27 @@ export class AgentRuntimeService {
         },
       });
     }
+    if (writableKnowledgeBaseIds.length) {
+      tools.push({
+        name: SAVE_KNOWLEDGE_TOOL,
+        description:
+          'Guarda en la base de conocimiento de la empresa información duradera y útil (perfiles de remitentes o destinatarios, estructura de la organización, preferencias del usuario) para recordarla en el futuro. No guardes datos efímeros ni secretos.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'Título breve y claro de lo que recuerdas',
+              minLength: 1,
+              maxLength: SAVE_TITLE_MAX,
+            },
+            content: { type: 'string', description: 'Contenido a recordar', minLength: 1, maxLength: SAVE_CONTENT_MAX },
+          },
+          required: ['title', 'content'],
+          additionalProperties: false,
+        },
+      });
+    }
 
     const system = composeSystemPrompt({
       systemPrompt: agent.systemPrompt,
@@ -210,8 +237,9 @@ export class AgentRuntimeService {
       skills,
       knowledgeBases: bases,
       examples: agent.examples ?? [],
+      canWrite: writableKnowledgeBaseIds.length > 0,
     });
-    return { system, tools, bindings, skills, knowledgeBaseIds: bases.map((b) => b.id) };
+    return { system, tools, bindings, skills, knowledgeBaseIds: bases.map((b) => b.id), writableKnowledgeBaseIds };
   }
 
   /**
@@ -362,6 +390,9 @@ export class AgentRuntimeService {
     if (call.name === SEARCH_KNOWLEDGE_TOOL && prepared.knowledgeBaseIds.length) {
       return this.searchKnowledge(agent, prepared, call.input);
     }
+    if (call.name === SAVE_KNOWLEDGE_TOOL && prepared.writableKnowledgeBaseIds.length) {
+      return this.saveKnowledge(agent, prepared, call.input);
+    }
     const binding = prepared.bindings.get(call.name);
     if (!binding) return { content: `Tool desconocida: ${call.name}`, isError: true };
     if (binding.requiresApproval && !approved.has(call.name)) {
@@ -424,6 +455,30 @@ export class AgentRuntimeService {
     } catch (err) {
       this.logger.warn(`search_knowledge falló: ${(err as Error).message}`);
       return { content: `Error al buscar en la base de conocimiento: ${(err as Error).message}`, isError: true };
+    }
+  }
+
+  /**
+   * Herramienta interna: el agente aprende guardando un documento en la primera base escribible que tenga asignada
+   * (auto-entrenamiento). El contenido llega ya desenmascarado por DataGuard: es el dato real.
+   */
+  private async saveKnowledge(
+    agent: AgentWithTools,
+    prepared: PreparedAgent,
+    input: Record<string, unknown>,
+  ): Promise<ToolOutcome> {
+    const title = typeof input?.title === 'string' ? input.title.trim().slice(0, SAVE_TITLE_MAX) : '';
+    const content = typeof input?.content === 'string' ? input.content.trim().slice(0, SAVE_CONTENT_MAX) : '';
+    if (!title)
+      return { content: 'Error: indique "title" con un título claro de lo que desea recordar.', isError: true };
+    if (!content) return { content: 'Error: indique "content" con el contenido a recordar.', isError: true };
+    const baseId = prepared.writableKnowledgeBaseIds[0];
+    try {
+      await this.knowledge.addDocument(agent.workspaceId, baseId, { title, text: content });
+      return { content: `Guardado en la base de conocimiento: ${title}` };
+    } catch (err) {
+      this.logger.warn(`save_knowledge falló: ${(err as Error).message}`);
+      return { content: `Error al guardar en la base de conocimiento: ${(err as Error).message}`, isError: true };
     }
   }
 }

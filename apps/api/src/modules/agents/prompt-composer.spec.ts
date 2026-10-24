@@ -59,6 +59,19 @@ describe('composeSystemPrompt', () => {
     expect(out).toContain('### Ejemplo 1\nEntrada:\n¿Horario?\n\nSalida esperada:\nDe 9 a 18 h.');
   });
 
+  it('solo incluye la instrucción de save_knowledge cuando hay bases escribibles', () => {
+    const base = { systemPrompt: 'Base', knowledgeBases: [{ name: 'Clientes', description: 'Perfiles' }] };
+    const readOnly = composeSystemPrompt(base);
+    expect(readOnly).toContain('`search_knowledge`');
+    expect(readOnly).not.toContain('save_knowledge');
+
+    const writable = composeSystemPrompt({ ...base, canWrite: true });
+    expect(writable).toContain('`save_knowledge`');
+    expect(writable).toContain('Puedes recordar información duradera');
+    // Sin bases, canWrite no agrega nada.
+    expect(composeSystemPrompt({ systemPrompt: 'Base', canWrite: true })).not.toContain('save_knowledge');
+  });
+
   it('omite secciones vacías y no agrega "Instrucciones adicionales" si systemPrompt está vacío', () => {
     const out = composeSystemPrompt({ systemPrompt: '', profile: { role: 'Analista' } });
     expect(out).toBe('## Rol\nAnalista');

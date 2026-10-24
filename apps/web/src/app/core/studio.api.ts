@@ -43,8 +43,8 @@ export class StudioApi {
 
   // Agente: skills, conocimiento, ejemplos y vista previa del prompt
   setAgentSkills = (agentId: string, skillIds: string[]) => this.put<Agent>(`/agents/${agentId}/skills`, { skillIds });
-  setAgentKnowledge = (agentId: string, knowledgeBaseIds: string[]) =>
-    this.put<Agent>(`/agents/${agentId}/knowledge`, { knowledgeBaseIds });
+  setAgentKnowledge = (agentId: string, knowledgeBaseIds: string[], writableIds: string[] = []) =>
+    this.put<Agent>(`/agents/${agentId}/knowledge`, { knowledgeBaseIds, writableIds });
   examples = (agentId: string) => this.get<AgentExample[]>(`/agents/${agentId}/examples`);
   createExample = (agentId: string, data: AgentExampleInput) => this.post<AgentExample>(`/agents/${agentId}/examples`, data);
   deleteExample = (agentId: string, exampleId: string) => this.delete(`/agents/${agentId}/examples/${exampleId}`);

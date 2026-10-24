@@ -176,6 +176,8 @@ export class AgentDetailPage implements OnInit {
   readonly toolSelection = signal(new Map<string, boolean>()); // operationId -> requiresApproval
   readonly skillSelection = signal(new Set<string>());
   readonly kbSelection = signal(new Set<string>());
+  /** Bases en las que el agente puede escribir (auto-aprendizaje con save_knowledge). */
+  readonly kbWritable = signal(new Set<string>());
   /** Cuentas (buzones/identidades) sobre las que actuará el agente: las de los conectores con operaciones elegidas. */
   readonly usedAccounts = computed(() => {
     const selected = this.toolSelection();
@@ -335,6 +337,7 @@ export class AgentDetailPage implements OnInit {
     this.toolSelection.set(new Map((agent.tools ?? []).map((t) => [t.operationId, t.requiresApproval])));
     this.skillSelection.set(new Set((agent.skills ?? []).map((s) => s.id)));
     this.kbSelection.set(new Set((agent.knowledgeBases ?? []).map((k) => k.id)));
+    this.kbWritable.set(new Set((agent.knowledge ?? []).filter((k) => k.canWrite).map((k) => k.knowledgeBaseId)));
     this.saved = { main: this.mainSnapshot(), tools: this.toolsSnapshot(), skills: this.skillsSnapshot(), kbs: this.kbSnapshot() };
   }
 
@@ -362,7 +365,8 @@ export class AgentDetailPage implements OnInit {
   private mainSnapshot = () => JSON.stringify(this.mainPayload());
   private toolsSnapshot = () => JSON.stringify([...this.toolSelection()].sort(([a], [b]) => a.localeCompare(b)));
   private skillsSnapshot = () => JSON.stringify([...this.skillSelection()].sort());
-  private kbSnapshot = () => JSON.stringify([...this.kbSelection()].sort());
+  private kbSnapshot = () =>
+    JSON.stringify({ ids: [...this.kbSelection()].sort(), write: [...this.kbWritable()].sort() });
 
   /** Hay cambios sin guardar (se evalúa en cada ciclo; el formulario es un objeto plano). */
   dirty(): boolean {
@@ -496,6 +500,15 @@ export class AgentDetailPage implements OnInit {
     if (on) next.add(id);
     else next.delete(id);
     this.kbSelection.set(next);
+    if (!on && this.kbWritable().has(id)) this.toggleKbWrite(id, false); // sin la base no tiene sentido escribir en ella
+  }
+
+  /** Permite (o no) que el agente aprenda escribiendo en esta base con la herramienta save_knowledge. */
+  toggleKbWrite(id: string, on: boolean) {
+    const next = new Set(this.kbWritable());
+    if (on) next.add(id);
+    else next.delete(id);
+    this.kbWritable.set(next);
   }
 
   async save() {
@@ -508,7 +521,8 @@ export class AgentDetailPage implements OnInit {
         await this.api.setAgentTools(id, tools);
       }
       if (this.saved.skills !== this.skillsSnapshot()) await this.studio.setAgentSkills(id, [...this.skillSelection()]);
-      if (this.saved.kbs !== this.kbSnapshot()) await this.studio.setAgentKnowledge(id, [...this.kbSelection()]);
+      if (this.saved.kbs !== this.kbSnapshot())
+        await this.studio.setAgentKnowledge(id, [...this.kbSelection()], [...this.kbWritable()]);
       this.apply(await this.api.agent(id));
       this.toast.success('Agente guardado');
     } catch (e) {

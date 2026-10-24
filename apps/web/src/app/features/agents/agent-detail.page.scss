@@ -41,6 +41,8 @@
 .group-actions { display: flex; gap: 6px; margin: 6px 0 2px; }
 .chev { width: 0; height: 0; border-left: 5px solid var(--muted); border-top: 4px solid transparent; border-bottom: 4px solid transparent; transition: transform .15s ease; flex: none; }
 .connector-group.open .chev { transform: rotate(90deg); }
+.kb-item { display: flex; flex-direction: column; }
+.kb-item .learn { margin: 2px 0 4px 30px; display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
 .account-id { display: flex; align-items: center; gap: 6px; margin: 2px 0 8px; }
 .account-id.warn { color: var(--warning); }
 .account-id strong { color: var(--text); font-weight: 600; }

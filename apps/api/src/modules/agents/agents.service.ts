@@ -142,6 +142,18 @@ export class AgentsService {
       knowledgeBases: (knowledge ?? [])
         .map((k) => ({ id: k.knowledgeBase.id, name: k.knowledgeBase.name }))
         .sort((a, b) => a.name.localeCompare(b.name)),
+      // Detalle por base con el permiso de escritura (save_knowledge) que consume la web.
+      knowledge: (knowledge ?? [])
+        .map((k) => ({
+          knowledgeBaseId: k.knowledgeBase.id,
+          canWrite: k.canWrite,
+          knowledgeBase: {
+            id: k.knowledgeBase.id,
+            name: k.knowledgeBase.name,
+            description: k.knowledgeBase.description,
+          },
+        }))
+        .sort((a, b) => a.knowledgeBase.name.localeCompare(b.knowledgeBase.name)),
       examplesCount,
       tools: agent.tools.map((t) => ({
         operationId: t.operationId,
@@ -287,9 +299,12 @@ export class AgentsService {
     if (found.length !== ids.length) {
       throw new BadRequestException('Alguna base de conocimiento no existe en el workspace');
     }
+    const writable = new Set(dto.writableIds ?? []);
     await this.prisma.$transaction([
       this.prisma.agentKnowledge.deleteMany({ where: { agentId: id } }),
-      this.prisma.agentKnowledge.createMany({ data: ids.map((knowledgeBaseId) => ({ agentId: id, knowledgeBaseId })) }),
+      this.prisma.agentKnowledge.createMany({
+        data: ids.map((knowledgeBaseId) => ({ agentId: id, knowledgeBaseId, canWrite: writable.has(knowledgeBaseId) })),
+      }),
       this.prisma.agent.update({ where: { id }, data: { updatedAt: new Date() } }),
     ]);
     return this.describe(workspaceId, id);
