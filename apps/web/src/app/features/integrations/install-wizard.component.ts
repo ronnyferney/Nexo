@@ -61,16 +61,14 @@ import { AUTH_METHOD_META, categoryLabel } from './catalog-meta';
             </fieldset>
           }
 
-          @if (method() === 'oauth2_code' && ownAppFields().length) {
-            @if (e.platformApp?.available && !advanced()) {
+          @if (method() === 'oauth2_code') {
+            @if (e.platformApp?.available) {
               <p class="small muted app-line"><nx-icon name="shield" [size]="14" />
-                Se usará la app de Nexo para iniciar sesión (client ID <code>{{ e.platformApp?.clientIdHint }}</code>).
-                <button type="button" class="link" (click)="advanced.set(true)">Usar una app propia</button></p>
-            } @else if (!e.platformApp?.available && !advanced()) {
+                Inicio de sesión gestionado por Nexo. No necesita registrar nada ni copiar claves.</p>
+            } @else {
               <div class="callout warning" role="alert"><nx-icon name="alert" [size]="16" />
-                <span class="grow">Falta configurar en el servidor la app de inicio de sesión de esta integración.
-                  Pida al administrador de Nexo que la configure, o
-                  <button type="button" class="link" (click)="advanced.set(true)">use una app propia</button>.</span></div>
+                <span class="grow">Esta integración aún no tiene configurada su app de inicio de sesión. Un administrador de
+                  Nexo debe configurarla una vez en <strong>Consola de plataforma → Apps de inicio de sesión</strong>.</span></div>
             }
           }
 
@@ -119,7 +117,7 @@ import { AUTH_METHOD_META, categoryLabel } from './catalog-meta';
           }
           <button type="button" class="btn" (click)="close()">Cancelar</button>
           <button type="submit" class="btn primary"
-            [disabled]="busy() || f.invalid || (method() === 'oauth2_code' && ownAppFields().length > 0 && !e.platformApp?.available && !advanced())">
+            [disabled]="busy() || f.invalid || (method() === 'oauth2_code' && !e.platformApp?.available)">
             <nx-icon [name]="method() === 'oauth2_code' ? 'externalLink' : 'check'" [size]="16" />
             {{ busy() ? 'Instalando…' : method() === 'oauth2_code' ? 'Instalar y conectar' : 'Instalar' }}
           </button>
@@ -165,13 +163,12 @@ export class InstallWizardComponent implements OnInit {
   );
   readonly hasSecrets = computed(() => this.visibleFields().some((f) => f.secret));
   /** OAuth: los campos opcionales son la app propia (client ID/secret); quedan ocultos salvo que se pidan. */
-  readonly advanced = signal(false);
-  readonly ownAppFields = computed(() =>
-    this.method() === 'oauth2_code' ? this.fields().filter((f) => !f.required) : [],
-  );
-  /** Sin renderizar los campos de app propia, el navegador no puede autocompletarlos con valores ajenos. */
+  /**
+   * OAuth: nunca se muestran los campos de app propia (client ID/secret). El inicio de sesión lo gestiona Nexo con la
+   * app de la plataforma; así el navegador no puede autocompletarlos con valores ajenos y el usuario no ve nada técnico.
+   */
   readonly visibleFields = computed(() =>
-    this.advanced() ? this.fields() : this.fields().filter((f) => !this.ownAppFields().includes(f)),
+    this.method() === 'oauth2_code' ? [] : this.fields(),
   );
 
   constructor() {
