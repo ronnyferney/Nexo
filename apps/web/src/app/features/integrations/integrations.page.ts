@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, DOCUMENT, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { IntegrationsApi } from '../../core/integrations.api';
@@ -110,7 +110,16 @@ export class IntegrationsPage implements OnInit {
     return out;
   });
 
+  private readonly route = inject(ActivatedRoute);
+
   async ngOnInit() {
+    // Vuelta del enlace de aprobación de administrador de Microsoft (lo abrió TI): se informa y se limpia la URL.
+    const consent = this.route.snapshot.queryParamMap.get('admin_consent');
+    if (consent) {
+      if (consent === 'ok') this.toast.success('El administrador aprobó la app. Ya puede conectar las cuentas.');
+      else this.toast.error('No se completó la aprobación del administrador. Pida a TI que abra el enlace de nuevo.');
+      void this.router.navigate([], { queryParams: { admin_consent: null }, queryParamsHandling: 'merge', replaceUrl: true });
+    }
     await this.load();
   }
 

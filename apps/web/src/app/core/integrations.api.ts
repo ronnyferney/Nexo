@@ -43,7 +43,10 @@ export class IntegrationsApi {
   oauthStatus = (connectorId: string) => this.get<OAuthStatus>(`/connectors/${connectorId}/oauth`);
   catalogAccounts = (catalogId: string) => this.get<CatalogAccount[]>(`/connector-catalog/${catalogId}/accounts`);
   connectorUsage = (connectorId: string) => this.get<ConnectorUsage>(`/connectors/${connectorId}/usage`);
-  removeConnector = (connectorId: string) => this.delete(`/connectors/${connectorId}`);
+  removeConnector = (connectorId: string, purgeSecrets = false) =>
+    this.delete(`/connectors/${connectorId}${purgeSecrets ? '?purgeSecrets=true' : ''}`);
+  adminConsentUrl = (connectorId: string) =>
+    this.get<{ url: string }>(`/connectors/${connectorId}/oauth/admin-consent-url`);
   oauthStart = (connectorId: string) => this.post<{ authorizeUrl: string }>(`/connectors/${connectorId}/oauth/start`);
   oauthDisconnect = (connectorId: string) => this.delete(`/connectors/${connectorId}/oauth`);
 

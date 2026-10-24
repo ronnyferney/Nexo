@@ -35,7 +35,35 @@ export type OAuthErrorReason =
   | 'forbidden'
   | 'not_found'
   | 'not_configured'
-  | 'exchange_failed';
+  | 'exchange_failed'
+  | 'admin_consent_required'
+  | 'invalid_scope'
+  | 'invalid_client'
+  | 'provider_error';
+
+/**
+ * Traduce el error que devuelve el proveedor al callback (`error` + `error_description`, que en Microsoft incluye el
+ * código AADSTS) a un motivo que la web explica en español con qué hacer. Solo se usan códigos conocidos: el texto del
+ * proveedor nunca se muestra tal cual.
+ */
+export function providerErrorReason(error: string, description = ''): OAuthErrorReason {
+  const aadsts = /AADSTS(\d+)/.exec(description)?.[1];
+  // 65001: falta consentimiento; 90094/90095/90099: la organización exige aprobación de un administrador.
+  if (error === 'consent_required' || ['65001', '90094', '90095', '90099'].includes(aadsts ?? '')) {
+    return 'admin_consent_required';
+  }
+  if (error === 'invalid_scope' || aadsts === '70011') return 'invalid_scope';
+  // 700016: la app (client ID) no existe en el directorio; 7000215/7000222: secreto inválido o vencido.
+  if (
+    error === 'unauthorized_client' ||
+    error === 'invalid_client' ||
+    ['700016', '7000215', '7000222'].includes(aadsts ?? '')
+  ) {
+    return 'invalid_client';
+  }
+  if (error === 'access_denied') return 'access_denied';
+  return 'provider_error';
+}
 
 interface ResolvedApp {
   clientId: string;
@@ -54,8 +82,13 @@ interface TokenResponse {
 }
 
 class TokenEndpointError extends Error {
-  constructor(readonly status: number) {
-    super(`El proveedor OAuth rechazó la solicitud de token (HTTP ${status})`);
+  constructor(
+    readonly status: number,
+    /** Código OAuth del error (`invalid_client`, `invalid_grant`…) y descripción del proveedor, si los devolvió. */
+    readonly code = '',
+    readonly description = '',
+  ) {
+    super(`El proveedor OAuth rechazó la solicitud de token (HTTP ${status}${code ? `, ${code}` : ''})`);
   }
 }
 
@@ -141,14 +174,23 @@ export class OAuthService {
    * Procesa el callback público y devuelve la URL (siempre bajo `webUrl`) a la que se redirige al navegador.
    * @param browserNonce valor de la cookie `CONNECTOR_OAUTH_COOKIE` que presentó el navegador.
    */
-  async callback(query: { code?: string; state?: string; error?: string }, browserNonce?: string): Promise<string> {
+  async callback(
+    query: { code?: string; state?: string; error?: string; errorDescription?: string; adminConsent?: string },
+    browserNonce?: string,
+  ): Promise<string> {
+    // Vuelta del consentimiento de administrador (Microsoft): lo aprueba TI en su propio navegador, sin `state` de
+    // Nexo ni código que canjear. Solo se informa el resultado; la cuenta se conecta después con «Conectar».
+    if (query.adminConsent !== undefined && !query.code) {
+      const ok = query.adminConsent.toLowerCase() === 'true' && !query.error;
+      return `${this.webUrl}/integrations?admin_consent=${ok ? 'ok' : 'error'}`;
+    }
     // B2: el `jti` se reclama en Redis para todas las réplicas; si Redis no responde, el `state` se rechaza.
     const payload = query.state ? await this.state.consume(query.state, { replayGuard: this.singleUse }) : null;
     if (!payload) return this.webRedirect(null, 'invalid_state');
     const { workspaceId, connectorId, userId, codeVerifier } = payload;
     // El consentimiento debe volver al mismo navegador que lo inició (M1b); el `state` ya quedó consumido.
     if (!bindingMatches(payload.browserTag, browserNonce)) return this.webRedirect(connectorId, 'browser_mismatch');
-    if (query.error) return this.webRedirect(connectorId, 'access_denied');
+    if (query.error) return this.webRedirect(connectorId, providerErrorReason(query.error, query.errorDescription));
     if (!query.code) return this.webRedirect(connectorId, 'missing_code');
 
     // El usuario que inició el flujo debe seguir siendo EDITOR+ del workspace.
@@ -175,6 +217,11 @@ export class OAuthService {
       await this.store(loaded.connector, loaded.auth, token, null);
     } catch (err) {
       this.logger.warn(`OAuth callback fallido para el conector ${connectorId}: ${(err as Error).message}`);
+      if (err instanceof TokenEndpointError && err.code) {
+        // Solo los motivos reconocidos (app, secreto, permisos, aprobación); el resto sigue siendo un canje fallido.
+        const reason = providerErrorReason(err.code, err.description);
+        if (reason !== 'provider_error' && reason !== 'access_denied') return this.webRedirect(connectorId, reason);
+      }
       return this.webRedirect(connectorId, 'exchange_failed');
     }
     return `${this.webUrl}/connectors/${encodeURIComponent(connectorId)}?oauth=ok`;
@@ -198,6 +245,26 @@ export class OAuthService {
    * por el que no se puede usar. Permite diagnosticar en Nexo un client ID equivocado antes de que el proveedor lo
    * rechace en su pantalla (p. ej. AADSTS700016 en Microsoft). El client ID no es secreto; el secreto nunca se expone.
    */
+  /**
+   * Enlace oficial de consentimiento de administrador de Microsoft para la app OAuth del conector (la de la plataforma
+   * o la propia). Quien administra Microsoft 365 lo abre una vez y aprueba los permisos para toda la organización;
+   * luego cada persona conecta su cuenta sin el bloqueo «Se requiere aprobación del administrador».
+   */
+  async adminConsentUrl(workspaceId: string, connectorId: string): Promise<{ url: string }> {
+    const { auth, app } = await this.load(workspaceId, connectorId);
+    if (auth.provider !== 'microsoft') {
+      throw new BadRequestException(
+        'El enlace de aprobación de administrador solo aplica a integraciones de Microsoft 365',
+      );
+    }
+    const url = new URL('https://login.microsoftonline.com/organizations/v2.0/adminconsent');
+    url.searchParams.set('client_id', app.clientId);
+    // `.default`: los permisos configurados en el registro de la app (los mismos que pide el conector).
+    url.searchParams.set('scope', 'https://graph.microsoft.com/.default');
+    url.searchParams.set('redirect_uri', this.redirectUri);
+    return { url: url.toString() };
+  }
+
   async appSummary(
     workspaceId: string,
     connectorId: string,
@@ -358,7 +425,8 @@ export class OAuthService {
     let data = res.body as Partial<TokenResponse> | string;
     if (typeof data === 'string') data = parseLoose(data);
     if (!res.ok || !data || typeof data.access_token !== 'string' || !data.access_token) {
-      throw new TokenEndpointError(res.status);
+      const err = (data && typeof data === 'object' ? data : {}) as { error?: unknown; error_description?: unknown };
+      throw new TokenEndpointError(res.status, str(err.error), str(err.error_description));
     }
     return data as TokenResponse;
   }

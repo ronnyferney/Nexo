@@ -162,9 +162,28 @@ export class ConnectorsService {
     return this.detail(workspaceId, id);
   }
 
-  async remove(workspaceId: string, id: string) {
-    await this.get(workspaceId, id);
-    await this.prisma.connector.delete({ where: { id } });
+  /**
+   * Elimina el conector. Con `purgeSecrets` (solo ADMIN) borra además de la bóveda los secretos que usaba y que ningún
+   * otro conector del workspace permite: evita que una reinstalación reutilice credenciales viejas o equivocadas.
+   */
+  async remove(a: AuthContext, id: string, opts: { purgeSecrets?: boolean } = {}) {
+    const connector = await this.get(a.workspaceId, id);
+    if (opts.purgeSecrets && !isAdmin(a)) {
+      throw new ForbiddenException('Solo un ADMIN puede borrar credenciales de la bóveda');
+    }
+    const purged = await this.prisma.$transaction(async (tx) => {
+      await tx.connector.delete({ where: { id } });
+      if (!opts.purgeSecrets || !connector.allowedSecrets.length) return [];
+      const others = await tx.connector.findMany({
+        where: { workspaceId: a.workspaceId, allowedSecrets: { hasSome: connector.allowedSecrets } },
+        select: { allowedSecrets: true },
+      });
+      const stillUsed = new Set(others.flatMap((o) => o.allowedSecrets));
+      const names = connector.allowedSecrets.filter((n) => !stillUsed.has(n));
+      if (names.length) await tx.secret.deleteMany({ where: { workspaceId: a.workspaceId, name: { in: names } } });
+      return names;
+    });
+    return { removed: true, purgedSecrets: purged };
   }
 
   // ---------- Operaciones ----------

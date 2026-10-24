@@ -31,6 +31,13 @@ export class OAuthController {
     return this.oauth.status(a.workspaceId, id);
   }
 
+  /** Enlace de consentimiento de administrador (Microsoft) para enviárselo a TI. */
+  @MinRole('EDITOR')
+  @Get('connectors/:id/oauth/admin-consent-url')
+  adminConsentUrl(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
+    return this.oauth.adminConsentUrl(a.workspaceId, id);
+  }
+
   @MinRole('EDITOR')
   @Delete('connectors/:id/oauth')
   disconnect(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
@@ -44,7 +51,13 @@ export class OAuthController {
   @Get('oauth/callback')
   async callback(@Query() query: Record<string, unknown>, @Req() req: Request, @Res() res: Response) {
     const target = await this.oauth.callback(
-      { code: asString(query.code), state: asString(query.state), error: asString(query.error) },
+      {
+        code: asString(query.code),
+        state: asString(query.state),
+        error: asString(query.error),
+        errorDescription: asString(query.error_description),
+        adminConsent: asString(query.admin_consent),
+      },
       CONNECTOR_OAUTH_COOKIE.read(req),
     );
     CONNECTOR_OAUTH_COOKIE.clear(res, this.oauth.secureCookies);

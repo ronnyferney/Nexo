@@ -295,6 +295,37 @@ describe('Catálogo de conectores y OAuth2 de usuario (E2E, ADR 0005)', () => {
       expect((await catalog(owner)).find((i) => i.id === 'microsoft-mail')!.installed).toBe(0);
     });
 
+    it('Microsoft: enlace de aprobación para TI con el client ID de la app de la cuenta (solo Microsoft)', async () => {
+      const clientId = '0a1b2c3d-1111-2222-3333-444455556666';
+      const ms = await owner.api
+        .post('/connector-catalog/microsoft-calendar/install', {
+          authMethod: 'oauth2_code',
+          credentials: { clientId, clientSecret: 'Abc~valor.del.secreto_123' },
+        })
+        .expect(201);
+      const id = (ms.body as InstalledConnector).id;
+      const { url } = (await owner.api.get(`/connectors/${id}/oauth/admin-consent-url`).expect(200)).body as {
+        url: string;
+      };
+      const u = new URL(url);
+      expect(u.origin + u.pathname).toBe('https://login.microsoftonline.com/organizations/v2.0/adminconsent');
+      expect(u.searchParams.get('client_id')).toBe(clientId);
+      expect(u.searchParams.get('redirect_uri')).toMatch(/\/api\/oauth\/callback$/);
+      expect(url).not.toContain('valor.del.secreto');
+      await viewer.api.get(`/connectors/${id}/oauth/admin-consent-url`).expect(403);
+
+      // Eliminar con purgeSecrets: un EDITOR no puede; un ADMIN borra los secretos que solo usaba esta cuenta.
+      const names = ['MS_CALENDAR_CLIENT_ID', 'MS_CALENDAR_CLIENT_SECRET'];
+      const vault = () =>
+        prismaOf(app).secret.count({ where: { workspaceId: owner.workspaceId, name: { in: names } } });
+      expect(await vault()).toBe(2);
+      const editor = await addMember(app, owner, { role: 'EDITOR', tag: 'catalog-purge' });
+      await editor.api.delete(`/connectors/${id}?purgeSecrets=true`).expect(403);
+      const removed = await owner.api.delete(`/connectors/${id}?purgeSecrets=true`).expect(200);
+      expect((removed.body as { purgedSecrets: string[] }).purgedSecrets.sort()).toEqual(names);
+      expect(await vault()).toBe(0);
+    });
+
     it('sin app propia ni app de la plataforma: el estado explica el problema y no se intenta el inicio de sesión', async () => {
       const res = await owner.api
         .post('/connector-catalog/microsoft-todo/install', { authMethod: 'oauth2_code', credentials: {} })
@@ -537,6 +568,25 @@ describe('Catálogo de conectores y OAuth2 de usuario (E2E, ADR 0005)', () => {
         302,
       );
       expect(denied.headers.location).toBe(`${webUrl}/connectors/${hubspot.id}?oauth=error&reason=access_denied`);
+
+      // Errores conocidos del proveedor (Microsoft incluye el código AADSTS) → motivo explicable en la web.
+      const needsAdmin = await callback(
+        {
+          error: 'access_denied',
+          error_description: 'AADSTS90094: Need admin approval',
+          state: await states.sign(base),
+        },
+        NONCE_COOKIE,
+      ).expect(302);
+      expect(needsAdmin.headers.location).toBe(
+        `${webUrl}/connectors/${hubspot.id}?oauth=error&reason=admin_consent_required`,
+      );
+
+      // Vuelta del consentimiento de administrador (lo abre TI en su navegador, sin state de Nexo).
+      const consent = await callback({ admin_consent: 'True', tenant: 'tenant-x' }).expect(302);
+      expect(consent.headers.location).toBe(`${webUrl}/integrations?admin_consent=ok`);
+      const consentKo = await callback({ admin_consent: 'False', error: 'access_denied' }).expect(302);
+      expect(consentKo.headers.location).toBe(`${webUrl}/integrations?admin_consent=error`);
 
       const bad = await callback({ code: 'codigo-inexistente', state: await states.sign(base) }, NONCE_COOKIE).expect(
         302,

@@ -84,3 +84,16 @@ claves cifrados con AES-256-GCM, `redirect: 'manual'` en el cliente HTTP, `postM
 | P8 | P3 | 19 advertencias de lint en la API | Hecho (5a18f4a): 0 errores y 0 advertencias de lint en la API |
 | P9 | P0 | Los programadores cron de flujos y rutinas viven solo en Redis: al reemplazar Redis (B8) o perder sus datos dejan de ejecutarse | Reconciliar al arrancar desde la base de datos | Hecho (3dd5396) |
 | P10 | P1 | Un nodo sin `config` dejaba la ejecución en RUNNING para siempre | Hecho (4e95be7) |
+
+## 4. Conexión de apps (Apps conectadas)
+
+| ID | Prio. | Punto | Estado |
+|---|---|---|---|
+| C-1 | P0 | El asistente mostraba los campos de app propia y el navegador los autocompletaba (client ID ajeno, AADSTS700016) | Hecho (bdf89dc) |
+| C-2 | P0 | Integraciones OAuth sin conectar se mostraban como instaladas; sin diagnóstico de qué app se usa | Hecho (d00acca, 3e940ba) |
+| C-3 | P1 | Gestionar cuentas por app: conectar, reconectar, desconectar y eliminar, con el impacto en agentes y flujos | Hecho (e1a616e) |
+| C-4 | P1 | Errores del proveedor explicados en español y enlace de aprobación de administrador (Microsoft) para TI | Hecho |
+| C-5 | P1 | Al eliminar una cuenta, borrar las credenciales que solo ella usaba (evita reutilizar valores viejos) | Hecho |
+| C-6 | P0 | Verificación de editor de la app de Microsoft (AI Cloud Partner Program) y verificación de Google (CASA para Gmail) | Pendiente (trámite del negocio; ver `docs/apps-oauth-de-la-plataforma.md`) |
+| C-7 | P2 | Apps menos usadas vía servidores MCP externos, opcionales y aprobados por un ADMIN | Pendiente (decisión de negocio) |
+

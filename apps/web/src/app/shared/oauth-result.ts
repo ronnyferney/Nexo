@@ -15,6 +15,12 @@ const OAUTH_ERROR_MESSAGES: Record<string, string> = {
     'La app OAuth de este proveedor no está configurada en la plataforma; use una app propia en Autenticación o pida al administrador que la configure.',
   exchange_failed:
     'El proveedor rechazó el intercambio del código por el token. Revise el Client ID, el secreto y la URL de redirección de la app OAuth, y vuelva a intentarlo.',
+  admin_consent_required:
+    'Su organización exige que un administrador apruebe la app. En «Apps conectadas», use «Enlace para TI» en la cuenta y envíeselo a quien administra Microsoft 365.',
+  invalid_scope: 'El proveedor no reconoce los permisos solicitados. Revise los permisos configurados en la app OAuth.',
+  invalid_client:
+    'El proveedor no reconoce la app (client ID) o su secreto. Revise en «Apps conectadas» qué app usa la cuenta.',
+  provider_error: 'El proveedor devolvió un error. Intente de nuevo; si persiste, revise la app OAuth.',
 };
 
 /** Texto en español, accionable, para el motivo recibido en la URL. */

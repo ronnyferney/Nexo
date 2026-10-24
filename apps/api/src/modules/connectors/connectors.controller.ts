@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put } from '@nestjs/common';
+import { Query, Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentAuth, type AuthContext } from '../../common/decorators/current-user.decorator';
 import { MinRole } from '../../common/decorators/roles.decorator';
@@ -56,8 +56,8 @@ export class ConnectorsController {
 
   @MinRole('EDITOR')
   @Delete(':id')
-  remove(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
-    return this.connectors.remove(a.workspaceId, id);
+  remove(@CurrentAuth() a: AuthContext, @Param('id') id: string, @Query('purgeSecrets') purge?: string) {
+    return this.connectors.remove(a, id, { purgeSecrets: purge === 'true' });
   }
 
   // Provoca llamadas salientes con las credenciales del conector: no basta con poder leerlo.

@@ -8,7 +8,7 @@ import { bindingTag } from '../../common/oauth/browser-binding';
 import { slack, SLACK_BOT_SCOPES } from '../connectors/catalog/integrations/slack';
 import type { OAuth2CodeAuth } from '../connectors/domain/connector.types';
 import { OAUTH_PROVIDERS, platformEnvName } from './oauth.providers';
-import { OAuthService, scopeSeparator } from './oauth.service';
+import { OAuthService, providerErrorReason, scopeSeparator } from './oauth.service';
 import { createPkce, OAuthStateService, pkceChallenge } from './oauth-state.service';
 
 const JWT_SECRET = 'unit-jwt-secret-0123456789abcdef0123456789abcdef';
@@ -305,5 +305,23 @@ describe('OAuthService con Slack (OAuth v2, "Agregar a Slack")', () => {
       'https://app.nexo.test/connectors/c1?oauth=error&reason=exchange_failed',
     );
     expect(stored()).toBeNull();
+  });
+});
+
+describe('providerErrorReason', () => {
+  it('traduce los errores conocidos del proveedor (incluidos los códigos AADSTS de Microsoft)', () => {
+    expect(providerErrorReason('access_denied')).toBe('access_denied');
+    expect(providerErrorReason('access_denied', 'AADSTS90094: The grant requires admin permission.')).toBe(
+      'admin_consent_required',
+    );
+    expect(providerErrorReason('consent_required')).toBe('admin_consent_required');
+    expect(providerErrorReason('invalid_request', 'AADSTS700016: Application with identifier x was not found')).toBe(
+      'invalid_client',
+    );
+    expect(providerErrorReason('invalid_client', 'AADSTS7000215: Invalid client secret provided.')).toBe(
+      'invalid_client',
+    );
+    expect(providerErrorReason('invalid_scope')).toBe('invalid_scope');
+    expect(providerErrorReason('server_error', 'algo raro')).toBe('provider_error');
   });
 });

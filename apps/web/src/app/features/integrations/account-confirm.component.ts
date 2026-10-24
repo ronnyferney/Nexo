@@ -6,6 +6,7 @@ import {
   ElementRef,
   input,
   output,
+  signal,
   viewChild,
 } from '@angular/core';
 import type { ConnectorUsage } from '../../core/integrations.models';
@@ -43,9 +44,13 @@ export type AccountAction = 'disconnect' | 'remove';
         } @else {
           <p class="small muted">Revisando qué la usa…</p>
         }
+        @if (action() === 'remove' && canPurge()) {
+          <label class="purge small"><input type="checkbox" [checked]="purge()" (change)="purge.set(!purge())" />
+            Borrar también sus credenciales guardadas (recomendado)</label>
+        }
         <div class="foot">
           <button type="button" class="btn pill cancel" [disabled]="busy()" (click)="cancelled.emit()">Cancelar</button>
-          <button type="button" class="btn pill solid-danger" [disabled]="busy() || !usage()" (click)="confirmed.emit()">
+          <button type="button" class="btn pill solid-danger" [disabled]="busy() || !usage()" (click)="confirmed.emit(action() === 'remove' && canPurge() && purge())">
             {{ busy() ? 'Procesando…' : actionLabel() }}</button>
         </div>
       </div>
@@ -58,6 +63,7 @@ export type AccountAction = 'disconnect' | 'remove';
     p { margin: 0; color: var(--muted); line-height: 1.55; }
     .ok { margin-top: 10px; color: var(--success); }
     .callout { margin-top: 12px; }
+    .purge { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
     .foot { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; padding-top: 6px; }
     .pill { border-radius: 999px; height: 38px; padding: 0 18px; }
     .solid-danger { background: #c62f48; border-color: #c62f48; color: #fff; }
@@ -73,7 +79,11 @@ export class AccountConfirmComponent {
   /** null mientras se consulta (el botón de confirmar espera a saber el impacto). */
   readonly usage = input<ConnectorUsage | null>(null);
   readonly busy = input(false);
-  readonly confirmed = output<void>();
+  /** Solo un ADMIN puede borrar credenciales de la bóveda al eliminar. */
+  readonly canPurge = input(false);
+  readonly purge = signal(true);
+  /** true = eliminar borrando también los secretos que solo usaba esta cuenta. */
+  readonly confirmed = output<boolean>();
   readonly cancelled = output<void>();
 
   readonly actionLabel = computed(() => (this.action() === 'remove' ? 'Eliminar' : 'Desconectar'));

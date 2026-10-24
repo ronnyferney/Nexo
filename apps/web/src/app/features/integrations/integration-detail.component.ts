@@ -80,6 +80,11 @@ import { oauthProvider } from './integration-logos';
                       <button type="button" class="btn sm" [class.primary]="!acc.connected" [disabled]="!!busy()" (click)="connect(acc)">
                         <nx-icon [name]="acc.connected ? 'refresh' : 'link'" [size]="14" />{{ acc.connected ? 'Reconectar' : 'Conectar' }}</button>
                     }
+                    @if (acc.oauth && !acc.connected && isMicrosoft() && !acc.app?.problem) {
+                      <button type="button" class="btn sm ghost" [disabled]="!!busy()" (click)="copyAdminConsent(acc)"
+                        title="Copia el enlace para que quien administra Microsoft 365 apruebe la app una sola vez">
+                        <nx-icon name="link" [size]="14" />Enlace para TI</button>
+                    }
                     @if (acc.oauth && acc.connected) {
                       <button type="button" class="btn sm danger" [disabled]="!!busy()" (click)="disconnect(acc)">
                         <nx-icon name="unlink" [size]="14" />Desconectar</button>
@@ -144,7 +149,8 @@ import { oauthProvider } from './integration-logos';
     </dialog>
     @if (pending(); as p) {
       <nx-account-confirm [name]="p.acc.accountLabel || p.acc.name" [action]="p.action" [usage]="p.usage"
-        [busy]="busy() === p.acc.connectorId" (confirmed)="confirmPending()" (cancelled)="pending.set(null)" />
+        [busy]="busy() === p.acc.connectorId" [canPurge]="auth.isAdmin()" (confirmed)="confirmPending($event)"
+        (cancelled)="pending.set(null)" />
     }
   `,
   styles: `
@@ -242,6 +248,19 @@ export class IntegrationDetailComponent {
     void this.ask(acc, 'remove');
   }
 
+  readonly isMicrosoft = computed(() => this.provider() === 'Microsoft');
+
+  /** Copia el enlace oficial de aprobación de administrador de Microsoft para enviárselo a TI. */
+  async copyAdminConsent(acc: CatalogAccount) {
+    try {
+      const { url } = await this.api.adminConsentUrl(acc.connectorId);
+      await navigator.clipboard.writeText(url);
+      this.toast.success('Enlace copiado: envíeselo a quien administra Microsoft 365 para que apruebe la app');
+    } catch (e) {
+      this.toast.error(errorMessage(e));
+    }
+  }
+
   private async ask(acc: CatalogAccount, action: AccountAction) {
     this.pending.set({ acc, action, usage: null });
     try {
@@ -253,10 +272,11 @@ export class IntegrationDetailComponent {
     }
   }
 
-  async confirmPending() {
+  async confirmPending(purgeSecrets: boolean) {
     const p = this.pending();
     if (!p) return;
-    if (p.action === 'remove') await this.run(p.acc, () => this.api.removeConnector(p.acc.connectorId), 'Cuenta eliminada');
+    if (p.action === 'remove')
+      await this.run(p.acc, () => this.api.removeConnector(p.acc.connectorId, purgeSecrets), 'Cuenta eliminada');
     else await this.run(p.acc, () => this.api.oauthDisconnect(p.acc.connectorId), 'Cuenta desconectada');
     this.pending.set(null);
   }
