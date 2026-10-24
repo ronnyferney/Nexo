@@ -272,6 +272,51 @@ export interface InvitationAccepted extends Session {
   userId: string;
   membershipId: string;
   sessionsRevoked: boolean;
+  /** API keys revocadas al tomar el control de una cuenta sin verificar (C1). */
+  apiKeysRevoked?: number;
+}
+
+/** Resultado de `POST /auth/password/reset`: la contraseña cambió y todas las sesiones se cerraron. */
+export interface PasswordResetResult {
+  reset: true;
+  sessionsRevoked: true;
+  apiKeysRevoked: number;
+}
+
+/** Alcances de una API key (B3). */
+export type ApiKeyScope = 'read' | 'write' | 'agents:run' | 'workflows:run' | 'connectors:invoke' | 'mcp';
+export type ApiKeyRole = 'VIEWER' | 'EDITOR' | 'ADMIN';
+export type ApiKeyExpiration = '30d' | '90d' | '365d' | 'never';
+
+/** `GET /workspace/api-keys`. */
+export interface ApiKey {
+  id: string;
+  name: string;
+  prefix: string;
+  /** `*` = alcance completo de una clave anterior a B3. */
+  scopes: string[];
+  role: Role;
+  legacy: boolean;
+  expiresAt: string | null;
+  status: 'ACTIVE' | 'EXPIRED' | 'REVOKED';
+  rotationSuggested: boolean;
+  revokedAt: string | null;
+  revokedReason: 'manual' | 'account_takeover' | null;
+  lastUsedAt: string | null;
+  createdAt: string;
+  createdBy: { name: string; email: string } | null;
+}
+
+export interface ApiKeyCreateInput {
+  name: string;
+  scopes: ApiKeyScope[];
+  role: ApiKeyRole;
+  expiration: ApiKeyExpiration;
+}
+
+/** Respuesta de `POST /workspace/api-keys`: la llave completa solo llega aquí. */
+export interface ApiKeyCreated extends ApiKey {
+  key: string;
 }
 
 export interface AuthConfig {

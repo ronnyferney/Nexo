@@ -3,18 +3,21 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { CryptoService } from '../../common/crypto/crypto.service';
 import type { JwtPayload, SessionCredential } from '../../common/guards/auth.guard';
 import { SessionRevocationService } from '../../common/guards/session-revocation.service';
 import type { RegistrationMode } from '../../config/configuration';
 import { MailService } from '../../infrastructure/mail/mail.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { revokeApiKeysOfTakenOverAccount } from '../workspaces/api-keys.service';
 import type { ChangePasswordDto, LoginDto, RegisterDto } from './dto/auth.dto';
 
 /** Vida del enlace de verificación de correo. */
@@ -26,6 +29,23 @@ interface EmailVerificationClaims {
   sub: string;
   email: string;
 }
+
+/** Vida del enlace de recuperación de contraseña. */
+export const PASSWORD_RESET_TTL_MS = 30 * 60_000;
+/** Enlaces vigentes por cuenta: más solicitudes se ignoran en silencio (evita inundar el buzón de alguien). */
+export const PASSWORD_RESET_MAX_ACTIVE = 3;
+export const PASSWORD_RESET_PREFIX = 'pwr_';
+
+/**
+ * Respuesta de `POST /auth/password/forgot`: idéntica exista o no el correo (sin enumeración). El trabajo (buscar la
+ * cuenta, crear el enlace y enviarlo) ocurre después de responder, así que tampoco el tiempo de respuesta lo revela.
+ */
+export const PASSWORD_FORGOT_ACCEPTED = {
+  accepted: true as const,
+  message:
+    'Si el correo tiene una cuenta en Nexo, en unos minutos recibirá un enlace para restablecer la contraseña. ' +
+    'El enlace vence en 30 minutos y sirve una sola vez.',
+};
 
 /** Coste de bcrypt de las contraseñas. */
 const BCRYPT_ROUNDS = 12;
@@ -68,6 +88,7 @@ function slugify(value: string): string {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   private readonly registrationMode: RegistrationMode;
   private readonly webUrl: string;
   /** Secreto derivado: un enlace de verificación nunca sirve como token de sesión, y viceversa. */
@@ -253,6 +274,91 @@ export class AuthService {
       await this.prisma.user.update({ where: { id: user.id }, data: { emailVerifiedAt: new Date() } });
     }
     return { verified: true };
+  }
+
+  /**
+   * Pide el enlace de recuperación de contraseña. Sin SMTP responde 503 (igual que la verificación de correo), exista
+   * o no la cuenta. Con SMTP responde siempre lo mismo y procesa la solicitud en segundo plano (sin enumeración).
+   */
+  requestPasswordReset(rawEmail: string): typeof PASSWORD_FORGOT_ACCEPTED {
+    if (!this.mail.enabled) {
+      throw new ServiceUnavailableException(
+        'El envío de correos no está configurado: pida a un administrador que le restablezca el acceso',
+      );
+    }
+    const email = normalizeEmail(rawEmail);
+    void this.sendPasswordReset(email).catch((err: Error) =>
+      this.logger.warn(`No se pudo procesar una solicitud de recuperación de contraseña: ${err.message}`),
+    );
+    return PASSWORD_FORGOT_ACCEPTED;
+  }
+
+  /** Crea el enlace de un solo uso (solo se guarda su SHA-256) y lo envía. Visible para las pruebas. */
+  async sendPasswordReset(email: string): Promise<boolean> {
+    const user = await this.prisma.user.findUnique({ where: { email }, select: { id: true, name: true, email: true } });
+    if (!user) return false;
+    const now = new Date();
+    const active = await this.prisma.passwordResetToken.count({
+      where: { userId: user.id, usedAt: null, expiresAt: { gt: now } },
+    });
+    if (active >= PASSWORD_RESET_MAX_ACTIVE) return false;
+    const token = `${PASSWORD_RESET_PREFIX}${randomBytes(32).toString('base64url')}`;
+    await this.prisma.passwordResetToken.create({
+      data: {
+        userId: user.id,
+        tokenHash: CryptoService.sha256(token),
+        expiresAt: new Date(now.getTime() + PASSWORD_RESET_TTL_MS),
+      },
+    });
+    return this.mail.send({
+      to: user.email,
+      subject: 'Restablecer su contraseña de Nexo',
+      text:
+        `Hola, ${user.name}:\n\nPara elegir una contraseña nueva en Nexo, abra este enlace (vence en 30 minutos y ` +
+        `sirve una sola vez):\n${this.webUrl}/restablecer/${token}\n\nAl restablecerla se cerrarán todas sus sesiones. ` +
+        'Si usted no lo pidió, ignore este mensaje: su contraseña no cambia.',
+    });
+  }
+
+  /**
+   * Restablece la contraseña con el enlace recibido: lo consume (un solo uso, también los demás enlaces vigentes de la
+   * cuenta), incrementa `tokenVersion` (cierra todas las sesiones) y marca el correo como verificado, porque abrir el
+   * enlace demuestra controlarlo. Si la cuenta no estaba verificada (posible cuenta pre-creada por otra persona, C1),
+   * además se revocan las API keys que pudo crear quien la controlaba (`revokeApiKeysOfTakenOverAccount`).
+   */
+  async resetPassword(token: string, newPassword: string) {
+    const invalid = () =>
+      new BadRequestException('El enlace para restablecer la contraseña no es válido, venció o ya se usó');
+    if (typeof token !== 'string' || !token.startsWith(PASSWORD_RESET_PREFIX)) throw invalid();
+    const tokenHash = CryptoService.sha256(token);
+    const row = await this.prisma.passwordResetToken.findUnique({ where: { tokenHash } });
+    const now = new Date();
+    if (!row || row.usedAt || row.expiresAt <= now) throw invalid();
+    // bcrypt fuera de la transacción: no retiene bloqueos mientras calcula.
+    const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+    return this.prisma.$transaction(async (tx) => {
+      // Consumo atómico: dos peticiones simultáneas con el mismo enlace no restablecen dos veces.
+      const consumed = await tx.passwordResetToken.updateMany({
+        where: { id: row.id, usedAt: null, expiresAt: { gt: now } },
+        data: { usedAt: now },
+      });
+      if (!consumed.count) throw invalid();
+      await tx.passwordResetToken.updateMany({ where: { userId: row.userId, usedAt: null }, data: { usedAt: now } });
+      const before = await tx.user.findUniqueOrThrow({
+        where: { id: row.userId },
+        select: { emailVerifiedAt: true },
+      });
+      await tx.user.update({
+        where: { id: row.userId },
+        data: {
+          passwordHash,
+          tokenVersion: { increment: 1 },
+          ...(before.emailVerifiedAt ? {} : { emailVerifiedAt: now }),
+        },
+      });
+      const apiKeysRevoked = before.emailVerifiedAt ? 0 : await revokeApiKeysOfTakenOverAccount(tx, row.userId, now);
+      return { reset: true as const, sessionsRevoked: true as const, apiKeysRevoked };
+    });
   }
 
   async me(userId: string, workspaceId: string) {

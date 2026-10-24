@@ -8,6 +8,9 @@ export const routes: Routes = [
   // Públicas (C1): aceptar una invitación y confirmar el correo; la sesión, si hace falta, la piden las propias páginas.
   { path: 'invitacion/:token', loadComponent: () => import('./features/auth/invitation.page').then((m) => m.InvitationPage) },
   { path: 'verificar-correo/:token', loadComponent: () => import('./features/auth/verify-email.page').then((m) => m.VerifyEmailPage) },
+  // Recuperación de contraseña por correo: pedir el enlace y elegir la contraseña nueva (el token va en la ruta).
+  { path: 'olvide-contrasena', loadComponent: () => import('./features/auth/forgot-password.page').then((m) => m.ForgotPasswordPage) },
+  { path: 'restablecer/:token', loadComponent: () => import('./features/auth/reset-password.page').then((m) => m.ResetPasswordPage) },
   {
     path: '',
     component: ShellComponent,

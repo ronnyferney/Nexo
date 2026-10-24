@@ -22,12 +22,15 @@ const SENSITIVE_QUERY = new Set([
 
 /**
  * Rutas cuyo segmento es una credencial de un solo uso o de larga vida: el token de `/api/hooks/<token>` (webhooks),
- * el de las invitaciones (`/api/auth/invitations/<token>[/accept]`) y el de verificación de correo.
+ * el de las invitaciones (`/api/auth/invitations/<token>[/accept]`), el de verificación de correo y las páginas de la
+ * web que los reciben (`/invitacion/`, `/verificar-correo/`, `/restablecer/<token>` de la recuperación de contraseña).
  */
 const TOKEN_PATHS = [
   /^(\/(?:api\/)?hooks\/)[^/?#]+/i,
   /^(\/(?:api\/)?auth\/invitations\/)[^/?#]+/i,
   /^(\/(?:api\/)?auth\/verify-email\/)(?!request(?:[/?#]|$))[^/?#]+/i,
+  // Páginas de la web con el token en la ruta (por si llegan a un registro, p. ej. como Referer).
+  /^(\/(?:invitacion|verificar-correo|restablecer)\/)[^/?#]+/i,
 ];
 
 /**

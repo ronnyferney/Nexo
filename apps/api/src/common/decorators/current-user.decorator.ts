@@ -5,6 +5,9 @@ export interface AuthContext {
   workspaceId: string;
   role: 'OWNER' | 'ADMIN' | 'EDITOR' | 'VIEWER';
   via: 'jwt' | 'apiKey';
+  /** Solo con API key (B3): identificador y alcances de la clave. */
+  apiKeyId?: string;
+  scopes?: string[];
 }
 
 /** Inyecta el contexto autenticado (usuario + workspace activo). */

@@ -162,21 +162,23 @@ enum TriggerType {
 }
 
 model User {
-  id                  String            @id @default(cuid())
-  email               String            @unique
+  id                  String               @id @default(cuid())
+  email               String               @unique
   name                String
   passwordHash        String
   /// Cuándo demostró controlar el correo (enlace de verificación o de invitación). Null = sin verificar: puede usar su
   /// propio workspace, pero no unirse a otros sin el token de una invitación ni ser administrador de la plataforma.
   emailVerifiedAt     DateTime?
   /// Versión de las sesiones: va en el JWT (`tv`); incrementarla invalida todos los tokens emitidos antes.
-  tokenVersion        Int               @default(0)
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @updatedAt
+  tokenVersion        Int                  @default(0)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
   memberships         Membership[]
   groupMemberships    UserGroupMember[]
-  invitationsSent     Invitation[]      @relation("InvitationInviter")
-  invitationsAccepted Invitation[]      @relation("InvitationAcceptor")
+  invitationsSent     Invitation[]         @relation("InvitationInviter")
+  invitationsAccepted Invitation[]         @relation("InvitationAcceptor")
+  apiKeysCreated      ApiKey[]             @relation("ApiKeyCreator")
+  passwordResets      PasswordResetToken[]
 }
 
 /// Invitación a un workspace (C1): la membresía solo se crea cuando el dueño del correo acepta con el token de un solo
@@ -248,15 +250,45 @@ model Membership {
 }
 
 /// Llaves de API para integraciones máquina-a-máquina (webhooks, servidor MCP).
+/// API key de integraciones (B3): alcance acotado, rol máximo y expiración. Solo se guarda el SHA-256.
 model ApiKey {
-  id          String    @id @default(cuid())
-  name        String
-  prefix      String
-  hash        String    @unique
-  workspaceId String
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  lastUsedAt  DateTime?
-  createdAt   DateTime  @default(now())
+  id            String    @id @default(cuid())
+  name          String
+  prefix        String
+  hash          String    @unique
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// Permisos (`read`, `write`, `agents:run`, `workflows:run`, `connectors:invoke`, `mcp`). `*` = alcance completo
+  /// heredado de las claves anteriores a B3: la web sugiere rotarlas. Vacío = ninguna acción.
+  scopes        String[]  @default([])
+  /// Rol máximo efectivo de la clave; en uso se limita además al rol vigente de quien la creó.
+  role          Role      @default(EDITOR)
+  /// Null = sin expiración (solo un OWNER lo decide; las claves anteriores a B3 quedaron así).
+  expiresAt     DateTime?
+  revokedAt     DateTime?
+  /// Motivo de la revocación (`manual`, `account_takeover`).
+  revokedReason String?
+  /// Quién la creó. Null en las claves anteriores a B3 (o si se eliminó la cuenta).
+  createdById   String?
+  createdBy     User?     @relation("ApiKeyCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  lastUsedAt    DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([workspaceId])
+  @@index([createdById])
+}
+
+/// Enlace de recuperación de contraseña (C1/B3): de un solo uso, 30 minutos; solo se guarda el SHA-256 del token.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
 }
 
 /// Credenciales cifradas (AES-256-GCM). Nunca se devuelven en claro por la API.

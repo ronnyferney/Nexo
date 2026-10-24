@@ -328,7 +328,11 @@ describe('Visibilidad y permisos de agentes · salud y lanzamiento (ADR 0006 D3/
 
     it('las API keys usan agentes de la empresa, pero no crean agentes ni ven privados', async () => {
       const key = (
-        (await owner.api.post('/workspace/api-keys', { name: 'Integración' }).expect(201)).body as {
+        (
+          await owner.api
+            .post('/workspace/api-keys', { name: 'Integración', scopes: ['read', 'write', 'agents:run'] })
+            .expect(201)
+        ).body as {
           key: string;
         }
       ).key;
@@ -559,8 +563,11 @@ describe('Visibilidad y permisos de agentes · salud y lanzamiento (ADR 0006 D3/
 
   describe('Efectos en MCP, flujos y rutinas (D5)', () => {
     it('el servidor MCP publica solo agentes WORKSPACE + LAUNCHED', async () => {
-      const key = ((await owner.api.post('/workspace/api-keys', { name: 'MCP' }).expect(201)).body as { key: string })
-        .key;
+      const key = (
+        (await owner.api.post('/workspace/api-keys', { name: 'MCP', scopes: ['mcp'] }).expect(201)).body as {
+          key: string;
+        }
+      ).key;
       const published = (await createAgent(owner, { name: 'MCP publicado' })).id;
       await publishAgent(owner, published);
       const launchedTeam = (await createAgent(owner, { name: 'MCP equipo lanzado' })).id;

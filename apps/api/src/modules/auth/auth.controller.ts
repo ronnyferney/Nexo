@@ -8,7 +8,14 @@ import type { AuthenticatedRequest } from '../../common/guards/auth.guard';
 import { LoginAccountThrottlerGuard } from '../../common/guards/login-throttler.guard';
 import { CSRF_COOKIE, readCookie, SessionCookieService } from '../../common/guards/session-cookie.service';
 import { AuthService } from './auth.service';
-import { ChangePasswordDto, LoginDto, RegisterDto, SwitchWorkspaceDto } from './dto/auth.dto';
+import {
+  ChangePasswordDto,
+  ForgotPasswordDto,
+  LoginDto,
+  RegisterDto,
+  ResetPasswordDto,
+  SwitchWorkspaceDto,
+} from './dto/auth.dto';
 
 /**
  * Sesión: login, cambio de contraseña, cambio de workspace y aceptación de invitación emiten o renuevan la cookie de
@@ -87,6 +94,30 @@ export class AuthController {
     if (!auth.userId) throw new ForbiddenException('Las API keys no tienen contraseña');
     const result = await this.auth.changePassword(auth.userId, auth.workspaceId, dto);
     this.cookies.set(res, result.accessToken);
+    return result;
+  }
+
+  /**
+   * Pide el enlace de recuperación de contraseña: respuesta genérica siempre (exista o no la cuenta). Sin SMTP, 503.
+   * Límite por IP (5 cada 15 min) y, por cuenta, como mucho 3 enlaces vigentes.
+   */
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 15 * 60_000 } })
+  @HttpCode(202)
+  @Post('password/forgot')
+  forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.auth.requestPasswordReset(dto.email);
+  }
+
+  /** Fija la contraseña nueva con el enlace (un solo uso, 30 min) y cierra todas las sesiones; no inicia sesión. */
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post('password/reset')
+  async resetPassword(@Body() dto: ResetPasswordDto, @Res({ passthrough: true }) res: Response) {
+    const result = await this.auth.resetPassword(dto.token, dto.password);
+    // Si este navegador tenía una sesión, ya no vale: se borran sus cookies.
+    this.cookies.clear(res);
     return result;
   }
 

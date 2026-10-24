@@ -75,7 +75,8 @@ describe('Sesión de la web en cookie HttpOnly y CSRF (M6)', () => {
   });
 
   it('una API key no se acepta como cookie de sesión', async () => {
-    const key = (await owner.api.post('/workspace/api-keys', { name: 'cookie' }).expect(201)).body as { key: string };
+    const key = (await owner.api.post('/workspace/api-keys', { name: 'cookie', scopes: ['read'] }).expect(201))
+      .body as { key: string };
     const res = await http().get('/api/auth/me').set('Cookie', `nexo_session=${key.key}`).expect(401);
     expect(setCookies(res).nexo_session).toMatch(/nexo_session=;/);
     // Por cabecera sigue valiendo.

@@ -30,4 +30,13 @@ describe('redactUrl (B1)', () => {
     expect(redactUrl('/api/auth/verify-email/eyJ.x.y')).toBe(`/api/auth/verify-email/${REDACTED}`);
     expect(redactUrl('/api/auth/verify-email/request')).toBe('/api/auth/verify-email/request');
   });
+
+  it('oculta el token de las páginas de recuperación de contraseña, invitación y verificación de la web', () => {
+    expect(redactUrl('/restablecer/pwr_abc123')).toBe(`/restablecer/${REDACTED}`);
+    expect(redactUrl('/invitacion/inv_abc123')).toBe(`/invitacion/${REDACTED}`);
+    expect(redactUrl('/verificar-correo/eyJ.x.y')).toBe(`/verificar-correo/${REDACTED}`);
+    // El token de restablecimiento viaja en el cuerpo de la API, no en la ruta.
+    expect(redactUrl('/api/auth/password/reset')).toBe('/api/auth/password/reset');
+    expect(redactUrl('/api/auth/password/reset?token=pwr_x')).toBe(`/api/auth/password/reset?token=${REDACTED}`);
+  });
 });

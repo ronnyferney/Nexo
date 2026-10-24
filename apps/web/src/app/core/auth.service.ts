@@ -3,7 +3,15 @@ import { computed, inject, Injectable, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
-import type { AuthConfig, InvitationAccepted, InvitationPreview, Me, Role, Session } from './models';
+import type {
+  AuthConfig,
+  InvitationAccepted,
+  InvitationPreview,
+  Me,
+  PasswordResetResult,
+  Role,
+  Session,
+} from './models';
 
 /** Clave donde versiones anteriores guardaban el JWT; se borra al arrancar (M6). */
 const LEGACY_STORAGE_KEY = 'nexo.session';
@@ -77,6 +85,22 @@ export class AuthService {
   /** Modo de registro (la web oculta «Crear cuenta» con `invite_only`) y si hay correo saliente. */
   config(): Promise<AuthConfig> {
     return firstValueFrom(this.http.get<AuthConfig>(`${environment.apiUrl}/auth/config`));
+  }
+
+  /** Pide el enlace de recuperación. La respuesta es la misma exista o no la cuenta; sin SMTP, la API responde 503. */
+  forgotPassword(email: string): Promise<{ accepted: true; message: string }> {
+    return firstValueFrom(
+      this.http.post<{ accepted: true; message: string }>(`${environment.apiUrl}/auth/password/forgot`, { email }),
+    );
+  }
+
+  /** Fija la contraseña nueva con el token del enlace. Cierra todas las sesiones: también la de este navegador. */
+  async resetPassword(token: string, password: string): Promise<PasswordResetResult> {
+    const res = await firstValueFrom(
+      this.http.post<PasswordResetResult>(`${environment.apiUrl}/auth/password/reset`, { token, password }),
+    );
+    this.me.set(null);
+    return res;
   }
 
   invitation(token: string): Promise<InvitationPreview> {

@@ -15,6 +15,7 @@ import type { AuthContext } from '../../common/decorators/current-user.decorator
 import { maskEmail, MailService } from '../../infrastructure/mail/mail.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AuthService, normalizeEmail } from '../auth/auth.service';
+import { revokeApiKeysOfTakenOverAccount } from '../workspaces/api-keys.service';
 import type { MemberActor } from './org.service';
 
 /** Vida de una invitación. */
@@ -49,7 +50,8 @@ function statusOf(inv: Pick<Invitation, 'acceptedAt' | 'revokedAt' | 'expiresAt'
  * - sin cuenta: se crea con la contraseña que elige la persona, con el correo verificado;
  * - cuenta verificada: hay que haber iniciado sesión como ese usuario (el token solo no basta);
  * - cuenta SIN verificar (posible cuenta pre-creada por otra persona): el token demuestra el control del correo, así que
- *   la persona fija una contraseña nueva, el correo queda verificado y se invalidan todas las sesiones anteriores.
+ *   la persona fija una contraseña nueva, el correo queda verificado, se invalidan todas las sesiones anteriores y se
+ *   revocan las API keys que pudo crear quien controlaba la cuenta (`revokeApiKeysOfTakenOverAccount`).
  */
 @Injectable()
 export class InvitationsService {
@@ -168,6 +170,7 @@ export class InvitationsService {
 
       let user = await tx.user.findUnique({ where: { email: inv.email } });
       let sessionsRevoked = false;
+      let apiKeysRevoked = 0;
       if (!user) {
         const name = input.name?.trim() || inv.name;
         if (!passwordHash) throw new BadRequestException('Elija una contraseña para crear su cuenta');
@@ -203,6 +206,7 @@ export class InvitationsService {
           },
         });
         sessionsRevoked = true;
+        apiKeysRevoked = await revokeApiKeysOfTakenOverAccount(tx, user.id, now);
       }
 
       const existing = await tx.membership.findUnique({
@@ -214,7 +218,7 @@ export class InvitationsService {
           data: { userId: user.id, workspaceId: inv.workspaceId, role: inv.role, orgUnitId: inv.orgUnitId },
         }));
       await tx.invitation.update({ where: { id: inv.id }, data: { acceptedById: user.id } });
-      return { userId: user.id, membershipId: membership.id, sessionsRevoked };
+      return { userId: user.id, membershipId: membership.id, sessionsRevoked, apiKeysRevoked };
     });
     const session = await this.auth.issue(result.userId, inv.workspaceId);
     return { ...session, ...result };

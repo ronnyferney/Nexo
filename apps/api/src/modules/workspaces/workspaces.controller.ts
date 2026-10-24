@@ -1,11 +1,10 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Put } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { CryptoService } from '../../common/crypto/crypto.service';
 import { CurrentAuth, type AuthContext } from '../../common/decorators/current-user.decorator';
 import { MinRole } from '../../common/decorators/roles.decorator';
-import { API_KEY_PREFIX } from '../../common/guards/auth.guard';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CreateApiKeyDto, UpdateWorkspaceSettingsDto, UpsertSecretDto } from './dto/workspace.dto';
+import { ApiKeysService } from './api-keys.service';
 import { SecretsService } from './secrets.service';
 
 @ApiTags('workspace')
@@ -15,6 +14,7 @@ export class WorkspacesController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly secrets: SecretsService,
+    private readonly apiKeys: ApiKeysService,
   ) {}
 
   @Get('stats')
@@ -69,27 +69,20 @@ export class WorkspacesController {
 
   @Get('api-keys')
   listKeys(@CurrentAuth() { workspaceId }: AuthContext) {
-    return this.prisma.apiKey.findMany({
-      where: { workspaceId },
-      select: { id: true, name: true, prefix: true, lastUsedAt: true, createdAt: true },
-      orderBy: { createdAt: 'desc' },
-    });
+    return this.apiKeys.list(workspaceId);
   }
 
-  /** La llave completa solo se muestra una vez, al crearla. */
+  /** La llave completa solo se muestra una vez, al crearla. Requiere sesión de usuario (no otra API key). */
   @MinRole('ADMIN')
   @Post('api-keys')
-  async createKey(@CurrentAuth() { workspaceId }: AuthContext, @Body() dto: CreateApiKeyDto) {
-    const key = `${API_KEY_PREFIX}${CryptoService.randomToken(32)}`;
-    const row = await this.prisma.apiKey.create({
-      data: { workspaceId, name: dto.name, prefix: key.slice(0, 12), hash: CryptoService.sha256(key) },
-    });
-    return { id: row.id, name: row.name, key };
+  createKey(@CurrentAuth() auth: AuthContext, @Body() dto: CreateApiKeyDto) {
+    return this.apiKeys.create(auth, dto);
   }
 
+  /** Revoca la clave (deja de valer de inmediato); se conserva en la lista para auditoría. */
   @MinRole('ADMIN')
   @Delete('api-keys/:id')
-  async removeKey(@CurrentAuth() { workspaceId }: AuthContext, @Param('id') id: string) {
-    await this.prisma.apiKey.deleteMany({ where: { id, workspaceId } });
+  removeKey(@CurrentAuth() auth: AuthContext, @Param('id') id: string) {
+    return this.apiKeys.revoke(auth, id);
   }
 }

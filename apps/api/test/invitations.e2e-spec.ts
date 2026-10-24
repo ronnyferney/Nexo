@@ -1,7 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
-import { createServer, type Server, type Socket } from 'node:net';
-import type { AddressInfo } from 'node:net';
 import { Api, createTestApp, prismaOf } from './utils/app';
+import { decodeQp, fakeSmtp } from './utils/fake-smtp';
 import { invitationToken, login, PASSWORD, registerOwner, uniqueEmail, type Session } from './utils/fixtures';
 
 const ATTACKER_PASSWORD = 'Clave-Del-Atacante-1';
@@ -12,55 +11,6 @@ async function invite(owner: Session, email: string, role = 'ADMIN') {
   const body = res.body as { invitation: { id: string }; acceptUrl: string; emailSent: boolean };
   return { ...body, token: invitationToken(body.acceptUrl) };
 }
-
-/** Servidor SMTP mínimo en memoria: guarda cada mensaje recibido (destinatario y cuerpo). */
-function fakeSmtp(): Promise<{ server: Server; port: number; messages: { to: string; data: string }[] }> {
-  const messages: { to: string; data: string }[] = [];
-  const server = createServer((socket: Socket) => {
-    let buffer = '';
-    let inData = false;
-    let to = '';
-    let data = '';
-    socket.write('220 fake ESMTP\r\n');
-    socket.on('data', (chunk) => {
-      buffer += chunk.toString('utf8');
-      let idx: number;
-      while ((idx = buffer.indexOf('\r\n')) !== -1) {
-        const line = buffer.slice(0, idx);
-        buffer = buffer.slice(idx + 2);
-        if (inData) {
-          if (line === '.') {
-            inData = false;
-            messages.push({ to, data });
-            socket.write('250 OK\r\n');
-          } else {
-            data += `${line.startsWith('..') ? line.slice(1) : line}\n`;
-          }
-          continue;
-        }
-        const cmd = line.slice(0, 4).toUpperCase();
-        if (cmd === 'EHLO' || cmd === 'HELO') socket.write('250 fake\r\n');
-        else if (cmd === 'MAIL') socket.write('250 OK\r\n');
-        else if (cmd === 'RCPT') {
-          to = /<([^>]+)>/.exec(line)?.[1] ?? '';
-          socket.write('250 OK\r\n');
-        } else if (cmd === 'DATA') {
-          inData = true;
-          data = '';
-          socket.write('354 fin con .\r\n');
-        } else if (cmd === 'QUIT') {
-          socket.end('221 adiós\r\n');
-        } else socket.write('250 OK\r\n');
-      }
-    });
-  });
-  return new Promise((resolve) =>
-    server.listen(0, '127.0.0.1', () => resolve({ server, port: (server.address() as AddressInfo).port, messages })),
-  );
-}
-
-/** Quita el «soft line break» de quoted-printable para leer los enlaces del cuerpo. */
-const decodeQp = (text: string) => text.replace(/=\r?\n/g, '').replace(/=3D/g, '=');
 
 describe('Invitaciones y verificación de correo (C1, E2E)', () => {
   let app: INestApplication;
@@ -84,6 +34,12 @@ describe('Invitaciones y verificación de correo (C1, E2E)', () => {
     const attacker = await login(app, email, ATTACKER_PASSWORD);
     const attackerApi = new Api(app, (attacker.body as { accessToken: string }).accessToken);
     expect((await attackerApi.get('/auth/me').expect(200)).body).toMatchObject({ emailVerifiedAt: null });
+    // El atacante deja una API key en su workspace para conservar el acceso después.
+    const attackerKey = (
+      (await attackerApi.post('/workspace/api-keys', { name: 'Puerta trasera', scopes: ['read', 'mcp'] }).expect(201))
+        .body as { key: string }
+    ).key;
+    await new Api(app, attackerKey).get('/workflows').expect(200);
 
     // 2. El ADMIN real de «Cliente S.A.» agrega ese correo: se crea una invitación, no una membresía.
     const inv = await invite(client, email);
@@ -111,10 +67,17 @@ describe('Invitaciones y verificación de correo (C1, E2E)', () => {
     const accepted = await new Api(app)
       .post(`/auth/invitations/${inv.token}/accept`, { name: 'María Gómez', password: VICTIM_PASSWORD })
       .expect(200);
-    expect(accepted.body).toMatchObject({ workspaceId: client.workspaceId, role: 'ADMIN', sessionsRevoked: true });
+    expect(accepted.body).toMatchObject({
+      workspaceId: client.workspaceId,
+      role: 'ADMIN',
+      sessionsRevoked: true,
+      apiKeysRevoked: 1,
+    });
 
     // 5. Las sesiones y la contraseña del atacante dejan de valer; la persona real entra al workspace del cliente.
     await attackerApi.get('/auth/me').expect(401);
+    // ... y también la API key que dejó (C1/B3).
+    await new Api(app, attackerKey).get('/workflows').expect(401);
     await new Api(app, (relogin.body as { accessToken: string }).accessToken).get('/auth/me').expect(401);
     expect((await login(app, email, ATTACKER_PASSWORD)).status).toBe(401);
     const victim = await login(app, email, VICTIM_PASSWORD);

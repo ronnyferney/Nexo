@@ -1,4 +1,5 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { PATH_METADATA } from '@nestjs/common/constants';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import type { Request, Response } from 'express';
@@ -7,10 +8,20 @@ import { CryptoService } from '../crypto/crypto.service';
 import type { AuthContext } from '../decorators/current-user.decorator';
 import { IS_PUBLIC, OPTIONAL_AUTH } from '../decorators/public.decorator';
 import { MIN_ROLE, ROLE_RANK, type WorkspaceRole } from '../decorators/roles.decorator';
+import {
+  API_KEY_SCOPE_LABELS,
+  apiKeyAllows,
+  effectiveApiKeyRole,
+  joinRoutePath,
+  requiredApiKeyScope,
+} from './api-key-scopes';
 import { isUnsafeMethod, readCookie, SESSION_COOKIE, SessionCookieService } from './session-cookie.service';
 import { SessionRevocationService } from './session-revocation.service';
 
 export const API_KEY_PREFIX = 'nexo_';
+
+/** `lastUsedAt` se actualiza como mucho una vez por minuto y clave: no escribe en cada petición. */
+export const API_KEY_LAST_USED_GRANULARITY_MS = 60_000;
 
 export interface JwtPayload {
   sub: string;
@@ -41,6 +52,9 @@ export interface AuthenticatedRequest extends Request {
  * Guard global: acepta `Authorization: Bearer <jwt>` (usuarios), `Bearer nexo_...` / `x-api-key` (integraciones y
  * clientes MCP) y, sin cabecera, la cookie de sesión de la web `nexo_session` (M6). Con la cookie, las peticiones que
  * modifican datos exigen el token CSRF (`X-CSRF-Token`, ver `SessionCookieService`). Aplica control de rol mínimo.
+ *
+ * API keys (B3): una clave vencida o revocada responde 401; una acción fuera de su alcance (`api-key-scopes.ts`), 403.
+ * Su rol es el menor entre el de la clave y el vigente de quien la creó.
  */
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -89,9 +103,12 @@ export class AuthGuard implements CanActivate {
         throw new ForbiddenException('Falta el token CSRF o no corresponde a la sesión; recargue la página');
       }
     } else {
-      auth = credential.token.startsWith(API_KEY_PREFIX)
-        ? await this.fromApiKey(credential.token)
-        : await this.fromJwt(credential);
+      if (credential.token.startsWith(API_KEY_PREFIX)) {
+        auth = await this.fromApiKey(credential.token);
+        this.assertApiKeyScope(context, req, auth);
+      } else {
+        auth = await this.fromJwt(credential);
+      }
     }
     req.user = auth;
     req.sessionCredential = credential;
@@ -131,7 +148,51 @@ export class AuthGuard implements CanActivate {
   private async fromApiKey(token: string): Promise<AuthContext> {
     const key = await this.prisma.apiKey.findUnique({ where: { hash: CryptoService.sha256(token) } });
     if (!key) throw new UnauthorizedException('API key inválida');
-    void this.prisma.apiKey.update({ where: { id: key.id }, data: { lastUsedAt: new Date() } }).catch(() => undefined);
-    return { workspaceId: key.workspaceId, role: 'EDITOR', via: 'apiKey' };
+    const now = new Date();
+    if (key.revokedAt) throw new UnauthorizedException('La API key fue revocada');
+    if (key.expiresAt && key.expiresAt <= now) {
+      throw new UnauthorizedException('La API key venció; cree una nueva en Ajustes → API keys');
+    }
+    let role: WorkspaceRole = key.role;
+    if (key.createdById) {
+      // La clave nunca da más de lo que hoy tiene quien la creó: degradarlo la limita; retirarlo la inhabilita.
+      const creator = await this.prisma.membership.findUnique({
+        where: { userId_workspaceId: { userId: key.createdById, workspaceId: key.workspaceId } },
+        select: { role: true },
+      });
+      if (!creator) throw new UnauthorizedException('Quien creó la API key ya no es miembro del workspace');
+      role = effectiveApiKeyRole(key.role, creator.role);
+    }
+    if (!key.lastUsedAt || now.getTime() - key.lastUsedAt.getTime() >= API_KEY_LAST_USED_GRANULARITY_MS) {
+      await this.prisma.apiKey
+        .updateMany({
+          where: {
+            id: key.id,
+            OR: [
+              { lastUsedAt: null },
+              { lastUsedAt: { lt: new Date(now.getTime() - API_KEY_LAST_USED_GRANULARITY_MS) } },
+            ],
+          },
+          data: { lastUsedAt: now },
+        })
+        .catch(() => undefined);
+    }
+    return { workspaceId: key.workspaceId, role, via: 'apiKey', apiKeyId: key.id, scopes: key.scopes };
+  }
+
+  /** 403 si la acción (método + ruta de Nest) no está dentro del alcance de la clave. */
+  private assertApiKeyScope(context: ExecutionContext, req: Request, auth: AuthContext): void {
+    const handler = context.getHandler();
+    const path = joinRoutePath(
+      this.reflector.get<string | string[]>(PATH_METADATA, context.getClass()),
+      this.reflector.get<string | string[]>(PATH_METADATA, handler),
+    );
+    // Se usa el método de la petición (no el del decorador): `@All()` del servidor MCP no fija uno.
+    const scope = requiredApiKeyScope(req.method, path);
+    if (!apiKeyAllows(auth.scopes ?? [], scope)) {
+      throw new ForbiddenException(
+        `La API key no tiene el alcance «${scope}» (${API_KEY_SCOPE_LABELS[scope]}) necesario para esta operación`,
+      );
+    }
   }
 }

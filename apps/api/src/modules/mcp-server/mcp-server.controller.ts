@@ -8,7 +8,8 @@ import { McpServerService } from './mcp-server.service';
 
 /**
  * Endpoint MCP (Streamable HTTP, modo sin estado): /api/mcp
- * Autenticación: `Authorization: Bearer nexo_...` (API key del workspace, rol EDITOR) o JWT de un EDITOR o superior.
+ * Autenticación: `Authorization: Bearer nexo_...` (API key del workspace con alcance `mcp`, B3) o JWT de un EDITOR o
+ * superior.
  * Las tools ejecutan flujos y agentes: exige el mismo rol que `POST /workflows/:id/run` (un VIEWER recibe 403).
  */
 @ApiTags('mcp')

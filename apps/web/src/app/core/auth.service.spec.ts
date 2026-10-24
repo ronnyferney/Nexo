@@ -106,4 +106,17 @@ describe('AuthService (sesión en cookie, M6)', () => {
     expect(auth.isAuthenticated()).toBeFalse();
     expect(router.navigate).toHaveBeenCalled();
   });
+
+  it('restablecer la contraseña envía el token en el cuerpo (no en la URL) y olvida la sesión local', async () => {
+    const init = auth.init();
+    http.expectOne('/api/auth/me').flush(ME);
+    await init;
+    const done = auth.resetPassword('pwr_token-de-prueba', 'Clave-Nueva-123');
+    const req = http.expectOne('/api/auth/password/reset');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ token: 'pwr_token-de-prueba', password: 'Clave-Nueva-123' });
+    req.flush({ reset: true, sessionsRevoked: true, apiKeysRevoked: 0 });
+    await done;
+    expect(auth.isAuthenticated()).toBeFalse();
+  });
 });

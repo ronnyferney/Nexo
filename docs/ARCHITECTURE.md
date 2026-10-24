@@ -180,6 +180,45 @@ independiente.
   clientes y calidad del Copilot (calificaciones; conversación solo si el usuario la compartió). Conjunto de evaluación
   propio en `copilot/eval/`.
 
+## API keys con alcance y expiración (auditoría B3)
+
+- **Alta** (`POST /workspace/api-keys`, ADMIN+, solo con sesión de usuario: una API key no gestiona API keys):
+  `scopes` obligatorio, `role` (`VIEWER`/`EDITOR`/`ADMIN`, por defecto `EDITOR`, nunca mayor que el de quien la crea;
+  nunca `OWNER`) y `expiration` (`30d`/`90d`/`365d`, por defecto `90d`; `never` solo un OWNER). Se guarda el SHA-256,
+  el prefijo y `createdById`; la llave completa se muestra una vez.
+- **Alcances** (`common/guards/api-key-scopes.ts`, único lugar que los decide a partir del método y la ruta de Nest):
+  `read` (GET/HEAD y `POST /knowledge-bases/:id/search`), `write` (cualquier otra escritura), `agents:run`
+  (`POST /agents/:id/chat`, `POST /routines/:id/run`), `workflows:run` (`POST /workflows/:id/run`,
+  `POST /executions/:id/cancel|retry`), `connectors:invoke` (`POST /connectors/:id/operations/:opId/invoke`) y `mcp`
+  (`/mcp`). Una ruta nueva con un alcance propio se agrega a `ROUTE_SCOPES`.
+- **Guard**: clave inexistente, revocada o vencida → 401; acción fuera del alcance → 403; luego aplica `@MinRole`
+  con el rol efectivo = mínimo entre el de la clave y el rol **vigente** de quien la creó (si dejó el workspace, 401).
+  `lastUsedAt` se escribe como mucho una vez por minuto y clave.
+- **Revocar** (`DELETE /workspace/api-keys/:id`) marca `revokedAt` (`revokedReason: manual`); la clave sigue en la
+  lista para auditoría.
+- **Compatibilidad**: la migración `api_keys_con_alcance_y_recuperacion_de_contrasena` deja las claves existentes con
+  alcance `*` (todo lo que permita su rol), rol `EDITOR` y sin expiración: siguen funcionando igual. La lista las
+  marca `legacy` y `rotationSuggested` para que la web sugiera rotarlas.
+- **Cuenta recuperada** (C1): al tomar el control de una cuenta sin verificar (invitación o recuperación de
+  contraseña) se revocan (`revokedReason: account_takeover`), en la misma transacción que sube `tokenVersion`:
+  1. todas las claves creadas por esa cuenta, en cualquier workspace;
+  2. en los workspaces donde es OWNER y ningún otro miembro es OWNER ni ADMIN, también las claves sin creador conocido
+     (anteriores a B3): crear claves exige ADMIN, así que allí solo esa cuenta pudo crearlas. Con otro administrador
+     presente no se pueden atribuir y se conservan, igual que las claves creadas por otros miembros.
+
+## Recuperación de contraseña
+
+- `POST /auth/password/forgot` (público, 5 cada 15 min por IP): sin SMTP responde 503 (como la verificación de
+  correo). Con SMTP responde 202 con el mismo cuerpo exista o no el correo y procesa en segundo plano (sin
+  enumeración ni diferencia de tiempos). Como mucho 3 enlaces vigentes por cuenta (las demás solicitudes se ignoran).
+- Token `pwr_…` aleatorio de 256 bits, de un solo uso y 30 minutos (`PasswordResetToken`, solo su SHA-256). Llega en el
+  enlace `/restablecer/<token>` de la web, que lo envía en el cuerpo de `POST /auth/password/reset` (10/min por IP).
+- Restablecer consume el enlace de forma atómica (y los demás vigentes de la cuenta), incrementa `tokenVersion`
+  (cierra todas las sesiones), marca el correo como verificado y, si la cuenta no lo estaba, revoca las API keys como
+  se describe arriba. No inicia sesión: la web lleva al login.
+- Registros: `redact-url.ts` y el `log_format` de `apps/web/nginx.conf` ocultan el token de `/restablecer/` en la URL
+  y en el `Referer` (las llamadas a `/api` desde esa página lo envían con `strict-origin-when-cross-origin`).
+
 ## Sesión de la web y CSRF (auditoría M6, B4)
 
 - **Credenciales aceptadas** por el `AuthGuard` global, en este orden: `Authorization: Bearer <jwt|nexo_…>`,

@@ -94,8 +94,11 @@ describe('Seguridad de la plataforma (E2E)', () => {
     it('/api/mcp exige EDITOR: un VIEWER recibe 403 y un EDITOR o una API key listan las tools (M2)', async () => {
       const viewer = await addMember(app, owner, { role: 'VIEWER' });
       const editor = await addMember(app, owner, { role: 'EDITOR' });
-      const key = ((await owner.api.post('/workspace/api-keys', { name: 'MCP' }).expect(201)).body as { key: string })
-        .key;
+      const key = (
+        (await owner.api.post('/workspace/api-keys', { name: 'MCP', scopes: ['mcp'] }).expect(201)).body as {
+          key: string;
+        }
+      ).key;
 
       const denied = await mcpList(app, viewer.token);
       expect(denied.status).toBe(403);
@@ -105,7 +108,8 @@ describe('Seguridad de la plataforma (E2E)', () => {
 
     it('/auth/me y /auth/switch-workspace con API key responden 403, no 500 (I3)', async () => {
       const key = (
-        (await owner.api.post('/workspace/api-keys', { name: 'Cuenta' }).expect(201)).body as { key: string }
+        (await owner.api.post('/workspace/api-keys', { name: 'Cuenta', scopes: ['read', 'write'] }).expect(201))
+          .body as { key: string }
       ).key;
       const me = await request(app.getHttpServer()).get('/api/auth/me').set('Authorization', `Bearer ${key}`);
       expect(me.status).toBe(403);

@@ -6,6 +6,9 @@ import { AuthService } from './auth.service';
 import type { ConnectionUsage } from './llm-providers.models';
 import type {
   Agent,
+  ApiKey,
+  ApiKeyCreateInput,
+  ApiKeyCreated,
   AgentStreamEvent,
   BudgetAlert,
   BudgetInput,
@@ -69,15 +72,15 @@ export class ApiService {
   secrets = () => this.get<{ id: string; name: string; updatedAt: string }[]>('/workspace/secrets');
   upsertSecret = (name: string, value: string) => this.put('/workspace/secrets', { name, value });
   deleteSecret = (id: string) => this.delete(`/workspace/secrets/${id}`);
-  apiKeys = () => this.get<{ id: string; name: string; prefix: string; lastUsedAt?: string; createdAt: string }[]>('/workspace/api-keys');
+  apiKeys = () => this.get<ApiKey[]>('/workspace/api-keys');
   changePassword = (body: { currentPassword: string; newPassword: string }) =>
     this.post<Session & { changed: true }>('/auth/change-password', body);
   requestEmailVerification = () =>
     this.post<{ sent: boolean; alreadyVerified: boolean }>('/auth/verify-email/request');
   confirmEmailVerification = (token: string) =>
     this.post<{ verified: true }>(`/auth/verify-email/${encodeURIComponent(token)}`);
-  createApiKey = (name: string) => this.post<{ id: string; name: string; key: string }>('/workspace/api-keys', { name });
-  deleteApiKey = (id: string) => this.delete(`/workspace/api-keys/${id}`);
+  createApiKey = (body: ApiKeyCreateInput) => this.post<ApiKeyCreated>('/workspace/api-keys', body);
+  revokeApiKey = (id: string) => this.delete<{ revoked: true }>(`/workspace/api-keys/${id}`);
 
   // Conectores
   connectors = () => this.get<Connector[]>('/connectors');

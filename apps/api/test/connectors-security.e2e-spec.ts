@@ -150,8 +150,13 @@ describe('Conectores: hallazgos de seguridad (e2e)', () => {
     });
 
     it('una API key tampoco puede leer el secreto', async () => {
-      const key = ((await owner.api.post('/workspace/api-keys', { name: 'A4' }).expect(201)).body as { key: string })
-        .key;
+      const key = (
+        (
+          await owner.api
+            .post('/workspace/api-keys', { name: 'A4', scopes: ['read', 'write', 'connectors:invoke'] })
+            .expect(201)
+        ).body as { key: string }
+      ).key;
       const api = new Api(app, key);
       const { connector, opId: ping } = await exfiltrator(api);
       const before = rest.requests.length;

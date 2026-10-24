@@ -131,8 +131,11 @@ describe('Entrada de los flujos: aviso antes de ejecutar (P2, E2E)', () => {
     await create('Clima MCP', weather(REQUIRED)).then((id) =>
       owner.api.post(`/workflows/${id}/active`, { active: true }).expect(200),
     );
-    const key = ((await owner.api.post('/workspace/api-keys', { name: 'MCP' }).expect(201)).body as { key: string })
-      .key;
+    const key = (
+      (await owner.api.post('/workspace/api-keys', { name: 'MCP', scopes: ['mcp'] }).expect(201)).body as {
+        key: string;
+      }
+    ).key;
     const rpc = async (method: string, params: object) => {
       const res = await request(app.getHttpServer())
         .post('/api/mcp')

@@ -153,7 +153,7 @@ npm run release && git push --follow-tags origin HEAD
 
 ## Conectar un cliente MCP a Nexo
 
-Cree una API key en **Administración → Seguridad** y agregue a su cliente MCP. Se publican como tools los agentes con
+Cree una API key con el alcance `mcp` en **Administración → Seguridad** y agréguela a su cliente MCP. Se publican como tools los agentes con
 visibilidad Empresa y lanzados (`agent_*`) y los flujos activos (`workflow_*`):
 
 ```json
