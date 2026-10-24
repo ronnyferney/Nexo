@@ -2,6 +2,7 @@ import type { INestApplication } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import request from 'supertest';
 import { CryptoService } from '../src/common/crypto/crypto.service';
+import { createPasswordResetToken } from '../src/modules/auth/password-reset-token';
 import { Api, createTestApp, prismaOf } from './utils/app';
 import { decodeQp, fakeSmtp, waitForMail, type FakeSmtp } from './utils/fake-smtp';
 import { addMember, login, PASSWORD, registerOwner, uniqueEmail, type Session } from './utils/fixtures';
@@ -30,6 +31,16 @@ describe('Recuperación de contraseña por correo (C1, E2E)', () => {
       const { timestamp: _b, ...unknownBody } = unknown.body as Record<string, unknown>;
       expect(knownBody).toEqual(unknownBody);
       expect(await prismaOf(app).passwordResetToken.count({ where: { userId: s.userId } })).toBe(0);
+    });
+
+    it('el enlace que genera el operador (npm run auth:reset-link) restablece la contraseña y cierra las sesiones', async () => {
+      const s = await registerOwner(app, 'pwr-operador');
+      const { token } = await createPasswordResetToken(prismaOf(app), s.userId);
+      const res = await new Api(app).post('/auth/password/reset', { token, password: NEW_PASSWORD }).expect(200);
+      expect(res.body).toEqual({ reset: true, sessionsRevoked: true, apiKeysRevoked: 0 });
+      await s.api.get('/auth/me').expect(401);
+      expect((await login(app, s.email, NEW_PASSWORD)).status).toBe(200);
+      await new Api(app).post('/auth/password/reset', { token, password: 'Otra-Clave-Distinta-2' }).expect(400);
     });
   });
 
@@ -163,7 +174,8 @@ describe('Recuperación de contraseña por correo (C1, E2E)', () => {
 
     it('como mucho 3 enlaces vigentes por cuenta: más solicitudes no envían correo', async () => {
       const s = await registerOwner(app, 'pwr-limite');
-      for (let i = 0; i < 5; i++) await forgot(s.email);
+      // Simultáneas a propósito: antes el conteo y la creación no eran atómicos y llegaba un 4.º enlace.
+      await Promise.all(Array.from({ length: 5 }, () => forgot(s.email)));
       // El envío es asíncrono: se esperan los 3 correos (hasta 10 s) y luego un margen para un 4.º que no debe llegar.
       const sent = () => smtp.messages.filter((m) => m.to === s.email).length;
       for (const deadline = Date.now() + 10_000; sent() < 3 && Date.now() < deadline;) {

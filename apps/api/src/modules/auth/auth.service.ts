@@ -10,7 +10,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import type { JwtPayload, SessionCredential } from '../../common/guards/auth.guard';
 import { SessionRevocationService } from '../../common/guards/session-revocation.service';
@@ -18,6 +18,7 @@ import type { RegistrationMode } from '../../config/configuration';
 import { MailService } from '../../infrastructure/mail/mail.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { revokeApiKeysOfTakenOverAccount } from '../workspaces/api-keys.service';
+import { createPasswordResetToken, PASSWORD_RESET_MAX_ACTIVE, PASSWORD_RESET_PREFIX } from './password-reset-token';
 import type { ChangePasswordDto, LoginDto, RegisterDto } from './dto/auth.dto';
 
 /** Vida del enlace de verificación de correo. */
@@ -30,11 +31,7 @@ interface EmailVerificationClaims {
   email: string;
 }
 
-/** Vida del enlace de recuperación de contraseña. */
-export const PASSWORD_RESET_TTL_MS = 30 * 60_000;
-/** Enlaces vigentes por cuenta: más solicitudes se ignoran en silencio (evita inundar el buzón de alguien). */
-export const PASSWORD_RESET_MAX_ACTIVE = 3;
-export const PASSWORD_RESET_PREFIX = 'pwr_';
+export { PASSWORD_RESET_MAX_ACTIVE, PASSWORD_RESET_PREFIX, PASSWORD_RESET_TTL_MS } from './password-reset-token';
 
 /**
  * Respuesta de `POST /auth/password/forgot`: idéntica exista o no el correo (sin enumeración). El trabajo (buscar la
@@ -298,18 +295,17 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({ where: { email }, select: { id: true, name: true, email: true } });
     if (!user) return false;
     const now = new Date();
-    const active = await this.prisma.passwordResetToken.count({
-      where: { userId: user.id, usedAt: null, expiresAt: { gt: now } },
+    // Contar y crear en la misma transacción con un candado por cuenta: las solicitudes se procesan en segundo plano y,
+    // sin él, varias simultáneas veían el mismo conteo y superaban el máximo de enlaces vigentes.
+    const token = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`password-reset:${user.id}`}, 0))`;
+      const active = await tx.passwordResetToken.count({
+        where: { userId: user.id, usedAt: null, expiresAt: { gt: now } },
+      });
+      if (active >= PASSWORD_RESET_MAX_ACTIVE) return null;
+      return (await createPasswordResetToken(tx, user.id, now)).token;
     });
-    if (active >= PASSWORD_RESET_MAX_ACTIVE) return false;
-    const token = `${PASSWORD_RESET_PREFIX}${randomBytes(32).toString('base64url')}`;
-    await this.prisma.passwordResetToken.create({
-      data: {
-        userId: user.id,
-        tokenHash: CryptoService.sha256(token),
-        expiresAt: new Date(now.getTime() + PASSWORD_RESET_TTL_MS),
-      },
-    });
+    if (!token) return false;
     return this.mail.send({
       to: user.email,
       subject: 'Restablecer su contraseña de Nexo',
