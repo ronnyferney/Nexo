@@ -44,6 +44,8 @@ export interface CatalogEntry {
   installed: number;
   /** De ellos, los de OAuth cuyo inicio de sesión no terminó (no conectados todavía). */
   pendingAuth: number;
+  /** App OAuth de la plataforma para «Iniciar sesión con…» (solo integraciones OAuth). */
+  platformApp?: { available: boolean; clientIdHint: string | null };
 }
 
 /** Cuenta instalada de una integración (`GET /connector-catalog/:id/accounts`). */

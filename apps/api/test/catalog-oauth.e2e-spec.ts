@@ -301,7 +301,11 @@ describe('Catálogo de conectores y OAuth2 de usuario (E2E, ADR 0005)', () => {
         .expect(400);
       expect(JSON.stringify(res.body)).toContain('OAUTH_MICROSOFT_CLIENT_ID');
       // No queda una instalación a medias que se vea como "instalada".
-      expect((await catalog(owner)).find((i) => i.id === 'microsoft-todo')!.installed).toBe(0);
+      expect((await catalog(owner)).find((i) => i.id === 'microsoft-todo')).toMatchObject({
+        installed: 0,
+        // La web lo usa para avisar antes de instalar en lugar de fallar en la pantalla del proveedor.
+        platformApp: { available: false, clientIdHint: null },
+      });
     });
 
     it('un VIEWER no puede instalar ni crear el kit comercial', async () => {

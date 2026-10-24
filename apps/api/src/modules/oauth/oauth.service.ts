@@ -95,6 +95,14 @@ export class OAuthService {
   }
 
   /** Cookie `Secure` cuando la API se publica por https. */
+  /** ¿Hay app OAuth de la plataforma para este proveedor? Con su client ID abreviado (nunca el secreto). */
+  platformApp(provider: string): { available: boolean; clientIdHint: string | null } {
+    const id = str(this.config.get<string>(platformEnvName(provider, 'CLIENT_ID')));
+    const secret = str(this.config.get<string>(platformEnvName(provider, 'CLIENT_SECRET')));
+    const available = !!(OAUTH_PROVIDERS[provider] && id && secret);
+    return { available, clientIdHint: available ? maskClientId(id) : null };
+  }
+
   get secureCookies(): boolean {
     return this.publicUrl.startsWith('https://');
   }

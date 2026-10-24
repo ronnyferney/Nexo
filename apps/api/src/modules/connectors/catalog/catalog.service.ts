@@ -275,6 +275,10 @@ export class CatalogService {
       ...(e.verificationNotes ? { verificationNotes: e.verificationNotes } : {}),
       installed,
       pendingAuth,
+      // App OAuth de la plataforma para el inicio de sesión (si existe): la instalación la usa salvo app propia.
+      ...(e.auth.oauth2_code?.type === 'oauth2_code'
+        ? { platformApp: this.oauth.platformApp(e.auth.oauth2_code.provider ?? '') }
+        : {}),
     };
   }
 }

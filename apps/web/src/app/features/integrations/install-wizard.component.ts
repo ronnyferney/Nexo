@@ -61,13 +61,26 @@ import { AUTH_METHOD_META, categoryLabel } from './catalog-meta';
             </fieldset>
           }
 
-          @for (fl of fields(); track fl.key) {
+          @if (method() === 'oauth2_code' && ownAppFields().length) {
+            @if (e.platformApp?.available && !advanced()) {
+              <p class="small muted app-line"><nx-icon name="shield" [size]="14" />
+                Se usará la app de Nexo para iniciar sesión (client ID <code>{{ e.platformApp?.clientIdHint }}</code>).
+                <button type="button" class="link" (click)="advanced.set(true)">Usar una app propia</button></p>
+            } @else if (!e.platformApp?.available && !advanced()) {
+              <div class="callout warning" role="alert"><nx-icon name="alert" [size]="16" />
+                <span class="grow">Falta configurar en el servidor la app de inicio de sesión de esta integración.
+                  Pida al administrador de Nexo que la configure, o
+                  <button type="button" class="link" (click)="advanced.set(true)">use una app propia</button>.</span></div>
+            }
+          }
+
+          @for (fl of visibleFields(); track fl.key) {
             <div class="field">
               <label [for]="'iw-' + fl.key">{{ fl.label }}@if (!fl.required && !fl.label.toLowerCase().includes('opcional')) { <span class="muted"> (opcional)</span> }</label>
               <div class="secret-row">
                 <input class="input" [class.mono]="fl.secret" [id]="'iw-' + fl.key" [name]="'cred_' + fl.key"
                   [type]="fl.secret && !revealed()[fl.key] ? 'password' : 'text'" [required]="fl.required"
-                  [autocomplete]="fl.secret ? 'new-password' : 'off'" spellcheck="false"
+                  [autocomplete]="fl.secret ? 'new-password' : 'off'" spellcheck="false" data-lpignore="true" data-1p-ignore
                   [attr.aria-describedby]="fl.help ? 'iw-h-' + fl.key : null"
                   [pattern]="fl.pattern ?? ''" #ctl="ngModel"
                   [ngModel]="credentials()[fl.key] ?? ''" (ngModelChange)="setCredential(fl.key, $event)" />
@@ -89,8 +102,7 @@ import { AUTH_METHOD_META, categoryLabel } from './catalog-meta';
           }
           @if (method() === 'oauth2_code') {
             <div class="callout info"><nx-icon name="externalLink" [size]="16" />
-              <span>Al instalar, lo llevaremos a la página de {{ e.name }} para que inicie sesión y autorice el acceso.
-                Al aceptar volverá a Nexo con la cuenta conectada. Puede desconectarla en cualquier momento desde el conector.</span></div>
+              <span>Lo llevaremos a iniciar sesión y autorizar el acceso; luego volverá a Nexo con la cuenta conectada.</span></div>
           }
           @if (conflict()) {
             <div class="callout warning" role="alert"><nx-icon name="lock" [size]="16" />
@@ -106,7 +118,8 @@ import { AUTH_METHOD_META, categoryLabel } from './catalog-meta';
             <a class="btn ghost docs" [href]="e.docsUrl" target="_blank" rel="noopener noreferrer"><nx-icon name="book" [size]="16" />Documentación</a>
           }
           <button type="button" class="btn" (click)="close()">Cancelar</button>
-          <button type="submit" class="btn primary" [disabled]="busy() || f.invalid">
+          <button type="submit" class="btn primary"
+            [disabled]="busy() || f.invalid || (method() === 'oauth2_code' && ownAppFields().length > 0 && !e.platformApp?.available && !advanced())">
             <nx-icon [name]="method() === 'oauth2_code' ? 'externalLink' : 'check'" [size]="16" />
             {{ busy() ? 'Instalando…' : method() === 'oauth2_code' ? 'Instalar y conectar' : 'Instalar' }}
           </button>
@@ -115,6 +128,8 @@ import { AUTH_METHOD_META, categoryLabel } from './catalog-meta';
     </dialog>
   `,
   styles: `
+    .app-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0; }
+    .link { background: none; border: 0; padding: 0; color: var(--primary); font: inherit; cursor: pointer; text-decoration: underline; }
     .grow { flex: 1; min-width: 0; }
     .methods { border: 0; margin: 0; padding: 0; display: grid; gap: 8px; }
     .methods legend { font-size: 12.5px; font-weight: 600; color: var(--muted); margin-bottom: 6px; padding: 0; }
@@ -148,7 +163,16 @@ export class InstallWizardComponent implements OnInit {
   readonly fields = computed(() =>
     this.entry().credentialFields.filter((f) => !f.authMethods?.length || f.authMethods.includes(this.method())),
   );
-  readonly hasSecrets = computed(() => this.fields().some((f) => f.secret));
+  readonly hasSecrets = computed(() => this.visibleFields().some((f) => f.secret));
+  /** OAuth: los campos opcionales son la app propia (client ID/secret); quedan ocultos salvo que se pidan. */
+  readonly advanced = signal(false);
+  readonly ownAppFields = computed(() =>
+    this.method() === 'oauth2_code' ? this.fields().filter((f) => !f.required) : [],
+  );
+  /** Sin renderizar los campos de app propia, el navegador no puede autocompletarlos con valores ajenos. */
+  readonly visibleFields = computed(() =>
+    this.advanced() ? this.fields() : this.fields().filter((f) => !this.ownAppFields().includes(f)),
+  );
 
   constructor() {
     afterNextRender(() => this.dialog().nativeElement.showModal());
@@ -184,7 +208,7 @@ export class InstallWizardComponent implements OnInit {
 
   async submit() {
     const e = this.entry();
-    const keys = new Set(this.fields().map((f) => f.key));
+    const keys = new Set(this.visibleFields().map((f) => f.key));
     const credentials: Record<string, string> = {};
     for (const [k, v] of Object.entries(this.credentials())) if (keys.has(k) && v?.trim()) credentials[k] = v.trim();
     this.busy.set(true);
