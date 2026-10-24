@@ -56,19 +56,19 @@ claves cifrados con AES-256-GCM, `redirect: 'manual'` en el cliente HTTP, `postM
 | L1 | P0 | Postura: Nexo no usa suscripciones personales (Claude Pro/Max, ChatGPT Plus) ni client_id de otros productos (ADR 0002 D8) | Hecho |
 | L2 | P1 | Workload Identity Federation para la API de Anthropic (sin claves; requiere emisor OIDC público de Nexo) | Pendiente |
 | L3 | P1 | Amazon Bedrock y Claude Platform on AWS con rol de IAM + `ExternalId` (sin claves de larga duración) | Pendiente |
-| L4 | P1 | Corregir el catálogo de Bedrock: hoy recomienda una clave de larga duración («solo para exploración» según AWS) | Pendiente |
-| L5 | P1 | Retirar modelos retirados: Llama 4 Scout en Groq, Kimi K2 0905 en Fireworks | Pendiente |
-| L6 | P1 | Azure: alcance `https://ai.azure.com/.default`, host `services.ai.azure.com`, rol RBAC documentado | Pendiente |
-| L7 | P1 | Entra ID para Claude en Microsoft Foundry (verificar el alcance oficial) | Pendiente |
+| L4 | P1 | Corregir el catálogo de Bedrock: hoy recomienda una clave de larga duración («solo para exploración» según AWS) | Hecho (bf53087): token de corta duración |
+| L5 | P1 | Retirar modelos retirados: Llama 4 Scout en Groq, Kimi K2 0905 en Fireworks | Hecho (bf53087); pendiente: sugerir reemplazos verificados |
+| L6 | P1 | Azure: alcance `https://ai.azure.com/.default`, host `services.ai.azure.com`, rol RBAC documentado | En parte (bf53087): alcance y roles de Foundry; pendiente: host y rol de recursos clásicos |
+| L7 | P1 | Entra ID para Claude en Microsoft Foundry (verificar el alcance oficial) | Hecho (bf53087); el operador registra el redirect URI en la app de Entra |
 | L8 | P1 | Verificación de la app de Google (sin ella el refresh token caduca a los 7 días) y registro de los redirect URI | Pendiente |
-| L9 | P2 | OpenAI: modelos actuales; programa «Sign in with ChatGPT» solo si Nexo es aceptado como socio | Pendiente |
-| L10 | P2 | xAI con la API Responses (Chat Completions marcada como legacy) | Pendiente |
-| L11 | P2 | DeepSeek: modelos `deepseek-v4-pro`/`v4-flash` y `docsUrl` oficial | Pendiente |
-| L12 | P2 | OpenRouter: usar el parámetro `state` (ya soportado) y `usage_limit_type` | Pendiente |
-| L13 | P2 | LM Studio con token Bearer; Ollama Cloud; Cohere; Perplexity | Pendiente |
-| L14 | P2 | Avisos de datos por proveedor en el catálogo (entrenamiento con datos en niveles gratuitos, residencia, retención) | Pendiente |
-| L15 | P2 | Tarifa escalonada de Claude Haiku 5.5 (>100.000 tokens: 0,50/2,50 USD por MTok) | Pendiente |
-| L16 | P2 | Mostrar la tarifa de lectura de caché en «Modelos de IA» | Pendiente |
+| L9 | P2 | OpenAI: modelos actuales; programa «Sign in with ChatGPT» solo si Nexo es aceptado como socio | En parte (bf53087): modelos actuales |
+| L10 | P2 | xAI con la API Responses (Chat Completions marcada como legacy) | Pendiente: la especificación oficial aún no marca Chat Completions como legacy |
+| L11 | P2 | DeepSeek: modelos `deepseek-v4-pro`/`v4-flash` y `docsUrl` oficial | Pendiente: sin fuente oficial accesible |
+| L12 | P2 | OpenRouter: usar el parámetro `state` (ya soportado) y `usage_limit_type` | En parte (bf53087): `usage_limit_type` no aplica al flujo del navegador |
+| L13 | P2 | LM Studio con token Bearer; Ollama Cloud; Cohere; Perplexity | Hecho (bf53087) |
+| L14 | P2 | Avisos de datos por proveedor en el catálogo (entrenamiento con datos en niveles gratuitos, residencia, retención) | Hecho (bf53087) |
+| L15 | P2 | Tarifa escalonada de Claude Haiku 5.5 (>100.000 tokens: 0,50/2,50 USD por MTok) | Hecho (bf53087) |
+| L16 | P2 | Mostrar la tarifa de lectura de caché en «Modelos de IA» | Hecho (bf53087) |
 
 ## 3. Producto y pruebas
 
@@ -82,4 +82,4 @@ claves cifrados con AES-256-GCM, `redirect: 'manual'` en el cliente HTTP, `postM
 | P6 | P2 | Implementar ADR 0008 (protección de datos y observabilidad) | Pendiente |
 | P7 | P2 | Decidir la regla de exposición de flujos por MCP | Pendiente |
 | P8 | P3 | 19 advertencias de lint en la API | Pendiente |
-| P9 | P0 | Los programadores cron de flujos y rutinas viven solo en Redis: al reemplazar Redis (B8) o perder sus datos dejan de ejecutarse | Reconciliar al arrancar desde la base de datos | En curso |
+| P9 | P0 | Los programadores cron de flujos y rutinas viven solo en Redis: al reemplazar Redis (B8) o perder sus datos dejan de ejecutarse | Reconciliar al arrancar desde la base de datos | Hecho (3dd5396) |
