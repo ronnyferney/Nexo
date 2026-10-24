@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, HttpCode, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, HttpCode, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { CurrentAuth, type AuthContext } from '../../common/decorators/current-user.decorator';
@@ -11,6 +11,13 @@ import { ChangePasswordDto, LoginDto, RegisterDto, SwitchWorkspaceDto } from './
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
+
+  /** Modo de registro y si hay correo saliente (la web oculta «Crear cuenta» con `invite_only`). */
+  @Public()
+  @Get('config')
+  config() {
+    return this.auth.publicConfig();
+  }
 
   @Public()
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
@@ -41,7 +48,25 @@ export class AuthController {
   @Post('change-password')
   changePassword(@CurrentAuth() auth: AuthContext, @Body() dto: ChangePasswordDto) {
     if (!auth.userId) throw new ForbiddenException('Las API keys no tienen contraseña');
-    return this.auth.changePassword(auth.userId, dto);
+    return this.auth.changePassword(auth.userId, auth.workspaceId, dto);
+  }
+
+  /** Envía a su correo el enlace de verificación (C1). Requiere SMTP. */
+  @ApiBearerAuth()
+  @Throttle({ default: { limit: 3, ttl: 10 * 60_000 } })
+  @HttpCode(200)
+  @Post('verify-email/request')
+  requestVerification(@CurrentAuth() auth: AuthContext) {
+    return this.auth.requestEmailVerification(userOf(auth));
+  }
+
+  /** Confirma el correo con el enlace recibido; exige la sesión de la misma cuenta. */
+  @ApiBearerAuth()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post('verify-email/:token')
+  confirmVerification(@CurrentAuth() auth: AuthContext, @Param('token') token: string) {
+    return this.auth.confirmEmailVerification(userOf(auth), token);
   }
 
   @ApiBearerAuth()

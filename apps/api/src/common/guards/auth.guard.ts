@@ -4,7 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { CryptoService } from '../crypto/crypto.service';
 import type { AuthContext } from '../decorators/current-user.decorator';
-import { IS_PUBLIC } from '../decorators/public.decorator';
+import { IS_PUBLIC, OPTIONAL_AUTH } from '../decorators/public.decorator';
 import { MIN_ROLE, ROLE_RANK, type WorkspaceRole } from '../decorators/roles.decorator';
 
 export const API_KEY_PREFIX = 'nexo_';
@@ -13,6 +13,8 @@ export interface JwtPayload {
   sub: string;
   wid: string;
   role: WorkspaceRole;
+  /** `User.tokenVersion` al emitirlo; si cambió (cuenta recuperada, contraseña cambiada), el token deja de valer. */
+  tv?: number;
 }
 
 /**
@@ -34,7 +36,10 @@ export class AuthGuard implements CanActivate {
     const req = context.switchToHttp().getRequest();
     const header: string | undefined = req.headers.authorization;
     const token = header?.startsWith('Bearer ') ? header.slice(7) : (req.headers['x-api-key'] as string | undefined);
-    if (!token) throw new UnauthorizedException('Credenciales requeridas');
+    if (!token) {
+      if (this.reflector.getAllAndOverride<boolean>(OPTIONAL_AUTH, targets)) return true;
+      throw new UnauthorizedException('Credenciales requeridas');
+    }
 
     const auth = token.startsWith(API_KEY_PREFIX) ? await this.fromApiKey(token) : await this.fromJwt(token);
     req.user = auth;
@@ -56,9 +61,13 @@ export class AuthGuard implements CanActivate {
     // El rol vigente se toma de la membresía, no del token: degradar o retirar a un miembro aplica de inmediato.
     const membership = await this.prisma.membership.findUnique({
       where: { userId_workspaceId: { userId: payload.sub, workspaceId: payload.wid } },
-      select: { role: true },
+      select: { role: true, user: { select: { tokenVersion: true } } },
     });
     if (!membership) throw new UnauthorizedException('Ya no es miembro de este workspace');
+    // Tokens anteriores a `tv` equivalen a la versión 0.
+    if ((payload.tv ?? 0) !== membership.user.tokenVersion) {
+      throw new UnauthorizedException('La sesión ya no es válida; inicie sesión de nuevo');
+    }
     return { userId: payload.sub, workspaceId: payload.wid, role: membership.role, via: 'jwt' };
   }
 

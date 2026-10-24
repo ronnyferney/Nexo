@@ -1,6 +1,6 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { IconComponent } from '../../shared/icon.component';
@@ -21,25 +21,44 @@ import { AUTH_BRAND_COMPACT, AUTH_HERO, AUTH_STYLES } from './auth.styles';
         <div class="field"><label for="login-password">Contraseña</label><input id="login-password" class="input" type="password" name="password" [(ngModel)]="password" required autocomplete="current-password" /></div>
         @if (error()) { <div class="error-text" role="alert">{{ error() }}</div> }
         <button class="btn primary" type="submit" [disabled]="loading()">{{ loading() ? 'Ingresando…' : 'Ingresar' }}</button>
-        <p class="muted small">¿No tiene cuenta? <a routerLink="/register">Crear cuenta</a></p>
+        @if (registrationOpen()) {
+          <p class="muted small">¿No tiene cuenta? <a routerLink="/register">Crear cuenta</a></p>
+        } @else {
+          <p class="muted small">¿No tiene cuenta? Pida una invitación al administrador de su empresa.</p>
+        }
       </form>
     </section>
   `,
 })
-export class LoginPage {
+export class LoginPage implements OnInit {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   email = '';
   password = '';
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
+  readonly registrationOpen = signal(true);
+
+  ngOnInit() {
+    void this.auth
+      .config()
+      .then((c) => this.registrationOpen.set(c.registrationMode === 'open'))
+      .catch(() => undefined);
+  }
+
+  /** Solo rutas internas (`/…`, no `//host`): evita redirecciones abiertas tras iniciar sesión. */
+  private returnUrl(): string {
+    const url = this.route.snapshot.queryParamMap.get('returnUrl') ?? '';
+    return url.startsWith('/') && !url.startsWith('//') && !url.startsWith('/\\') ? url : '/';
+  }
 
   async submit() {
     this.loading.set(true);
     this.error.set(null);
     try {
       await this.auth.login(this.email, this.password);
-      await this.router.navigate(['/']);
+      await this.router.navigateByUrl(this.returnUrl());
     } catch (e) {
       this.error.set(errorMessage(e));
     } finally {

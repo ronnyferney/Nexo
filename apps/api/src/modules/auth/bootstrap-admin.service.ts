@@ -1,5 +1,7 @@
 import { ConflictException, Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { maskEmail } from '../../infrastructure/mail/mail.service';
+import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AuthService } from './auth.service';
 
 interface BootstrapAdminConfig {
@@ -21,10 +23,34 @@ export class BootstrapAdminService implements OnApplicationBootstrap {
   constructor(
     private readonly auth: AuthService,
     private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
     await this.ensure(this.config.get<BootstrapAdminConfig>('bootstrapAdmin'));
+    await this.warnUnverifiedPlatformAdmins(this.config.get<string[]>('platform.adminEmails') ?? []);
+  }
+
+  /**
+   * A7: un correo de `PLATFORM_ADMIN_EMAILS` sin cuenta verificada no da acceso a la consola de plataforma (quien lo
+   * registre primero no se la apropia). Se avisa en cada arranque para que el operador cree o verifique la cuenta.
+   * Devuelve los correos sin cuenta verificada.
+   */
+  async warnUnverifiedPlatformAdmins(emails: string[]): Promise<string[]> {
+    if (!emails.length) return [];
+    const verified = await this.prisma.user.findMany({
+      where: { email: { in: emails }, emailVerifiedAt: { not: null } },
+      select: { email: true },
+    });
+    const ok = new Set(verified.map((u) => u.email));
+    const missing = emails.filter((e) => !ok.has(e));
+    for (const email of missing) {
+      this.logger.warn(
+        `PLATFORM_ADMIN_EMAILS: ${maskEmail(email)} no tiene una cuenta con el correo verificado; no podrá entrar a ` +
+          'la consola de plataforma hasta que la cuenta exista y verifique su correo',
+      );
+    }
+    return missing;
   }
 
   /** Devuelve true si creó el usuario. */
@@ -35,12 +61,11 @@ export class BootstrapAdminService implements OnApplicationBootstrap {
       return false;
     }
     try {
-      await this.auth.register({
-        email: cfg.email,
-        password: cfg.password,
-        name: cfg.name,
-        workspaceName: cfg.workspaceName,
-      });
+      // El correo del usuario maestro lo fija el operador de la plataforma: nace verificado.
+      await this.auth.createAccount(
+        { email: cfg.email, password: cfg.password, name: cfg.name, workspaceName: cfg.workspaceName },
+        { verified: true },
+      );
       this.logger.log(`Usuario maestro creado (${cfg.email}) como OWNER del workspace "${cfg.workspaceName}"`);
       return true;
     } catch (err) {

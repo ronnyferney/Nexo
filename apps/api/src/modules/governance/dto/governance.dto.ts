@@ -35,12 +35,27 @@ export class UpdateOrgUnitDto {
   allowedModels?: string[];
 }
 
+/** Invitación a un miembro (C1): la cuenta y la contraseña las crea la persona al aceptar. */
 export class AddMemberDto {
   @ApiProperty() @IsEmail() email!: string;
-  @ApiProperty() @IsString() @MinLength(2) @MaxLength(80) name!: string;
+  @ApiPropertyOptional({ description: 'Nombre sugerido (la persona puede cambiarlo al aceptar)' })
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(80)
+  name?: string;
   @ApiProperty({ enum: Role }) @IsEnum(Role) role!: Role;
   @ApiPropertyOptional() @IsOptional() @IsString() orgUnitId?: string;
-  @ApiPropertyOptional({ description: 'Obligatoria si el usuario no existe' })
+}
+
+export class AcceptInvitationDto {
+  @ApiPropertyOptional({ description: 'Obligatorio si la cuenta no existe' })
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(80)
+  name?: string;
+  @ApiPropertyOptional({ description: 'Obligatoria si la cuenta no existe o no tiene el correo verificado' })
   @IsOptional()
   @IsString()
   @MinLength(8)

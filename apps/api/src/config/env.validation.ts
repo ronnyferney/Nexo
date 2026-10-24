@@ -19,6 +19,15 @@ const schema = z.object({
       const error = trustProxyError(value);
       if (error) ctx.addIssue({ code: 'custom', message: error });
     }),
+  REGISTRATION_MODE: z
+    .string()
+    .regex(/^(open|invite_only)?$/i, 'REGISTRATION_MODE debe ser open o invite_only')
+    .optional(),
+  SMTP_URL: z
+    .string()
+    .regex(/^(smtps?:\/\/.+)?$/i, 'SMTP_URL debe empezar por smtp:// o smtps://')
+    .optional(),
+  MAIL_FROM: z.string().optional(),
   SWAGGER_ENABLED: z
     .string()
     .regex(/^(true|false)?$/i, 'SWAGGER_ENABLED debe ser true o false')
@@ -86,7 +95,12 @@ export function secretWeaknesses(env: Record<string, unknown>): string[] {
 }
 
 export function validateEnv(env: Record<string, unknown>): Record<string, unknown> {
-  const parsed = schema.safeParse(env);
+  const parsed = schema
+    .refine((e) => !e.SMTP_URL?.trim() || !!e.MAIL_FROM?.trim(), {
+      message: 'MAIL_FROM es obligatorio cuando se define SMTP_URL',
+      path: ['MAIL_FROM'],
+    })
+    .safeParse(env);
   if (!parsed.success) {
     const issues = parsed.error.issues.map((i) => `  - ${i.path.join('.')}: ${i.message}`).join('\n');
     throw new Error(`Configuración inválida:\n${issues}`);

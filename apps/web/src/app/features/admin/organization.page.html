@@ -114,13 +114,13 @@
     </div>
 
     <div class="section-title"><nx-icon name="users" /><h2>Miembros</h2><span class="spacer"></span>
-      @if (!memberDraft()) { <button class="btn primary" (click)="startAddMember()"><nx-icon name="plus" />Agregar miembro</button> }</div>
+      @if (!memberDraft()) { <button class="btn primary" (click)="startAddMember()"><nx-icon name="plus" />Invitar miembro</button> }</div>
 
     @if (memberDraft(); as m) {
       <div class="card stack editor" style="margin-bottom:16px">
         <div class="grid grid-3">
           <div class="field"><label for="am-email">Correo</label><input id="am-email" class="input" type="email" [(ngModel)]="m.email" placeholder="persona@empresa.com" /></div>
-          <div class="field"><label for="am-name">Nombre</label><input id="am-name" class="input" [(ngModel)]="m.name" /></div>
+          <div class="field"><label for="am-name">Nombre (opcional)</label><input id="am-name" class="input" [(ngModel)]="m.name" /></div>
           <div class="field"><label for="am-role">Rol</label>
             <select id="am-role" class="input" [(ngModel)]="m.role">
               @for (r of roles(); track r) { <option [value]="r">{{ roleLabels[r] }}</option> }
@@ -131,12 +131,55 @@
             <select id="am-unit" class="input" [(ngModel)]="m.orgUnitId">
               @for (n of tree(); track n.item.id) { <option [value]="n.item.id">{{ pad(n.depth) }}{{ n.item.name }}</option> }
             </select></div>
-          <div class="field"><label for="am-pass">Contraseña (opcional)</label>
-            <input id="am-pass" class="input" type="password" autocomplete="new-password" [(ngModel)]="m.password" />
-            <span class="hint">Obligatoria si el usuario no existe (mínimo 8 caracteres). Si ya tiene cuenta, se ignora.</span></div>
+          <p class="hint" style="align-self:end">La persona recibe un enlace de un solo uso (vence en 7 días) para crear su contraseña o aceptar con su cuenta. Nadie entra al workspace sin abrir ese enlace.</p>
         </div>
         <div class="row"><span class="spacer"></span><button class="btn" (click)="memberDraft.set(null)">Cancelar</button>
-          <button class="btn primary" [disabled]="busy() || memberInvalid(m)" (click)="addMember()"><nx-icon name="plus" />Agregar</button></div>
+          <button class="btn primary" [disabled]="busy() || memberInvalid(m)" (click)="addMember()"><nx-icon name="plus" />Invitar</button></div>
+      </div>
+    }
+
+    @if (lastInvite(); as li) {
+      <div class="card stack editor" style="margin-bottom:16px" role="status">
+        <div class="card-title"><nx-icon name="check" /><h3>Invitación para {{ li.email }}</h3><span class="spacer"></span>
+          <button class="btn ghost icon" title="Cerrar" aria-label="Cerrar" (click)="lastInvite.set(null)"><nx-icon name="x" /></button></div>
+        @if (li.emailSent) {
+          <p class="muted small" style="margin:0">Se envió el enlace a su correo. También puede copiarlo y entregarlo por otro canal.</p>
+        } @else {
+          <p class="muted small" style="margin:0">No hay correo saliente configurado: copie el enlace y entrégueselo por un canal de confianza.</p>
+        }
+        <div class="row">
+          <input class="input mono" readonly aria-label="Enlace de invitación" [value]="li.acceptUrl" (focus)="$any($event.target).select()" />
+          <button class="btn" (click)="copyInvite(li.acceptUrl)"><nx-icon name="copy" [size]="14" />Copiar</button>
+        </div>
+        <p class="hint" style="margin:0">Este enlace se muestra una sola vez. Si lo pierde, invite de nuevo: el enlace anterior dejará de funcionar.</p>
+      </div>
+    }
+
+    @if (invitations().length) {
+      <div class="card" style="padding:0; margin-bottom:16px">
+        <div class="table-wrap">
+          <table class="table">
+            <caption class="muted small" style="text-align:left; padding:12px 16px">Invitaciones pendientes</caption>
+            <thead><tr><th>Correo</th><th>Rol</th><th>Estado</th><th>Invitó</th><th></th></tr></thead>
+            <tbody>
+              @for (inv of invitations(); track inv.id) {
+                <tr>
+                  <td class="small">{{ inv.email }}@if (inv.name) { <span class="muted"> · {{ inv.name }}</span> }</td>
+                  <td>{{ roleLabels[inv.role] }}</td>
+                  <td>
+                    @if (inv.status === 'EXPIRED') { <span class="badge warning">Vencida</span> }
+                    @else { <span class="badge">Vence {{ fmtDate(inv.expiresAt) }}</span> }
+                  </td>
+                  <td class="small muted">{{ inv.invitedBy?.name ?? '—' }}</td>
+                  <td class="num">
+                    <button class="btn ghost icon sm danger" title="Revocar invitación" aria-label="Revocar invitación"
+                      [disabled]="inv.role === 'OWNER' && auth.session()?.role !== 'OWNER'" (click)="revokeInvitation(inv)"><nx-icon name="trash" [size]="14" /></button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
       </div>
     }
 

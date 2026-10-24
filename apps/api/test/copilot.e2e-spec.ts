@@ -355,6 +355,12 @@ describe('Nexo Copilot (e2e)', () => {
         token = (login.body as { accessToken: string }).accessToken;
       }
       platform = new Api(app, token);
+      // A7: con el registro abierto la cuenta nace sin verificar y aún no es administradora de la plataforma.
+      if (reg.status === 201) {
+        expect((await platform.get('/platform/me').expect(200)).body).toEqual({ isPlatformAdmin: false });
+        await platform.get('/platform/copilot/metrics').expect(403);
+      }
+      await prismaOf(app).user.update({ where: { email: PLATFORM_ADMIN }, data: { emailVerifiedAt: new Date() } });
       const s = await session(owner, { mode: 'CREATE' });
       const r = await send(owner, s.id, 'Necesito un agente de compras');
       messageId = r.messageId;

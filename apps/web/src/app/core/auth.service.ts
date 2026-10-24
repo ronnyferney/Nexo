@@ -3,7 +3,7 @@ import { computed, inject, Injectable, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
-import type { Me, Session } from './models';
+import type { AuthConfig, InvitationAccepted, InvitationPreview, Me, Session } from './models';
 
 const STORAGE_KEY = 'nexo.session';
 
@@ -33,6 +33,35 @@ export class AuthService {
     this.store(await firstValueFrom(this.http.post<Session>(`${environment.apiUrl}/auth/register`, data)));
   }
 
+  /** Modo de registro (la web oculta «Crear cuenta» con `invite_only`) y si hay correo saliente. */
+  config(): Promise<AuthConfig> {
+    return firstValueFrom(this.http.get<AuthConfig>(`${environment.apiUrl}/auth/config`));
+  }
+
+  invitation(token: string): Promise<InvitationPreview> {
+    return firstValueFrom(
+      this.http.get<InvitationPreview>(`${environment.apiUrl}/auth/invitations/${encodeURIComponent(token)}`),
+    );
+  }
+
+  /** Acepta una invitación y deja iniciada la sesión en el workspace que invitó. */
+  async acceptInvitation(token: string, body: { name?: string; password?: string }): Promise<InvitationAccepted> {
+    const res = await firstValueFrom(
+      this.http.post<InvitationAccepted>(
+        `${environment.apiUrl}/auth/invitations/${encodeURIComponent(token)}/accept`,
+        body,
+      ),
+    );
+    this.store({ accessToken: res.accessToken, workspaceId: res.workspaceId, role: res.role });
+    await this.loadMe();
+    return res;
+  }
+
+  /** Reemplaza el token vigente (p. ej. tras cambiar la contraseña, que invalida los anteriores). */
+  adopt(session: Session): void {
+    this.store({ accessToken: session.accessToken, workspaceId: session.workspaceId, role: session.role });
+  }
+
   async loadMe(): Promise<void> {
     if (!this.session()) return;
     this.me.set(await firstValueFrom(this.http.get<Me>(`${environment.apiUrl}/auth/me`)));
@@ -43,11 +72,11 @@ export class AuthService {
     await this.loadMe();
   }
 
-  logout(): void {
+  logout(returnUrl?: string): void {
     localStorage.removeItem(STORAGE_KEY);
     this.session.set(null);
     this.me.set(null);
-    void this.router.navigate(['/login']);
+    void this.router.navigate(['/login'], returnUrl ? { queryParams: { returnUrl } } : {});
   }
 
   private store(session: Session): void {

@@ -5,6 +5,9 @@ import { ShellComponent } from './layout/shell.component';
 export const routes: Routes = [
   { path: 'login', canActivate: [guestGuard], loadComponent: () => import('./features/auth/login.page').then((m) => m.LoginPage) },
   { path: 'register', canActivate: [guestGuard], loadComponent: () => import('./features/auth/register.page').then((m) => m.RegisterPage) },
+  // Públicas (C1): aceptar una invitación y confirmar el correo; la sesión, si hace falta, la piden las propias páginas.
+  { path: 'invitacion/:token', loadComponent: () => import('./features/auth/invitation.page').then((m) => m.InvitationPage) },
+  { path: 'verificar-correo/:token', loadComponent: () => import('./features/auth/verify-email.page').then((m) => m.VerifyEmailPage) },
   {
     path: '',
     component: ShellComponent,

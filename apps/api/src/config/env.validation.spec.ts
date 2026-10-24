@@ -94,4 +94,12 @@ describe('validateEnv · secretos débiles (M9)', () => {
     expect(() => validateEnv(env({ TRUST_PROXY: 'todos' }))).toThrow(/TRUST_PROXY no reconoce "todos"/);
     expect(() => validateEnv(env({ SWAGGER_ENABLED: 'si' }))).toThrow(/SWAGGER_ENABLED/);
   });
+
+  it('valida REGISTRATION_MODE y exige MAIL_FROM con SMTP_URL (C1)', () => {
+    expect(() => validateEnv(env({ REGISTRATION_MODE: 'invite_only' }))).not.toThrow();
+    expect(() => validateEnv(env({ REGISTRATION_MODE: 'abierto' }))).toThrow(/REGISTRATION_MODE/);
+    expect(() => validateEnv(env({ SMTP_URL: 'smtp://localhost:25' }))).toThrow(/MAIL_FROM es obligatorio/);
+    expect(() => validateEnv(env({ SMTP_URL: 'smtp://localhost:25', MAIL_FROM: 'Nexo <no@nexo.co>' }))).not.toThrow();
+    expect(() => validateEnv(env({ SMTP_URL: 'http://correo', MAIL_FROM: 'x@nexo.co' }))).toThrow(/SMTP_URL/);
+  });
 });

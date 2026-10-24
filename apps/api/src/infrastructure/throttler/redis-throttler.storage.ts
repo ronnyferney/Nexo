@@ -2,6 +2,7 @@ import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ThrottlerStorage } from '@nestjs/throttler';
 import { Redis } from 'ioredis';
+import type { RedisConnectionConfig } from '../../config/configuration';
 
 /** Registro que espera `ThrottlerGuard` (tiempos en segundos). */
 export interface ThrottlerRecord {
@@ -52,12 +53,13 @@ export class RedisThrottlerStorage implements ThrottlerStorage, OnModuleDestroy 
   private lastWarning = 0;
 
   constructor(config: ConfigService) {
-    const redis = config.getOrThrow<{ host: string; port: number; password?: string; db?: number }>('redis');
+    const redis = config.getOrThrow<RedisConnectionConfig & { db?: number }>('redis');
     this.redis = new Redis({
       host: redis.host,
       port: redis.port,
       password: redis.password,
       db: redis.db,
+      tls: redis.tls, // `REDIS_TLS=true` (ElastiCache con cifrado en tránsito); sin definir, conexión sin TLS
       lazyConnect: true,
       connectionName: 'nexo-throttler',
       keyPrefix: 'nexo:throttle:',

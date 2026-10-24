@@ -23,4 +23,11 @@ describe('redactUrl (B1)', () => {
     expect(redactUrl('/api/x?%E0%A4%A=1&flag')).toBe('/api/x?%E0%A4%A=1&flag');
     expect(redactUrl(undefined)).toBe('');
   });
+
+  it('oculta los tokens de invitación y de verificación de correo (C1)', () => {
+    expect(redactUrl('/api/auth/invitations/inv_abc123')).toBe(`/api/auth/invitations/${REDACTED}`);
+    expect(redactUrl('/api/auth/invitations/inv_abc123/accept')).toBe(`/api/auth/invitations/${REDACTED}/accept`);
+    expect(redactUrl('/api/auth/verify-email/eyJ.x.y')).toBe(`/api/auth/verify-email/${REDACTED}`);
+    expect(redactUrl('/api/auth/verify-email/request')).toBe('/api/auth/verify-email/request');
+  });
 });

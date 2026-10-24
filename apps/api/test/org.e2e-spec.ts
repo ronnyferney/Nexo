@@ -1,11 +1,12 @@
 import type { INestApplication } from '@nestjs/common';
-import { createTestApp } from './utils/app';
+import { Api, createTestApp, prismaOf } from './utils/app';
 import {
   addMember,
   adminUnits,
   createAgent,
   publishAgent,
   createUnit,
+  invitationToken,
   login,
   PASSWORD,
   registerOwner,
@@ -126,37 +127,73 @@ describe('Gobierno de IA · organización, miembros y roles (E2E)', () => {
       rootId = (await rootUnit(owner)).id;
     });
 
-    it('alta de un usuario nuevo exige contraseña; con contraseña se crea y puede iniciar sesión', async () => {
+    it('el alta crea una invitación (no una cuenta); al aceptarla con contraseña la persona puede iniciar sesión', async () => {
       const email = uniqueEmail('nuevo');
-      await owner.api.post('/admin/org/members', { email, name: 'Sin Clave', role: 'EDITOR' }).expect(400);
-
       const unit = await createUnit(owner, 'Soporte', rootId);
       const created = await owner.api
         .post('/admin/org/members', {
-          email,
+          email: email.toUpperCase(),
           name: 'Ana Nueva',
           role: 'EDITOR',
           orgUnitId: unit.id,
-          password: PASSWORD,
         })
         .expect(201);
-      expect(created.body).toMatchObject({ email, name: 'Ana Nueva', role: 'EDITOR', orgUnitId: unit.id });
-      expect(created.body).not.toHaveProperty('passwordHash');
+      expect(created.body).toMatchObject({
+        invitation: { email, name: 'Ana Nueva', role: 'EDITOR', orgUnitId: unit.id, status: 'PENDING' },
+        acceptUrl: expect.stringMatching(/\/invitacion\/inv_[\w-]{43}$/),
+        emailSent: false,
+      });
+      // Todavía no hay cuenta ni membresía.
+      expect(await prismaOf(app).user.findUnique({ where: { email } })).toBeNull();
+      await login(app, email).then((r) => expect(r.status).toBe(401));
+
+      const token = invitationToken((created.body as { acceptUrl: string }).acceptUrl);
+      const preview = (await new Api(app).get(`/auth/invitations/${token}`).expect(200)).body;
+      expect(preview).toMatchObject({
+        email: 'e***@nexo.test',
+        role: 'EDITOR',
+        accountExists: false,
+        requiresLogin: false,
+      });
+      await new Api(app).post(`/auth/invitations/${token}/accept`, {}).expect(400);
+      const accepted = await new Api(app).post(`/auth/invitations/${token}/accept`, { password: PASSWORD }).expect(200);
+      expect(accepted.body).toMatchObject({ workspaceId: owner.workspaceId, role: 'EDITOR' });
+      const user = await prismaOf(app).user.findUniqueOrThrow({ where: { email } });
+      expect(user).toMatchObject({ name: 'Ana Nueva', emailVerifiedAt: expect.any(Date) });
 
       const res = await login(app, email);
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject({ workspaceId: owner.workspaceId, role: 'EDITOR' });
-
+      // Un solo uso, y un miembro no se vuelve a invitar.
+      await new Api(app).post(`/auth/invitations/${token}/accept`, { password: PASSWORD }).expect(410);
       await owner.api.post('/admin/org/members', { email, name: 'Ana Nueva', role: 'EDITOR' }).expect(409);
-      await login(app, email, 'otra-clave-123').then((r) => expect(r.status).toBe(401));
+      // El alta ya no acepta contraseña (la elige la persona).
+      await owner.api
+        .post('/admin/org/members', { email: uniqueEmail('x'), name: 'Con Clave', role: 'EDITOR', password: PASSWORD })
+        .expect(400);
     });
 
-    it('sin orgUnitId el miembro queda en la raíz; un usuario existente se agrega sin contraseña', async () => {
+    it('una cuenta existente y verificada acepta solo con su propia sesión; sin orgUnitId queda en la raíz', async () => {
       const other = await registerOwner(app, 'existente');
-      const added = await owner.api
-        .post('/admin/org/members', { email: other.email.toUpperCase(), name: 'Ignorado', role: 'VIEWER' })
+      await prismaOf(app).user.update({ where: { id: other.userId }, data: { emailVerifiedAt: new Date() } });
+      const invited = await owner.api
+        .post('/admin/org/members', { email: other.email.toUpperCase(), role: 'VIEWER' })
         .expect(201);
-      expect(added.body).toMatchObject({ userId: other.userId, role: 'VIEWER', orgUnitId: rootId });
+      const token = invitationToken((invited.body as { acceptUrl: string }).acceptUrl);
+      expect((await new Api(app).get(`/auth/invitations/${token}`).expect(200)).body).toMatchObject({
+        accountExists: true,
+        requiresLogin: true,
+      });
+      // Sin sesión (aunque se envíe una contraseña) o con la sesión de otra persona: 403.
+      await new Api(app).post(`/auth/invitations/${token}/accept`, { password: 'Otra-Clave-999' }).expect(403);
+      const stranger = await registerOwner(app, 'ajeno');
+      await stranger.api.post(`/auth/invitations/${token}/accept`, {}).expect(403);
+      // Con su sesión, sí; la contraseña no cambia.
+      const accepted = await other.api.post(`/auth/invitations/${token}/accept`, {}).expect(200);
+      expect(accepted.body).toMatchObject({ workspaceId: owner.workspaceId, role: 'VIEWER', sessionsRevoked: false });
+      const members = (await owner.api.get('/admin/org/members').expect(200)).body as { userId: string }[];
+      expect(members.find((m) => m.userId === other.userId)).toMatchObject({ role: 'VIEWER', orgUnitId: rootId });
+      expect((await login(app, other.email)).status).toBe(200);
     });
 
     it('cambia rol y unidad de un miembro', async () => {

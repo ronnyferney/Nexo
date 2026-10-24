@@ -1,15 +1,9 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, type OrgUnit } from '@prisma/client';
-import * as bcrypt from 'bcryptjs';
 import type { WorkspaceRole } from '../../common/decorators/roles.decorator';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AddMemberDto, CreateOrgUnitDto, UpdateMemberDto, UpdateOrgUnitDto } from './dto/governance.dto';
+import { InvitationsService } from './invitations.service';
 
 /** Quien ejecuta la operación sobre los miembros (de `@CurrentAuth()`). */
 export interface MemberActor {
@@ -26,7 +20,10 @@ type Tx = Prisma.TransactionClient;
  */
 @Injectable()
 export class OrgService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly invitations: InvitationsService,
+  ) {}
 
   /** Garantiza la unidad raíz (tope global). Seguro ante concurrencia gracias al índice único parcial. */
   async ensureRoot(workspaceId: string): Promise<OrgUnit> {
@@ -141,25 +138,13 @@ export class OrgService {
     }));
   }
 
+  /**
+   * Alta de un miembro (C1): ya no crea cuentas ni membresías. Crea una invitación que la persona acepta con el enlace
+   * de un solo uso (se devuelve una vez y, si hay SMTP, se envía a su correo).
+   */
   async addMember(workspaceId: string, dto: AddMemberDto, actor: MemberActor) {
     if (dto.role === 'OWNER') this.assertOwnerActor(actor, 'Solo un OWNER puede otorgar el rol OWNER');
-    const orgUnitId = dto.orgUnitId
-      ? (await this.unit(workspaceId, dto.orgUnitId)).id
-      : (await this.ensureRoot(workspaceId)).id;
-    const email = dto.email.toLowerCase();
-    let user = await this.prisma.user.findUnique({ where: { email } });
-    if (!user) {
-      if (!dto.password) throw new BadRequestException('El usuario no existe: indique una contraseña inicial');
-      user = await this.prisma.user.create({
-        data: { email, name: dto.name, passwordHash: await bcrypt.hash(dto.password, 12) },
-      });
-    }
-    const exists = await this.prisma.membership.findUnique({
-      where: { userId_workspaceId: { userId: user.id, workspaceId } },
-    });
-    if (exists) throw new ConflictException('El usuario ya es miembro de este workspace');
-    await this.prisma.membership.create({ data: { userId: user.id, workspaceId, role: dto.role, orgUnitId } });
-    return (await this.members(workspaceId)).find((m) => m.userId === user.id);
+    return this.invitations.create(workspaceId, dto, actor);
   }
 
   async updateMember(workspaceId: string, membershipId: string, dto: UpdateMemberDto, actor: MemberActor) {

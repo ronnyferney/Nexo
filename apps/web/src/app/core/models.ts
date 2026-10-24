@@ -14,6 +14,8 @@ export interface Me {
   id: string;
   email: string;
   name: string;
+  /** Null = correo sin verificar (C1): no puede unirse a otros workspaces sin una invitación. */
+  emailVerifiedAt?: string | null;
   activeWorkspaceId: string;
   memberships: { role: string; workspace: { id: string; name: string; slug: string } }[];
 }
@@ -219,12 +221,56 @@ export interface OrgMember {
   createdAt: string;
 }
 
+/** Invitación a un miembro: la cuenta y la contraseña las crea la persona al aceptar el enlace. */
 export interface OrgMemberCreateInput {
   email: string;
-  name: string;
+  name?: string;
   role: Role;
   orgUnitId?: string;
-  password?: string;
+}
+
+export type InvitationStatus = 'PENDING' | 'EXPIRED' | 'ACCEPTED' | 'REVOKED';
+
+export interface Invitation {
+  id: string;
+  email: string;
+  name: string | null;
+  role: Role;
+  orgUnitId: string | null;
+  status: InvitationStatus;
+  expiresAt: string;
+  createdAt: string;
+  invitedBy: { name: string; email: string } | null;
+}
+
+/** Respuesta al invitar: `acceptUrl` se muestra una sola vez (la API solo guarda su hash). */
+export interface InvitationCreated {
+  invitation: Invitation;
+  acceptUrl: string;
+  emailSent: boolean;
+}
+
+export interface InvitationPreview {
+  workspaceName: string;
+  /** Correo enmascarado (`m***@empresa.com`). */
+  email: string;
+  name: string | null;
+  role: Role;
+  expiresAt: string;
+  accountExists: boolean;
+  /** La cuenta existe y está verificada: hay que iniciar sesión con ella para aceptar. */
+  requiresLogin: boolean;
+}
+
+export interface InvitationAccepted extends Session {
+  userId: string;
+  membershipId: string;
+  sessionsRevoked: boolean;
+}
+
+export interface AuthConfig {
+  registrationMode: 'open' | 'invite_only';
+  mailEnabled: boolean;
 }
 
 export interface BudgetConfig {

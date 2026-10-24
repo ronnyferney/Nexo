@@ -20,17 +20,27 @@ const SENSITIVE_QUERY = new Set([
   'password',
 ]);
 
-/** El token de `/api/hooks/<token>` es la única credencial del webhook. */
-const WEBHOOK_PATH = /^(\/(?:api\/)?hooks\/)[^/?#]+/i;
+/**
+ * Rutas cuyo segmento es una credencial de un solo uso o de larga vida: el token de `/api/hooks/<token>` (webhooks),
+ * el de las invitaciones (`/api/auth/invitations/<token>[/accept]`) y el de verificación de correo.
+ */
+const TOKEN_PATHS = [
+  /^(\/(?:api\/)?hooks\/)[^/?#]+/i,
+  /^(\/(?:api\/)?auth\/invitations\/)[^/?#]+/i,
+  /^(\/(?:api\/)?auth\/verify-email\/)(?!request(?:[/?#]|$))[^/?#]+/i,
+];
 
 /**
- * URL apta para los registros: oculta el token de los webhooks y los valores de los parámetros sensibles de la query
+ * URL apta para los registros: oculta los tokens de webhooks, invitaciones y verificación de correo, y los valores de los parámetros sensibles de la query
  * (se conserva el nombre para poder diagnosticar). Nunca lanza: ante una URL ilegible devuelve solo la ruta.
  */
 export function redactUrl(url: string | undefined): string {
   if (!url) return '';
   const q = url.indexOf('?');
-  const path = (q === -1 ? url : url.slice(0, q)).replace(WEBHOOK_PATH, `$1${REDACTED}`);
+  const path = TOKEN_PATHS.reduce(
+    (acc, pattern) => acc.replace(pattern, `$1${REDACTED}`),
+    q === -1 ? url : url.slice(0, q),
+  );
   if (q === -1) return path;
   const query = url
     .slice(q + 1)

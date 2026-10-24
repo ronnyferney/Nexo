@@ -49,34 +49,47 @@ export async function login(app: INestApplication, email: string, password = PAS
   return res;
 }
 
-/** Da de alta (con contraseña) un usuario nuevo en el workspace del administrador e inicia sesión con él. */
+/** Token de un enlace de invitación (`.../invitacion/<token>`). */
+export function invitationToken(acceptUrl: string): string {
+  return acceptUrl.slice(acceptUrl.lastIndexOf('/') + 1);
+}
+
+/**
+ * Invita a un usuario nuevo al workspace del administrador, acepta la invitación por API (crea la cuenta con
+ * contraseña, C1) e inicia sesión con él.
+ */
 export async function addMember(
   app: INestApplication,
   admin: Session,
   opts: { role: 'OWNER' | 'ADMIN' | 'EDITOR' | 'VIEWER'; orgUnitId?: string; tag?: string },
 ): Promise<Session> {
   const email = uniqueEmail(opts.tag ?? opts.role.toLowerCase());
-  const created = await admin.api
+  const invited = await admin.api
     .post('/admin/org/members', {
       email,
       name: `Miembro ${opts.role}`,
       role: opts.role,
-      password: PASSWORD,
       ...(opts.orgUnitId ? { orgUnitId: opts.orgUnitId } : {}),
     })
     .expect(201);
+  const accepted = await new Api(app)
+    .post(`/auth/invitations/${invitationToken((invited.body as { acceptUrl: string }).acceptUrl)}/accept`, {
+      password: PASSWORD,
+    })
+    .expect(200);
   const res = await login(app, email);
   expect(res.status).toBe(200);
   const body = res.body as { accessToken: string; workspaceId: string; role: string };
   expect(body.workspaceId).toBe(admin.workspaceId);
+  const { userId, membershipId } = accepted.body as { userId: string; membershipId: string };
   return {
     api: new Api(app, body.accessToken),
     token: body.accessToken,
     workspaceId: body.workspaceId,
-    userId: (created.body as { userId: string }).userId,
+    userId,
     email,
     role: body.role,
-    membershipId: (created.body as { membershipId: string }).membershipId,
+    membershipId,
   };
 }
 

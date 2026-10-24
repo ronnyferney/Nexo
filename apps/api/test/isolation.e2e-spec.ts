@@ -131,7 +131,6 @@ describe('Gobierno de IA · aislamiento multi-tenant (E2E)', () => {
       email: `otro-${Date.now()}@nexo.test`,
       name: 'Otro',
       role: 'EDITOR',
-      password: 'Clave-Segura-123',
       orgUnitId: aUnitId,
     });
     expect(res.status).toBe(404);

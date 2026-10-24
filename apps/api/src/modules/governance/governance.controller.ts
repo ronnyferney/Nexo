@@ -1,9 +1,12 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentAuth, type AuthContext } from '../../common/decorators/current-user.decorator';
+import { OptionalAuth, Public } from '../../common/decorators/public.decorator';
 import { MinRole } from '../../common/decorators/roles.decorator';
 import { BudgetsService } from './budgets.service';
 import {
+  AcceptInvitationDto,
   AddMemberDto,
   CreateOrgUnitDto,
   UpdateMemberDto,
@@ -11,6 +14,7 @@ import {
   UpsertBudgetDto,
   UsageQueryDto,
 } from './dto/governance.dto';
+import { InvitationsService } from './invitations.service';
 import { OrgService } from './org.service';
 import { UsageService } from './usage.service';
 
@@ -44,6 +48,7 @@ export class GovernanceAdminController {
     private readonly org: OrgService,
     private readonly budgets: BudgetsService,
     private readonly usage: UsageService,
+    private readonly invitations: InvitationsService,
   ) {}
 
   // Organización
@@ -72,6 +77,7 @@ export class GovernanceAdminController {
     return this.org.members(a.workspaceId);
   }
 
+  /** Invita a un miembro: responde la invitación y el enlace de aceptación (se muestra una sola vez). */
   @Post('org/members')
   addMember(@CurrentAuth() a: AuthContext, @Body() dto: AddMemberDto) {
     return this.org.addMember(a.workspaceId, dto, a);
@@ -85,6 +91,16 @@ export class GovernanceAdminController {
   @Delete('org/members/:id')
   removeMember(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
     return this.org.removeMember(a.workspaceId, id, a);
+  }
+
+  @Get('org/invitations')
+  listInvitations(@CurrentAuth() a: AuthContext) {
+    return this.invitations.list(a.workspaceId);
+  }
+
+  @Delete('org/invitations/:id')
+  revokeInvitation(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
+    return this.invitations.revoke(a.workspaceId, id, a);
   }
 
   // Presupuestos
@@ -117,5 +133,28 @@ export class GovernanceAdminController {
   @Get('usage/records')
   records(@CurrentAuth() a: AuthContext, @Query('take') take = '25', @Query('cursor') cursor?: string) {
     return this.usage.records(a.workspaceId, parseInt(take, 10) || 25, cursor);
+  }
+}
+
+/** Página pública de la invitación (C1): ver y aceptar con el enlace de un solo uso. */
+@ApiTags('auth')
+@Controller('auth/invitations')
+export class InvitationsPublicController {
+  constructor(private readonly invitations: InvitationsService) {}
+
+  @Public()
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @Get(':token')
+  preview(@Param('token') token: string) {
+    return this.invitations.preview(token);
+  }
+
+  /** Sin sesión crea o recupera la cuenta; con sesión (cuenta verificada) acepta como ese usuario. */
+  @OptionalAuth()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post(':token/accept')
+  accept(@Param('token') token: string, @Body() dto: AcceptInvitationDto, @CurrentAuth() a?: AuthContext) {
+    return this.invitations.accept(token, dto, a?.via === 'jwt' ? a : undefined);
   }
 }

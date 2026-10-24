@@ -1,4 +1,5 @@
-import { swaggerEnabledFrom } from './configuration';
+import { registrationModeFrom, swaggerEnabledFrom } from './configuration';
+import { maskEmail } from '../infrastructure/mail/mail.service';
 import { parseTrustProxy, trustProxyError } from './trust-proxy';
 
 describe('TRUST_PROXY (A5)', () => {
@@ -29,5 +30,19 @@ describe('SWAGGER_ENABLED (B10)', () => {
     expect(swaggerEnabledFrom({ NODE_ENV: 'production' })).toBe(false);
     expect(swaggerEnabledFrom({ NODE_ENV: 'production', SWAGGER_ENABLED: 'true' })).toBe(true);
     expect(swaggerEnabledFrom({ NODE_ENV: 'development', SWAGGER_ENABLED: 'false' })).toBe(false);
+  });
+});
+
+describe('REGISTRATION_MODE (C1)', () => {
+  it('por defecto cerrado en producción y abierto fuera; el valor explícito manda', () => {
+    expect(registrationModeFrom({ NODE_ENV: 'production' })).toBe('invite_only');
+    expect(registrationModeFrom({ NODE_ENV: 'development' })).toBe('open');
+    expect(registrationModeFrom({ NODE_ENV: 'production', REGISTRATION_MODE: 'OPEN' })).toBe('open');
+    expect(registrationModeFrom({ REGISTRATION_MODE: 'invite_only' })).toBe('invite_only');
+  });
+
+  it('enmascara correos para registros y la página pública de invitación', () => {
+    expect(maskEmail('maria.gomez@cliente.com')).toBe('m***@cliente.com');
+    expect(maskEmail('sin-arroba')).toBe('***');
   });
 });

@@ -21,7 +21,17 @@ import { IconComponent } from '../../shared/icon.component';
       @if (auth.me(); as me) {
         <div class="card" style="max-width:760px; margin-bottom:16px">
           <div class="card-title" style="margin:0"><div class="icon-tile"><nx-icon name="user" /></div>
-            <div><h2>{{ me.name }}</h2><p class="muted small">{{ me.email }}</p></div></div>
+            <div><h2>{{ me.name }}</h2><p class="muted small">{{ me.email }}</p></div><span class="spacer"></span>
+            @if (me.emailVerifiedAt) {
+              <span class="badge success">Correo verificado</span>
+            } @else {
+              <span class="badge warning">Correo sin verificar</span>
+            }</div>
+          @if (!me.emailVerifiedAt) {
+            <div class="callout info" style="margin-top:12px"><nx-icon name="info" [size]="16" />
+              <span>Verifique su correo para que otras empresas puedan invitarle con esta cuenta.
+                <button type="button" class="btn sm" [disabled]="verifying()" (click)="requestVerification()">Enviarme el enlace</button></span></div>
+          }
         </div>
       }
 
@@ -77,6 +87,7 @@ export class AccountPage implements OnInit {
   private readonly api = inject(ApiService);
   private readonly toast = inject(ToastService);
   readonly saving = signal(false);
+  readonly verifying = signal(false);
   readonly version = signal<BuildInfo | null>(null);
   readonly versionError = signal<string | null>(null);
   current = '';
@@ -111,13 +122,33 @@ export class AccountPage implements OnInit {
     }
   }
 
+  async requestVerification() {
+    this.verifying.set(true);
+    try {
+      const res = await this.api.requestEmailVerification();
+      if (res.alreadyVerified) {
+        this.toast.success('Su correo ya estaba verificado');
+        await this.auth.loadMe();
+      } else if (res.sent) {
+        this.toast.success('Le enviamos un enlace de verificación a su correo');
+      } else {
+        this.toast.error('No se pudo enviar el correo; intente más tarde');
+      }
+    } catch (e) {
+      this.toast.error(errorMessage(e));
+    } finally {
+      this.verifying.set(false);
+    }
+  }
+
   async save() {
     if (this.next !== this.confirm) return;
     this.saving.set(true);
     try {
-      await this.api.changePassword({ currentPassword: this.current, newPassword: this.next });
+      // Cambiar la contraseña cierra las demás sesiones: se adopta el token nuevo que devuelve la API.
+      this.auth.adopt(await this.api.changePassword({ currentPassword: this.current, newPassword: this.next }));
       this.current = this.next = this.confirm = '';
-      this.toast.success('Contraseña actualizada');
+      this.toast.success('Contraseña actualizada; se cerraron sus otras sesiones');
     } catch (e) {
       this.toast.error(errorMessage(e));
     } finally {

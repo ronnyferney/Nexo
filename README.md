@@ -134,6 +134,9 @@ Web en `http://localhost:8080`. La API y los workers comparten imagen; `WORKER_E
   volumen `pgdata`: para cambiarla después use `ALTER USER nexo PASSWORD '…'`.
 - Con `NODE_ENV=production` la API no arranca con los secretos de ejemplo, claves en ceros o de baja entropía, y no
   publica Swagger salvo `SWAGGER_ENABLED=true`.
+- Con `NODE_ENV=production` el registro público queda cerrado (`REGISTRATION_MODE=invite_only`): se entra con el
+  usuario maestro (`BOOTSTRAP_ADMIN_*`) y el resto por invitación desde **Administración → Organización**. Con
+  `SMTP_URL`/`MAIL_FROM` las invitaciones se envían por correo; sin ellos la consola muestra el enlace de un solo uso.
 - `TRUST_PROXY` (vacío por defecto) confía en los saltos con IP privada (nginx) para obtener la IP real del cliente; si
   pone otro proxy con IP pública delante, indique su número de saltos o sus IP (ver `apps/api/.env.example`).
 

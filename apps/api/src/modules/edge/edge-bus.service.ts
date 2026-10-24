@@ -1,6 +1,7 @@
 import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Redis } from 'ioredis';
+import type { RedisConnectionConfig } from '../../config/configuration';
 
 type Handler = (message: string) => void;
 
@@ -17,8 +18,8 @@ export class EdgeBusService implements OnModuleDestroy {
   private readonly handlers = new Map<string, Handler>();
 
   constructor(config: ConfigService) {
-    const redis = config.getOrThrow<{ host: string; port: number; password?: string }>('redis');
-    const options = { host: redis.host, port: redis.port, password: redis.password, lazyConnect: true };
+    const redis = config.getOrThrow<RedisConnectionConfig>('redis');
+    const options = { host: redis.host, port: redis.port, password: redis.password, tls: redis.tls, lazyConnect: true };
     this.pub = new Redis({ ...options, connectionName: 'nexo-edge-pub' });
     this.sub = new Redis({ ...options, connectionName: 'nexo-edge-sub' });
     for (const client of [this.pub, this.sub]) {

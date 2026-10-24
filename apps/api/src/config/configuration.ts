@@ -11,9 +11,17 @@ export interface AppConfig {
   trustProxy: TrustProxy;
   /** Documentación Swagger en `/api/docs` (`SWAGGER_ENABLED`; por defecto, solo fuera de producción). */
   swaggerEnabled: boolean;
+  /** Registro público (`REGISTRATION_MODE`): `open` o `invite_only` (por defecto en producción). C1. */
+  registrationMode: RegistrationMode;
+  /** Correo saliente (`SMTP_URL`, `MAIL_FROM`), opcional: invitaciones y verificación de correo. */
+  mail: { smtpUrl: string | null; from: string | null };
   jwt: { secret: string; expiresIn: string };
   encryptionKey: string;
-  redis: { host: string; port: number; password?: string };
+  /**
+   * Conexión a Redis compartida por BullMQ, el limitador y el bus del Edge. `tls` (opciones de `tls.connect` para
+   * ioredis) solo existe con `REDIS_TLS=true` (ElastiCache con cifrado en tránsito); en local se conecta sin TLS.
+   */
+  redis: RedisConnectionConfig;
   llm: {
     anthropicApiKey?: string;
     defaultModel: string;
@@ -113,6 +121,34 @@ export function parseOAuthEndpointOverrides(raw: string | undefined): Record<str
   }
 }
 
+export type RegistrationMode = 'open' | 'invite_only';
+
+/** `REGISTRATION_MODE=open|invite_only`; sin definir, `invite_only` en producción y `open` fuera de ella. */
+export function registrationModeFrom(env: NodeJS.ProcessEnv): RegistrationMode {
+  const raw = env.REGISTRATION_MODE?.trim().toLowerCase();
+  if (raw === 'open' || raw === 'invite_only') return raw;
+  return env.NODE_ENV === 'production' ? 'invite_only' : 'open';
+}
+
+export interface RedisConnectionConfig {
+  host: string;
+  port: number;
+  password?: string;
+  /** Presente solo con `REDIS_TLS=true`: ioredis abre la conexión con TLS (certificados de confianza del sistema). */
+  tls?: Record<string, never>;
+}
+
+/** `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` y `REDIS_TLS=true` (opcional; sin definir o `false`, sin TLS). B8. */
+export function redisConfigFrom(env: NodeJS.ProcessEnv): RedisConnectionConfig {
+  const tls = env.REDIS_TLS?.trim().toLowerCase() === 'true';
+  return {
+    host: env.REDIS_HOST ?? 'localhost',
+    port: parseInt(env.REDIS_PORT ?? '6379', 10),
+    password: env.REDIS_PASSWORD || undefined,
+    ...(tls ? { tls: {} } : {}),
+  };
+}
+
 /** Swagger: `SWAGGER_ENABLED=true|false` manda; sin definir, se publica solo fuera de producción. */
 export function swaggerEnabledFrom(env: NodeJS.ProcessEnv): boolean {
   const raw = env.SWAGGER_ENABLED?.trim().toLowerCase();
@@ -133,16 +169,14 @@ export default (): AppConfig => ({
   corsOrigins: (process.env.CORS_ORIGINS ?? 'http://localhost:4200').split(',').map((o) => o.trim()),
   trustProxy: parseTrustProxy(process.env.TRUST_PROXY, process.env.NODE_ENV),
   swaggerEnabled: swaggerEnabledFrom(process.env),
+  registrationMode: registrationModeFrom(process.env),
+  mail: { smtpUrl: process.env.SMTP_URL?.trim() || null, from: process.env.MAIL_FROM?.trim() || null },
   jwt: {
     secret: process.env.JWT_SECRET ?? '',
     expiresIn: process.env.JWT_EXPIRES_IN ?? '12h',
   },
   encryptionKey: process.env.ENCRYPTION_KEY ?? '',
-  redis: {
-    host: process.env.REDIS_HOST ?? 'localhost',
-    port: parseInt(process.env.REDIS_PORT ?? '6379', 10),
-    password: process.env.REDIS_PASSWORD || undefined,
-  },
+  redis: redisConfigFrom(process.env),
   llm: {
     anthropicApiKey: process.env.ANTHROPIC_API_KEY || undefined,
     defaultModel: process.env.DEFAULT_MODEL ?? 'claude-opus-5-5',

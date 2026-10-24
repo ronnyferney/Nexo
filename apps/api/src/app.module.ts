@@ -9,6 +9,7 @@ import { redactUrl } from './common/logging/redact-url';
 import { HttpClientModule } from './common/http/http-client.module';
 import configuration from './config/configuration';
 import { validateEnv } from './config/env.validation';
+import { MailModule } from './infrastructure/mail/mail.module';
 import { PrismaModule } from './infrastructure/prisma/prisma.module';
 import { RedisThrottlerStorage } from './infrastructure/throttler/redis-throttler.storage';
 import { ThrottlerStorageModule } from './infrastructure/throttler/throttler-storage.module';
@@ -65,6 +66,7 @@ import { WorkspacesModule } from './modules/workspaces/workspaces.module';
       useFactory: (config: ConfigService) => ({ connection: config.getOrThrow('redis') }),
     }),
     PrismaModule,
+    MailModule,
     CryptoModule,
     HttpClientModule,
     AuthModule,

@@ -20,6 +20,9 @@ import type {
   LlmModelInput,
   MyUsage,
   Operation,
+  Invitation,
+  InvitationCreated,
+  Session,
   OrgMember,
   OrgMemberCreateInput,
   OrgUnit,
@@ -68,7 +71,11 @@ export class ApiService {
   deleteSecret = (id: string) => this.delete(`/workspace/secrets/${id}`);
   apiKeys = () => this.get<{ id: string; name: string; prefix: string; lastUsedAt?: string; createdAt: string }[]>('/workspace/api-keys');
   changePassword = (body: { currentPassword: string; newPassword: string }) =>
-    this.post<{ changed: true }>('/auth/change-password', body);
+    this.post<Session & { changed: true }>('/auth/change-password', body);
+  requestEmailVerification = () =>
+    this.post<{ sent: boolean; alreadyVerified: boolean }>('/auth/verify-email/request');
+  confirmEmailVerification = (token: string) =>
+    this.post<{ verified: true }>(`/auth/verify-email/${encodeURIComponent(token)}`);
   createApiKey = (name: string) => this.post<{ id: string; name: string; key: string }>('/workspace/api-keys', { name });
   deleteApiKey = (id: string) => this.delete(`/workspace/api-keys/${id}`);
 
@@ -161,7 +168,10 @@ export class ApiService {
   updateOrgUnit = (id: string, data: OrgUnitUpdateInput) => this.patch<OrgUnit>(`/admin/org/units/${id}`, data);
   deleteOrgUnit = (id: string) => this.delete(`/admin/org/units/${id}`);
   orgMembers = () => this.get<OrgMember[]>('/admin/org/members');
-  addOrgMember = (data: OrgMemberCreateInput) => this.post<OrgMember>('/admin/org/members', data);
+  /** Invita a un miembro (C1): devuelve el enlace de aceptación una sola vez. */
+  addOrgMember = (data: OrgMemberCreateInput) => this.post<InvitationCreated>('/admin/org/members', data);
+  orgInvitations = () => this.get<Invitation[]>('/admin/org/invitations');
+  revokeInvitation = (id: string) => this.delete(`/admin/org/invitations/${id}`);
   updateOrgMember = (membershipId: string, data: { role?: Role; orgUnitId?: string }) =>
     this.patch<OrgMember>(`/admin/org/members/${membershipId}`, data);
   removeOrgMember = (membershipId: string) => this.delete(`/admin/org/members/${membershipId}`);

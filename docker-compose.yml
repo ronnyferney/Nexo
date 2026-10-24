@@ -11,6 +11,10 @@ x-api-env: &api-env
   # Saltos de proxy de confianza (vacío = IP privadas: nginx de este compose o ALB → nginx).
   TRUST_PROXY: ${TRUST_PROXY:-}
   SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
+  # Registro público (vacío = invite_only en producción) y correo saliente opcional (invitaciones y verificación).
+  REGISTRATION_MODE: ${REGISTRATION_MODE:-}
+  SMTP_URL: ${SMTP_URL:-}
+  MAIL_FROM: ${MAIL_FROM:-}
   JWT_SECRET: ${JWT_SECRET:?Defina JWT_SECRET en .env}
   ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Defina ENCRYPTION_KEY en .env}
   ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}

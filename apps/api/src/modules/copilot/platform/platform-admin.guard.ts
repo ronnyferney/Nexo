@@ -5,7 +5,8 @@ import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
 
 /**
  * Rol de plataforma (ADR 0006 D6): administradores de Nexo definidos por `PLATFORM_ADMIN_EMAILS`. No es un rol de
- * workspace; requiere sesión de usuario (no API keys). Se ejecuta después del AuthGuard global.
+ * workspace; requiere sesión de usuario (no API keys) y el correo verificado (A7): quien registre primero un correo de
+ * la lista no se apropia de la consola sin demostrar que lo controla. Se ejecuta después del AuthGuard global.
  */
 @Injectable()
 export class PlatformAdminService {
@@ -20,8 +21,11 @@ export class PlatformAdminService {
 
   async isPlatformAdmin(auth: AuthContext | undefined): Promise<boolean> {
     if (!auth?.userId || !this.emails.size) return false;
-    const user = await this.prisma.user.findUnique({ where: { id: auth.userId }, select: { email: true } });
-    return !!user && this.emails.has(user.email.trim().toLowerCase());
+    const user = await this.prisma.user.findUnique({
+      where: { id: auth.userId },
+      select: { email: true, emailVerifiedAt: true },
+    });
+    return !!user?.emailVerifiedAt && this.emails.has(user.email.trim().toLowerCase());
   }
 }
 

@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } 
 import { FormsModule } from '@angular/forms';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
-import type { OrgMember, OrgUnit, ProviderInfo, Role } from '../../core/models';
+import type { Invitation, OrgMember, OrgUnit, ProviderInfo, Role } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
 import { ROLE_LABELS, treeOrder } from '../../shared/budget';
 import { IconComponent } from '../../shared/icon.component';
@@ -22,7 +22,13 @@ interface MemberDraft {
   name: string;
   role: Role;
   orgUnitId: string;
-  password: string;
+}
+
+/** Enlace de la última invitación creada: la API lo devuelve una sola vez (solo guarda su hash). */
+interface CreatedInvite {
+  email: string;
+  acceptUrl: string;
+  emailSent: boolean;
 }
 
 @Component({
@@ -60,6 +66,8 @@ export class OrganizationPage implements OnInit {
   readonly creating = signal<{ parentId: string; name: string; code: string } | null>(null);
   readonly busy = signal(false);
   readonly memberDraft = signal<MemberDraft | null>(null);
+  readonly invitations = signal<Invitation[]>([]);
+  readonly lastInvite = signal<CreatedInvite | null>(null);
 
   ngOnInit() {
     void this.load();
@@ -83,7 +91,9 @@ export class OrganizationPage implements OnInit {
 
   async loadMembers() {
     try {
-      this.members.set(await this.api.orgMembers());
+      const [members, invitations] = await Promise.all([this.api.orgMembers(), this.api.orgInvitations()]);
+      this.members.set(members);
+      this.invitations.set(invitations);
       this.membersError.set(null);
     } catch (e) {
       this.membersError.set(errorMessage(e));
@@ -199,33 +209,62 @@ export class OrganizationPage implements OnInit {
   // ----- Miembros -----
 
   startAddMember() {
-    this.memberDraft.set({ email: '', name: '', role: 'EDITOR', orgUnitId: this.root()?.id ?? '', password: '' });
+    this.lastInvite.set(null);
+    this.memberDraft.set({ email: '', name: '', role: 'EDITOR', orgUnitId: this.root()?.id ?? '' });
   }
 
   memberInvalid(d: MemberDraft) {
-    return !/^\S+@\S+\.\S+$/.test(d.email.trim()) || d.name.trim().length < 2 || (!!d.password && d.password.length < 8);
+    const name = d.name.trim();
+    return !/^\S+@\S+\.\S+$/.test(d.email.trim()) || (name.length > 0 && name.length < 2);
   }
 
+  /** Invita (C1): la membresía se crea cuando la persona acepta el enlace de un solo uso. */
   async addMember() {
     const d = this.memberDraft();
     if (!d || this.memberInvalid(d)) return;
     this.busy.set(true);
     try {
-      await this.api.addOrgMember({
+      const res = await this.api.addOrgMember({
         email: d.email.trim(),
-        name: d.name.trim(),
         role: d.role,
+        ...(d.name.trim() ? { name: d.name.trim() } : {}),
         ...(d.orgUnitId ? { orgUnitId: d.orgUnitId } : {}),
-        ...(d.password ? { password: d.password } : {}),
       });
-      this.toast.success('Miembro agregado');
+      this.lastInvite.set({ email: res.invitation.email, acceptUrl: res.acceptUrl, emailSent: res.emailSent });
+      this.toast.success(res.emailSent ? 'Invitación enviada por correo' : 'Invitación creada: copie el enlace');
       this.memberDraft.set(null);
-      await this.load();
+      await this.loadMembers();
     } catch (e) {
       this.toast.error(errorMessage(e));
     } finally {
       this.busy.set(false);
     }
+  }
+
+  async copyInvite(link: string) {
+    try {
+      await navigator.clipboard.writeText(link);
+      this.toast.success('Enlace copiado');
+    } catch {
+      this.toast.error('No se pudo copiar; seleccione el enlace manualmente');
+    }
+  }
+
+  async revokeInvitation(inv: Invitation) {
+    if (!confirm(`¿Revocar la invitación de ${inv.email}? El enlace dejará de funcionar.`)) return;
+    try {
+      await this.api.revokeInvitation(inv.id);
+      this.toast.success('Invitación revocada');
+      if (this.lastInvite()?.email === inv.email) this.lastInvite.set(null);
+      await this.loadMembers();
+    } catch (e) {
+      this.toast.error(errorMessage(e));
+    }
+  }
+
+  fmtDate(iso: string) {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' });
   }
 
   async updateMember(m: OrgMember, data: { role?: Role; orgUnitId?: string }) {

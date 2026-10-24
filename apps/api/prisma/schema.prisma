@@ -162,14 +162,47 @@ enum TriggerType {
 }
 
 model User {
-  id               String            @id @default(cuid())
-  email            String            @unique
-  name             String
-  passwordHash     String
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  memberships      Membership[]
-  groupMemberships UserGroupMember[]
+  id                  String            @id @default(cuid())
+  email               String            @unique
+  name                String
+  passwordHash        String
+  /// Cuándo demostró controlar el correo (enlace de verificación o de invitación). Null = sin verificar: puede usar su
+  /// propio workspace, pero no unirse a otros sin el token de una invitación ni ser administrador de la plataforma.
+  emailVerifiedAt     DateTime?
+  /// Versión de las sesiones: va en el JWT (`tv`); incrementarla invalida todos los tokens emitidos antes.
+  tokenVersion        Int               @default(0)
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  memberships         Membership[]
+  groupMemberships    UserGroupMember[]
+  invitationsSent     Invitation[]      @relation("InvitationInviter")
+  invitationsAccepted Invitation[]      @relation("InvitationAcceptor")
+}
+
+/// Invitación a un workspace (C1): la membresía solo se crea cuando el dueño del correo acepta con el token de un solo
+/// uso (se guarda su SHA-256). Una sola invitación activa por (workspace, correo): invitar de nuevo revoca la anterior.
+model Invitation {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// Correo normalizado (trim + minúsculas).
+  email        String
+  /// Nombre sugerido por quien invita (la persona puede cambiarlo al aceptar).
+  name         String?
+  role         Role
+  orgUnitId    String?
+  orgUnit      OrgUnit?  @relation(fields: [orgUnitId], references: [id], onDelete: SetNull)
+  tokenHash    String    @unique
+  expiresAt    DateTime
+  invitedById  String?
+  invitedBy    User?     @relation("InvitationInviter", fields: [invitedById], references: [id], onDelete: SetNull)
+  acceptedAt   DateTime?
+  acceptedById String?
+  acceptedBy   User?     @relation("InvitationAcceptor", fields: [acceptedById], references: [id], onDelete: SetNull)
+  revokedAt    DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([workspaceId, email])
 }
 
 model Workspace {
@@ -196,6 +229,7 @@ model Workspace {
   knowledgeBases      KnowledgeBase[]
   agentRoutines       AgentRoutine[]
   edgeAgents          EdgeAgent[]
+  invitations         Invitation[]
 }
 
 model Membership {
@@ -505,6 +539,7 @@ model OrgUnit {
   ledger        BudgetLedger[]
   alerts        BudgetAlert[]
   usage         UsageRecord[]
+  invitations   Invitation[]
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 

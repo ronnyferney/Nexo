@@ -136,7 +136,6 @@ describe('Seguridad de la plataforma (E2E)', () => {
             email: uniqueEmail('m3'),
             name: 'Nuevo dueño',
             role: 'OWNER',
-            password: 'Clave-Segura-123',
           })
           .expect(403);
 
