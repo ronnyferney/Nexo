@@ -37,12 +37,12 @@ iteración · **P3** higiene.
 | B4 | Baja | P2 | Enumeración de correos (registro y tiempo de login) | Respuesta genérica y bcrypt ficticio | Hecho (d6be879): registro con respuesta única sin sesión; login con hash ficticio |
 | B5 | Baja | P1 | `POST /connectors/:id/test` sin `@MinRole` | `@MinRole('EDITOR')` | Hecho (749f411) |
 | B6 | Baja | P2 | ReDoS por `pattern` del `inputSchema` | Ajv con RE2 o límite de longitud | Hecho (749f411) |
-| B7 | Baja | P2 | AES-GCM sin AAD ni versión de clave (rotación imposible) | Prefijo de versión + AAD; rotación con KMS (ADR 0008 fase 2) | Hecho (6274fb6): formato `v2:<kid>:`, AAD, `ENCRYPTION_KEYS` y `npm run crypto:rotate`; pendiente: exponer `ENCRYPTION_KEYS` en docker-compose e infra, y KMS (ADR 0008 fase 2) |
+| B7 | Baja | P2 | AES-GCM sin AAD ni versión de clave (rotación imposible) | Prefijo de versión + AAD; rotación con KMS (ADR 0008 fase 2) | Hecho (6274fb6, 0abbe43): formato `v2:<kid>:`, AAD, `ENCRYPTION_KEYS` en compose y en el piloto, `npm run crypto:rotate`; pendiente: KMS (ADR 0008 fase 2) |
 | B8 | Baja | P2 | Redis sin AUTH/TLS; RDS sin protección contra borrado; ECS Exec activo | Endurecer la infraestructura | Hecho en infraestructura (447b1aa); `REDIS_TLS` en la API (2c14ff8) |
 | B9 | Baja | P2 | El Copilot guarda agentes con modelos fuera del catálogo | Reusar `LlmUsageService.assertAgentModels` | Hecho (3f84936) |
 | B10 | Baja | P2 | Swagger público en producción | Solo fuera de producción o autenticado | Hecho (6897876) |
 | I1 | Info | P2 | El simulador LLM depende de `NODE_ENV=production` | No registrar el controlador fuera de desarrollo + prueba del bloqueo | Hecho (3f84936): exige `NODE_ENV=development` o `test` |
-| I2 | Info | P3 | `npm audit`: 9 altas y 2 moderadas en la API, 3 altas en Edge (hoy no explotables) | Actualizar en el ciclo normal | Pendiente |
+| I2 | Info | P3 | `npm audit`: 9 altas y 2 moderadas en la API, 3 altas en Edge (hoy no explotables) | Actualizar en el ciclo normal | Hecho (cf32f31): `npm audit` en 0 en api, web, edge e infra |
 | I3 | Info | P3 | `/auth/me` y `/auth/switch-workspace` con API key responden 500 | 403 explícito | Hecho (6897876) |
 
 Buenas prácticas ya presentes que no se deben romper: ver la sección 4 del informe de auditoría (rol leído de la
@@ -81,5 +81,6 @@ claves cifrados con AES-256-GCM, `redirect: 'manual'` en el cliente HTTP, `postM
 | P5 | P2 | Pruebas unitarias de la web (`ng test`) en CI para los componentes nuevos | Hecho (717cfa9) |
 | P6 | P2 | Implementar ADR 0008 (protección de datos y observabilidad) | Ver M8 |
 | P7 | P2 | Decidir la regla de exposición de flujos por MCP | Pendiente |
-| P8 | P3 | 19 advertencias de lint en la API | Pendiente |
+| P8 | P3 | 19 advertencias de lint en la API | Hecho (5a18f4a): 0 errores y 0 advertencias de lint en la API |
 | P9 | P0 | Los programadores cron de flujos y rutinas viven solo en Redis: al reemplazar Redis (B8) o perder sus datos dejan de ejecutarse | Reconciliar al arrancar desde la base de datos | Hecho (3dd5396) |
+| P10 | P1 | Un nodo sin `config` dejaba la ejecución en RUNNING para siempre | Hecho (4e95be7) |
