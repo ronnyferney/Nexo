@@ -69,7 +69,7 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "ws": "^8.22.0",
-    "zod": "^3.25.76"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
@@ -120,5 +120,13 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
+  },
+  "overrides": {
+    "multer": "^2.5.0",
+    "@azure/msal-node": "^7.1.1",
+    "deepmerge-ts": "^8.0.2",
+    "@nestjs/swagger": {
+      "js-yaml": "^5.5.0"
+    }
   }
 }

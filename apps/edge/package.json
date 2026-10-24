@@ -31,5 +31,8 @@
     "@types/pg": "^8.23.1",
     "@types/ws": "^8.18.2",
     "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "@azure/msal-node": "^7.1.1"
   }
 }

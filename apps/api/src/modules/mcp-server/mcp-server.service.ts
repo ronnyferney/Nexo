@@ -89,7 +89,9 @@ export class McpServerService {
         {
           title: wf.name,
           description: wf.description ?? `Flujo de automatización "${wf.name}" (espera hasta 60 s el resultado)`,
-          inputSchema: { input: z.record(z.unknown()).optional().describe(inputDescription(wf.definition)) },
+          inputSchema: {
+            input: z.record(z.string(), z.unknown()).optional().describe(inputDescription(wf.definition)),
+          },
         },
         async ({ input }) => {
           let ex;
