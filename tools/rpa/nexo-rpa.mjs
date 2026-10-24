@@ -55,10 +55,35 @@ function credentials() {
   return { email, password };
 }
 
-const anthropic = (() => {
-  const env = path.join(ROOT, 'apps', 'api', '.env');
-  return existsSync(env) && /^ANTHROPIC_API_KEY=\S+/m.test(readFileSync(env, 'utf8'));
-})();
+/** Modelo elegido al arrancar (null = simulado). */
+let anthropic = null;
+
+/**
+ * Modelo de IA del recorrido: la conexión de Claude del workspace (la que el administrador conectó en Proveedores IA,
+ * o la incluida por Nexo si el servidor tiene ANTHROPIC_API_KEY). NEXO_RPA_MODEL elige el modelo (por defecto Claude
+ * Sonnet 5.5, rápido y económico) y NEXO_RPA_IA=simulada fuerza el modelo de pruebas. Nunca lee ni imprime claves.
+ */
+async function pickModel(email, password) {
+  if (process.env.NEXO_RPA_IA === 'simulada') return null;
+  const api = `${WEB}/api`;
+  const login = await fetch(`${api}/auth/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  }).then((r) => (r.ok ? r.json() : null), () => null);
+  if (!login?.accessToken) return null;
+  const catalog = await fetch(`${api}/llm/catalog`, { headers: { authorization: `Bearer ${login.accessToken}` } }).then(
+    (r) => (r.ok ? r.json() : []),
+    () => [],
+  );
+  const claude = catalog
+    .filter((p) => p.kind === 'ANTHROPIC' && p.configured && p.models?.length)
+    .sort((a, b) => Number(a.system) - Number(b.system))[0];
+  if (!claude) return null;
+  const wanted = process.env.NEXO_RPA_MODEL ?? 'claude-sonnet-5-5';
+  const model = claude.models.find((m) => m.id === wanted) ?? claude.models[0];
+  return { provider: claude.id, providerLabel: claude.label, model: model.id, modelLabel: model.label };
+}
 
 /** Mismo nombre de tool que expone la API al modelo: <conector>__<operación> (agent-runtime.service.ts). */
 function toolName(connectorName, opKey) {
@@ -83,7 +108,9 @@ async function main() {
     fail(`Nexo no responde en ${WEB}. Ejecute primero: npm run local`);
   }
   const { email, password } = credentials();
-  console.log(`${color.b}RPA de Nexo${color.x} · ${WEB} · usuario ${email} · IA: ${anthropic ? 'Claude' : 'simulada'}\n`);
+  anthropic = await pickModel(email, password);
+  const ia = anthropic ? `${anthropic.modelLabel} (${anthropic.providerLabel})` : 'simulada';
+  console.log(`${color.b}RPA de Nexo${color.x} · ${WEB} · usuario ${email} · IA: ${ia}\n`);
 
   const browser = await launch();
   const size = { width: 1600, height: 960 };
@@ -225,11 +252,11 @@ async function main() {
   if (await role.isVisible().catch(() => false)) {
     await type(role, 'Coordinador de despachos de una empresa de transporte de carga en Colombia.');
   }
-  await caption(anthropic ? 'Modelo: Claude' : 'Modelo: simulado (sin ANTHROPIC_API_KEY)');
+  await caption(anthropic ? `Modelo: ${anthropic.modelLabel} con la conexión «${anthropic.providerLabel}»` : 'Modelo: simulado (no hay conexión de Claude)');
   await page.getByRole('tab', { name: 'Modelo' }).click();
-  await page.locator('#agent-provider').selectOption({ value: anthropic ? 'anthropic' : 'mock' });
+  await page.locator('#agent-provider').selectOption({ value: anthropic ? anthropic.provider : 'mock' });
   await pause(500);
-  await page.locator('#agent-model').selectOption({ value: anthropic ? 'claude-opus-5-5' : 'mock-echo' });
+  await page.locator('#agent-model').selectOption({ value: anthropic ? anthropic.model : 'mock-echo' });
   await page.getByRole('tab', { name: /Herramientas/ }).click();
   const group = page.locator('.connector-group', { hasText: CONNECTOR }).first();
   await group.scrollIntoViewIfNeeded();
@@ -307,7 +334,14 @@ async function main() {
   // ---------- 6. Ejecución ----------
   await caption('7. Ejecutar el flujo con Bogotá como entrada');
   await page.getByRole('button', { name: 'Ejecutar' }).first().click();
-  await page.locator('.inspector nx-json-editor textarea').first().fill(JSON.stringify(CITY, null, 2));
+  // El panel inicializa su editor al abrirse: se escribe la entrada cuando está listo y se confirma antes de ejecutar.
+  const runInput = page.locator('.inspector nx-json-editor textarea').first();
+  await page.getByRole('button', { name: /Ejecutar ahora/ }).waitFor();
+  await pause(400);
+  for (let i = 0; i < 3 && !(await runInput.inputValue()).includes('latitude'); i++) {
+    await runInput.fill(JSON.stringify(CITY, null, 2));
+    await pause(300);
+  }
   await page.getByRole('button', { name: /Ejecutar ahora/ }).click();
   await page.locator('.inspector .step').nth(3).waitFor({ timeout: 60000 }).catch(() => {});
   await pause(2500);
