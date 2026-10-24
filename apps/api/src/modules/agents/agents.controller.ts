@@ -4,6 +4,7 @@ import type { Response } from 'express';
 import { CurrentAuth, type AuthContext } from '../../common/decorators/current-user.decorator';
 import { AgentAccessService } from '../agent-access/agent-access.service';
 import { LlmGatewayService } from '../llm/llm-gateway.service';
+import { AgentAnalyticsService } from './agent-analytics.service';
 import { AgentLifecycleService } from './agent-lifecycle.service';
 import { AgentsService } from './agents.service';
 import {
@@ -37,6 +38,7 @@ export class AgentsController {
     private readonly lifecycle: AgentLifecycleService,
     private readonly access: AgentAccessService,
     private readonly gateway: LlmGatewayService,
+    private readonly analytics: AgentAnalyticsService,
   ) {}
 
   /** Alias de GET /llm/catalog (compatibilidad). */
@@ -60,6 +62,18 @@ export class AgentsController {
   @Get('health')
   healthSummary(@CurrentAuth() a: AuthContext) {
     return this.lifecycle.healthSummary(a);
+  }
+
+  /** Tablero del catálogo de agentes: KPIs, recuentos por pestaña y métricas por agente (RX-11). */
+  @Get('dashboard')
+  dashboard(@CurrentAuth() a: AuthContext) {
+    return this.analytics.dashboard(a);
+  }
+
+  /** Observabilidad agregada de los agentes visibles (RX-12, primer corte). */
+  @Get('analytics')
+  agentAnalytics(@CurrentAuth() a: AuthContext) {
+    return this.analytics.analytics(a);
   }
 
   @Get(':id')
