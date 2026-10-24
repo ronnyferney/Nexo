@@ -18,7 +18,15 @@ import { checkInput, inputErrorMessage, inputWarnings } from './engine/workflow-
 import type { WorkflowDefinition } from './engine/workflow.types';
 import { validateDefinition } from './engine/workflow.validator';
 import { CreateWorkflowDto, UpdateWorkflowDto } from './dto/workflow.dto';
-import { JOB_RUN, JOB_SCHEDULED, schedulerId, WORKFLOW_QUEUE, type RunJobData } from './queue/workflow-queue.constants';
+import {
+  JOB_RUN,
+  JOB_SCHEDULED,
+  schedulerId,
+  WORKFLOW_QUEUE,
+  WORKFLOW_SCHEDULER_PREFIX,
+  type RunJobData,
+} from './queue/workflow-queue.constants';
+import { schedulerEntries, type ScheduleSource } from './schedule-reconciler';
 
 const json = (v: unknown) => v as Prisma.InputJsonValue;
 
@@ -303,6 +311,25 @@ export class WorkflowsService implements OnModuleInit, OnModuleDestroy {
   private assertValid(def: WorkflowDefinition): void {
     const errors = validateDefinition(def);
     if (errors.length) throw new BadRequestException(errors);
+  }
+
+  /**
+   * Origen para la reconciliación de programadores al arrancar (P9). Consulta todos los workspaces: es un proceso de
+   * sistema (como la retención), no una petición de usuario, y solo lee id y schedule.
+   */
+  scheduleSource(): ScheduleSource {
+    return {
+      kind: 'flujos',
+      desired: async () => {
+        const rows = await this.prisma.workflow.findMany({
+          where: { active: true, schedule: { not: null } },
+          select: { id: true, schedule: true },
+        });
+        return rows.map((r) => ({ ownerId: r.id, pattern: r.schedule ?? '', tz: null }));
+      },
+      registered: async () => schedulerEntries(await this.queue.getJobSchedulers(0, -1), WORKFLOW_SCHEDULER_PREFIX),
+      apply: (workflowId, entry) => this.syncSchedule(workflowId, entry !== null, entry?.pattern ?? null),
+    };
   }
 
   private async syncSchedule(workflowId: string, active: boolean, schedule: string | null): Promise<void> {

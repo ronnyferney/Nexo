@@ -3,7 +3,9 @@ export const ROUTINE_QUEUE = 'routines';
 export const JOB_ROUTINE_SCHEDULED = 'scheduled';
 /** Ejecución inmediata ("ejecutar ahora") de una corrida ya creada. */
 export const JOB_ROUTINE_RUN = 'run';
-export const routineSchedulerId = (routineId: string) => `routine:${routineId}`;
+/** Prefijo de los programadores cron de rutinas (la reconciliación solo toca los que lo llevan). */
+export const ROUTINE_SCHEDULER_PREFIX = 'routine:';
+export const routineSchedulerId = (routineId: string) => `${ROUTINE_SCHEDULER_PREFIX}${routineId}`;
 
 export interface RoutineScheduledJobData {
   routineId: string;

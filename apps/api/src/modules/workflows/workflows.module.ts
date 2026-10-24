@@ -2,9 +2,11 @@ import { BullModule } from '@nestjs/bullmq';
 import { Module, type Provider } from '@nestjs/common';
 import { AgentsModule } from '../agents/agents.module';
 import { ConnectorsModule } from '../connectors/connectors.module';
+import { RoutinesModule } from '../routines/routines.module';
 import { WorkflowProcessor } from './queue/workflow.processor';
 import { WORKFLOW_QUEUE } from './queue/workflow-queue.constants';
 import { RetentionService } from './retention.service';
+import { ScheduleReconcilerService } from './schedule-reconciler.service';
 import { WorkflowRunnerService } from './workflow-runner.service';
 import { ExecutionsController, WebhooksController, WorkflowsController } from './workflows.controller';
 import { WorkflowsService } from './workflows.service';
@@ -13,9 +15,9 @@ import { WorkflowsService } from './workflows.service';
 const workers: Provider[] = process.env.WORKER_ENABLED === 'false' ? [] : [WorkflowProcessor];
 
 @Module({
-  imports: [BullModule.registerQueue({ name: WORKFLOW_QUEUE }), ConnectorsModule, AgentsModule],
+  imports: [BullModule.registerQueue({ name: WORKFLOW_QUEUE }), ConnectorsModule, AgentsModule, RoutinesModule],
   controllers: [WorkflowsController, ExecutionsController, WebhooksController],
-  providers: [WorkflowsService, WorkflowRunnerService, RetentionService, ...workers],
-  exports: [WorkflowsService, RetentionService],
+  providers: [WorkflowsService, WorkflowRunnerService, RetentionService, ScheduleReconcilerService, ...workers],
+  exports: [WorkflowsService, RetentionService, ScheduleReconcilerService],
 })
 export class WorkflowsModule {}

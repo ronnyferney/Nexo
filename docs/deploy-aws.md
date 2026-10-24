@@ -118,12 +118,16 @@ El primer despliegue tarda ~20–30 min (sobre todo RDS).
   y AUTH (ElastiCache no admite activar AUTH en un clúster existente). El Redis nuevo arranca vacío:
   - Se pierden los trabajos encolados en ese momento (ejecuciones de flujos en curso, reintentos pendientes).
     Despliegue en una ventana sin ejecuciones activas.
-  - **Se pierden las programaciones cron** de flujos y de rutinas de agentes: viven solo en Redis (`JobScheduler` de
-    BullMQ) y al arrancar solo se vuelve a registrar la limpieza de retención. Hasta que la API las reconcilie desde la
-    base de datos al arrancar, tras el despliegue **desactive y vuelva a activar** cada flujo con `schedule` y cada
-    rutina habilitada (eso las registra de nuevo). Inventario previo:
-    `SELECT id, "workspaceId", schedule FROM "Workflow" WHERE active AND schedule IS NOT NULL;` y
-    `SELECT id, schedule FROM "AgentRoutine" WHERE enabled;`.
+  - **Las programaciones cron** de flujos y de rutinas de agentes (`JobScheduler` de BullMQ) también se pierden, pero
+    la API/worker las **reconstruye al arrancar** desde PostgreSQL (P9, `ScheduleReconcilerService`): registra cada
+    flujo activo con `schedule` y cada rutina habilitada, corrige patrón o zona horaria y elimina los huérfanos. Una
+    sola réplica reconcilia por arranque (candado `nexo:schedules:reconcile-lock` en Redis, expira a los 5 min). Ya no
+    hace falta desactivar y reactivar flujos; queda como **verificación**: en CloudWatch busque la línea
+    `Programadores de flujos: N creados, …` (y la de `rutinas`) del arranque y compare N con el inventario
+    `SELECT count(*) FROM "Workflow" WHERE active AND schedule IS NOT NULL;` y
+    `SELECT count(*) FROM "AgentRoutine" WHERE enabled;`. Si una línea indica `con error`, el aviso previo trae el id
+    del flujo o rutina con un cron inválido guardado: corríjalo desde la web. Si el Redis se vacía sin reiniciar las
+    tareas, fuerce un nuevo despliegue de la API (o del worker) para reconciliar.
   - Los contadores del limitador se reinician (sin efecto práctico).
 - **RDS:** activar `deletionProtection` es una actualización en caliente, sin reinicio.
 

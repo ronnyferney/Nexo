@@ -11,11 +11,13 @@ import {
 import type { AgentRoutine, RoutineRun } from '@prisma/client';
 import { Queue, QueueEvents } from 'bullmq';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { schedulerEntries, type ScheduleSource } from '../workflows/schedule-reconciler';
 import { CreateRoutineDto, UpdateRoutineDto } from './dto/routine.dto';
 import {
   JOB_ROUTINE_RUN,
   JOB_ROUTINE_SCHEDULED,
   ROUTINE_QUEUE,
+  ROUTINE_SCHEDULER_PREFIX,
   routineSchedulerId,
   type RoutineRunJobData,
   type RoutineScheduledJobData,
@@ -201,7 +203,32 @@ export class RoutinesService implements OnModuleInit, OnModuleDestroy {
     if (!agent) throw new NotFoundException('Agente no encontrado');
   }
 
-  private async syncSchedule(routine: AgentRoutine): Promise<void> {
+  /**
+   * Origen para la reconciliación de programadores al arrancar (P9). Consulta todos los workspaces: es un proceso de
+   * sistema, no una petición de usuario, y solo lee id, schedule y zona horaria.
+   */
+  scheduleSource(): ScheduleSource {
+    return {
+      kind: 'rutinas',
+      desired: async () => {
+        const rows = await this.prisma.agentRoutine.findMany({
+          where: { enabled: true },
+          select: { id: true, schedule: true, timezone: true },
+        });
+        return rows.map((r) => ({ ownerId: r.id, pattern: r.schedule, tz: r.timezone }));
+      },
+      registered: async () => schedulerEntries(await this.queue.getJobSchedulers(0, -1), ROUTINE_SCHEDULER_PREFIX),
+      apply: (routineId, entry) =>
+        this.syncSchedule({
+          id: routineId,
+          enabled: entry !== null,
+          schedule: entry?.pattern ?? '',
+          timezone: entry?.tz ?? 'UTC',
+        }),
+    };
+  }
+
+  private async syncSchedule(routine: Pick<AgentRoutine, 'id' | 'enabled' | 'schedule' | 'timezone'>): Promise<void> {
     const id = routineSchedulerId(routine.id);
     if (routine.enabled) {
       await this.queue.upsertJobScheduler(
