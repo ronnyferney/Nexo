@@ -363,8 +363,11 @@
                   }
                   @case ('error') {
                     <div class="msg error" role="alert"><nx-icon name="alert" [size]="16" />
-                      <span>No fue posible completar la solicitud.
-                        <button type="button" class="linklike" (click)="chatView.set('activity')">Ver actividad</button>@if (canEditAgent()) { · <button type="button" class="linklike" (click)="chatView.set('diagnostics')">Ver diagnóstico</button> }
+                      <span class="grow"><strong>{{ friendlyError(item.text || '') }}</strong>
+                        <span class="small block">
+                          @if (!streaming()) { <button type="button" class="linklike" (click)="retry()">Reintentar</button> · }
+                          <button type="button" class="linklike" (click)="chatView.set('activity')">Ver actividad</button>@if (canEditAgent()) { · <button type="button" class="linklike" (click)="chatView.set('diagnostics')">Ver diagnóstico</button> }
+                        </span>
                       </span>
                     </div>
                   }

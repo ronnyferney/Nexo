@@ -1,4 +1,4 @@
-import { isActiveTurnState, isSecurityNotice, toolSlug, turnStateLabel } from './agent-chat.util';
+import { friendlyError, isActiveTurnState, isSecurityNotice, toolSlug, turnStateLabel } from './agent-chat.util';
 
 describe('agent-chat.util', () => {
   describe('isSecurityNotice', () => {
@@ -44,6 +44,29 @@ describe('agent-chat.util', () => {
       for (const s of ['idle', 'completed', 'partial', 'failed', 'cancelled'] as const) {
         expect(turnStateLabel(s)).toBeNull();
       }
+    });
+  });
+
+  describe('friendlyError', () => {
+    it('traduce límite de solicitudes / throttling', () => {
+      expect(friendlyError('Retry the throttled request')).toContain('límite de solicitudes');
+      expect(friendlyError('HTTP 429 Too Many Requests')).toContain('límite de solicitudes');
+      expect(friendlyError('El proveedor está sobrecargado')).toContain('límite de solicitudes');
+    });
+
+    it('traduce autenticación / sesión', () => {
+      expect(friendlyError('invalid x-api-key (401)')).toContain('reautorizarse');
+      expect(friendlyError('La sesión fue revocada')).toContain('reautorizarse');
+    });
+
+    it('traduce tiempo de espera y presupuesto', () => {
+      expect(friendlyError('request timeout')).toContain('tardó más de lo esperado');
+      expect(friendlyError('Se superó el presupuesto del workspace')).toContain('presupuesto');
+    });
+
+    it('cae en un mensaje genérico para causas desconocidas', () => {
+      expect(friendlyError('algo raro pasó')).toBe('No fue posible completar la solicitud.');
+      expect(friendlyError('')).toBe('No fue posible completar la solicitud.');
     });
   });
 

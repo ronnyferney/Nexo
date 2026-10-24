@@ -50,6 +50,23 @@ export const isSecurityNotice = (i: ClassifiableItem): boolean =>
   i.kind === 'notice' && !!i.text?.startsWith(SECURITY_NOTICE_PREFIX);
 
 /**
+ * Traduce el mensaje técnico de un error del proveedor o de la ejecución a una causa comprensible para el usuario.
+ * El texto crudo se conserva aparte (vista Diagnóstico); aquí solo se decide qué explicar en la conversación.
+ */
+export function friendlyError(raw: string): string {
+  const t = (raw || '').toLowerCase();
+  if (/throttl|rate.?limit|l[íi]mite de solicitudes|\b429\b|overloaded|sobrecarg/.test(t))
+    return 'El servicio externo alcanzó temporalmente su límite de solicitudes. Puede reintentar en unos momentos.';
+  if (/\b401\b|\b403\b|unauthorized|forbidden|api key|autenticac|sesi[óo]n|token|revocad|expir/.test(t))
+    return 'La conexión del modelo o de la herramienta necesita reautorizarse. Revísela e inténtelo de nuevo.';
+  if (/timeout|timed out|tard[óo] demasiado|\b504\b|tiempo de espera/.test(t))
+    return 'La operación tardó más de lo esperado y se interrumpió. Puede reintentar.';
+  if (/presupuesto|budget|cuota|quota|saldo/.test(t))
+    return 'Se alcanzó el límite de presupuesto configurado. Revise los presupuestos del workspace.';
+  return 'No fue posible completar la solicitud.';
+}
+
+/**
  * Replica el identificador de herramienta del backend (`toolName` en agent-runtime): `<conector>__<operación>`,
  * ambos en minúsculas y saneados, el conector acotado a 24 caracteres y el total a 64. Sirve para mapear el nombre
  * técnico que llega por el stream al nombre legible del conector y la operación.

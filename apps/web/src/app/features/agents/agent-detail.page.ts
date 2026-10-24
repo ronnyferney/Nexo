@@ -16,7 +16,14 @@ import { canManageAgentOwnership, canWriteAgent } from '../../shared/agent-permi
 import { IconComponent } from '../../shared/icon.component';
 import { formatUsd, NumberPipe } from '../../shared/usd.pipe';
 import { MarkdownPipe } from '../../shared/markdown.pipe';
-import { type ChatTurnState, isActiveTurnState, isSecurityNotice, toolSlug, turnStateLabel } from './agent-chat.util';
+import {
+  type ChatTurnState,
+  friendlyError,
+  isActiveTurnState,
+  isSecurityNotice,
+  toolSlug,
+  turnStateLabel,
+} from './agent-chat.util';
 import { DEFAULT_TARGET_SCORE } from '../../core/training.models';
 import { AgentChatFeedbackComponent } from './agent-chat-feedback.component';
 import { AgentExamplesComponent } from './agent-examples.component';
@@ -724,6 +731,14 @@ export class AgentDetailPage implements OnInit {
 
   stop() {
     this.abort?.abort();
+  }
+
+  /** Expone el mapeo de errores a la plantilla (causa comprensible en la conversación). */
+  readonly friendlyError = friendlyError;
+
+  /** Reintenta el último mensaje enviado (acción del aviso de error). */
+  retry() {
+    if (this.lastMessage && !this.streaming()) void this.send(this.lastMessage);
   }
 
   async send(text = this.message.trim(), approvedTools?: string[]) {
