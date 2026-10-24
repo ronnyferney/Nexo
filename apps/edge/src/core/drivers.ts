@@ -8,6 +8,7 @@
 import mssql from 'mssql';
 import type { Connection as MysqlCoreConnection } from 'mysql2';
 import mysql from 'mysql2/promise';
+import { connect as netConnect, isIP } from 'node:net';
 import { Pool as PgPool, types as pgTypes, type PoolClient } from 'pg';
 import {
   assertReadOnlySql,
@@ -21,6 +22,11 @@ import {
 export interface DbConnectionSettings {
   engine: DbEngine;
   host: string;
+  /**
+   * IP ya validada a la que se abre el socket (sin volver a resolver `host`: evita DNS rebinding). `host` se
+   * conserva para TLS (SNI y verificación del certificado). Sin valor, el driver resuelve `host` normalmente.
+   */
+  connectAddress?: string;
   port?: number;
   database: string;
   user: string;
@@ -81,6 +87,11 @@ export interface DbDriver {
 }
 
 const CONNECT_TIMEOUT_MS = 10_000;
+
+/** Nombre para SNI/certificado cuando se conecta a una IP fijada en lugar del nombre configurado. */
+function tlsServername(s: DbConnectionSettings): string | undefined {
+  return s.connectAddress && !isIP(s.host) ? s.host : undefined;
+}
 const MAX_SCHEMA_TABLES = 500;
 
 export function createDriver(settings: DbConnectionSettings): DbDriver {
@@ -183,13 +194,14 @@ class PostgresDriver implements DbDriver {
         ? { rejectUnauthorized: s.ssl.rejectUnauthorized ?? true, ca: s.ssl.ca }
         : { rejectUnauthorized: true }
       : false;
+    const servername = tlsServername(s);
     this.pool = new PgPool({
-      host: s.host,
+      host: s.connectAddress ?? s.host,
       port: s.port ?? 5432,
       database: s.database,
       user: s.user,
       password: s.password,
-      ssl,
+      ssl: ssl && servername ? { ...ssl, servername } : ssl,
       max: s.poolMax ?? 5,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
@@ -285,9 +297,13 @@ class MysqlDriver implements DbDriver {
         ? { rejectUnauthorized: s.ssl.rejectUnauthorized ?? true, ca: s.ssl.ca }
         : { rejectUnauthorized: true }
       : undefined;
+    const port = s.port ?? 3306;
+    const address = s.connectAddress;
     this.pool = mysql.createPool({
+      // `host` sigue siendo el nombre (SNI/certificado); el socket se abre contra la IP fijada.
       host: s.host,
-      port: s.port ?? 3306,
+      port,
+      ...(address ? { stream: () => netConnect({ host: address, port, noDelay: true, keepAlive: true }) } : {}),
       database: s.database,
       user: s.user,
       password: s.password,
@@ -407,8 +423,9 @@ class MssqlDriver implements DbDriver {
 
   constructor(s: DbConnectionSettings) {
     const verify = typeof s.ssl === 'object' ? (s.ssl.rejectUnauthorized ?? true) : true;
+    const servername = tlsServername(s);
     this.pool = new mssql.ConnectionPool({
-      server: s.host,
+      server: s.connectAddress ?? s.host,
       port: s.port ?? 1433,
       database: s.database,
       user: s.user,
@@ -417,7 +434,11 @@ class MssqlDriver implements DbDriver {
       // Tope duro del driver; cada consulta además se cancela con su propio timeout.
       requestTimeout: 65_000,
       pool: { max: s.poolMax ?? 5, min: 0, idleTimeoutMillis: 30_000 },
-      options: { encrypt: !!s.ssl, trustServerCertificate: !s.ssl || !verify },
+      options: {
+        encrypt: !!s.ssl,
+        trustServerCertificate: !s.ssl || !verify,
+        ...(servername ? { serverName: servername } : {}),
+      },
     });
     this.pool.on('error', () => undefined);
   }

@@ -1,6 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { HttpClientService } from '../../../common/http/http-client.service';
-import { getPath, render } from '../../../common/template/template.engine';
+import { evaluateExpression, getPath, render, type TemplateContext } from '../../../common/template/template.engine';
 import type { ConnectorAdapter } from '../domain/connector-adapter';
 import type {
   ConnectorRuntime,
@@ -32,9 +32,13 @@ export class RestAdapter implements ConnectorAdapter {
     const ctx = { input, secrets: connector.secrets };
     const config = render<RestConfig>(connector.config, ctx);
     const def = render<RestOperationDef>(operation.definition, ctx);
+    // La ruta se renderiza aparte: cada valor interpolado va codificado como segmento (no puede añadir `/`, `?`, `#`).
+    def.path = renderPath((operation.definition as Partial<RestOperationDef>).path, ctx);
     const auth = await this.authResolver.resolve(connector);
 
-    const url = new URL(joinUrl(config.baseUrl, def.path));
+    // El host del conector sale de la configuración sin `input`: ningún valor de la operación puede cambiarlo.
+    const connectorBase = render<RestConfig>(connector.config, { secrets: connector.secrets }).baseUrl;
+    const url = buildOperationUrl(config.baseUrl, def.path, connectorBase);
     for (const [k, v] of Object.entries({ ...(def.query ?? {}), ...auth.query })) {
       if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
     }
@@ -91,9 +95,48 @@ export class RestAdapter implements ConnectorAdapter {
   }
 }
 
-function joinUrl(base: string, path: string): string {
-  if (/^https?:\/\//.test(path)) return path;
-  return `${base.replace(/\/+$/, '')}/${(path ?? '').replace(/^\/+/, '')}`;
+const EXPR = /\{\{\s*([^}]+?)\s*\}\}/g;
+/** Segmento `.`/`..`, también codificado (`%2e`), que el parser de URL interpretaría como recorrido de ruta. */
+const DOT_SEGMENT = /^(?:\.|%2e){1,2}$/i;
+
+/**
+ * Renderiza la plantilla de ruta codificando cada valor con `encodeURIComponent` (equivale a un segmento de ruta o a
+ * un valor de query). El texto literal de la plantilla (definido por quien configura la operación) no se altera.
+ */
+export function renderPath(template: unknown, ctx: TemplateContext): string {
+  if (template === undefined || template === null) return '';
+  return String(template).replace(EXPR, (_, expr: string) => {
+    const value = evaluateExpression(expr, ctx);
+    if (value === undefined || value === null) return '';
+    return encodeURIComponent(typeof value === 'object' ? JSON.stringify(value) : String(value));
+  });
+}
+
+/**
+ * Une `baseUrl` y la ruta ya renderizada, y rechaza lo que saque la petición del conector: segmentos `.`/`..`, una
+ * URL absoluta (o `//host`) hacia otro origen, o una ruta que termine fuera de la ruta base.
+ */
+export function buildOperationUrl(baseUrl: string, path: string, connectorBaseUrl: string = baseUrl): URL {
+  const expected = new URL(connectorBaseUrl);
+  const p = path ?? '';
+  const isAbsolute = /^[a-z][a-z0-9+.-]*:/i.test(p) || /^[/\\]{2}/.test(p);
+  // Se revisa el texto antes de que `new URL()` normalice los `..` (el parser trata `\` como `/`).
+  const rawPath = (isAbsolute ? p.replace(/^[a-z][a-z0-9+.-]*:/i, '').replace(/^[/\\]{2}[^/\\?#]*/, '') : p).split(
+    /[?#]/,
+    1,
+  )[0];
+  if (rawPath.split(/[/\\]/).some((seg) => DOT_SEGMENT.test(seg))) {
+    throw new BadRequestException('Ruta de operación inválida: no se permiten segmentos "." o ".."');
+  }
+  const url = isAbsolute ? new URL(p, expected) : new URL(`${baseUrl.replace(/\/+$/, '')}/${p.replace(/^\/+/, '')}`);
+  if (url.origin !== expected.origin) {
+    throw new BadRequestException(`Ruta de operación inválida: el destino debe ser ${expected.host}`);
+  }
+  const basePath = expected.pathname.replace(/\/+$/, '');
+  if (!isAbsolute && basePath && url.pathname !== basePath && !url.pathname.startsWith(`${basePath}/`)) {
+    throw new BadRequestException('Ruta de operación inválida: sale de la ruta base del conector');
+  }
+  return url;
 }
 
 interface OpenApiParam {

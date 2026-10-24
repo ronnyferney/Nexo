@@ -261,8 +261,10 @@ export class DatabaseAdapter implements ConnectorAdapter, OnModuleDestroy {
       current.lastUsed = Date.now();
       return current.driver;
     }
+    let pinned: Awaited<ReturnType<HttpClientService['resolvePublicHost']>>;
     try {
-      await this.http.assertPublicHost(settings.host);
+      // Se resuelve una sola vez y el driver se conecta a esa IP validada (sin DNS rebinding entre validar y conectar).
+      pinned = await this.http.resolvePublicHost(settings.host);
     } catch (err) {
       throw new BadRequestException((err as Error).message);
     }
@@ -270,7 +272,7 @@ export class DatabaseAdapter implements ConnectorAdapter, OnModuleDestroy {
       this.pools.delete(connector.id);
       void current.driver.close().catch(() => undefined);
     }
-    const driver = createDriver(settings);
+    const driver = createDriver(pinned ? { ...settings, connectAddress: pinned[0].address } : settings);
     this.pools.set(connector.id, { fingerprint, driver, lastUsed: Date.now() });
     return driver;
   }

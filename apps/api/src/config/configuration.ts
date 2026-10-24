@@ -1,3 +1,5 @@
+import { parseTrustProxy, type TrustProxy } from './trust-proxy';
+
 export interface AppConfig {
   port: number;
   /** URL pública de la API (callbacks OAuth, conexión de Nexo Edge). */
@@ -5,6 +7,10 @@ export interface AppConfig {
   /** URL de la aplicación web (redirecciones tras OAuth). */
   webUrl: string;
   corsOrigins: string[];
+  /** `trust proxy` de Express (`TRUST_PROXY`): IP real del cliente para el limitador de peticiones y los registros. */
+  trustProxy: TrustProxy;
+  /** Documentación Swagger en `/api/docs` (`SWAGGER_ENABLED`; por defecto, solo fuera de producción). */
+  swaggerEnabled: boolean;
   jwt: { secret: string; expiresIn: string };
   encryptionKey: string;
   redis: { host: string; port: number; password?: string };
@@ -107,6 +113,14 @@ export function parseOAuthEndpointOverrides(raw: string | undefined): Record<str
   }
 }
 
+/** Swagger: `SWAGGER_ENABLED=true|false` manda; sin definir, se publica solo fuera de producción. */
+export function swaggerEnabledFrom(env: NodeJS.ProcessEnv): boolean {
+  const raw = env.SWAGGER_ENABLED?.trim().toLowerCase();
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  return env.NODE_ENV !== 'production';
+}
+
 const nonNegative = (raw: string | undefined, fallback: number) => {
   const n = Number(raw);
   return raw !== undefined && raw !== '' && Number.isFinite(n) && n >= 0 ? n : fallback;
@@ -117,6 +131,8 @@ export default (): AppConfig => ({
   publicUrl: (process.env.PUBLIC_URL ?? 'http://localhost:3000').replace(/\/+$/, ''),
   webUrl: (process.env.WEB_URL ?? 'http://localhost:4200').replace(/\/+$/, ''),
   corsOrigins: (process.env.CORS_ORIGINS ?? 'http://localhost:4200').split(',').map((o) => o.trim()),
+  trustProxy: parseTrustProxy(process.env.TRUST_PROXY, process.env.NODE_ENV),
+  swaggerEnabled: swaggerEnabledFrom(process.env),
   jwt: {
     secret: process.env.JWT_SECRET ?? '',
     expiresIn: process.env.JWT_EXPIRES_IN ?? '12h',

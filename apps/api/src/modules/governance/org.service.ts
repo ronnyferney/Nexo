@@ -1,10 +1,23 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, type OrgUnit } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import type { WorkspaceRole } from '../../common/decorators/roles.decorator';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AddMemberDto, CreateOrgUnitDto, UpdateMemberDto, UpdateOrgUnitDto } from './dto/governance.dto';
 
-/** Árbol de unidades corporativas y miembros del workspace. */
+/** Quien ejecuta la operación sobre los miembros (de `@CurrentAuth()`). */
+export interface MemberActor {
+  userId?: string;
+  role: WorkspaceRole;
+}
+
+type Tx = Prisma.TransactionClient;
+
+/**
+ * Árbol de unidades corporativas y miembros del workspace.
+ * Regla del rol OWNER (M3): solo un OWNER lo otorga, lo retira o retira a otro OWNER, y el workspace nunca se queda
+ * sin OWNER (la comprobación y el cambio van en la misma transacción, con el workspace bloqueado).
+ */
 @Injectable()
 export class OrgService {
   constructor(private readonly prisma: PrismaService) {}
@@ -122,7 +135,8 @@ export class OrgService {
     }));
   }
 
-  async addMember(workspaceId: string, dto: AddMemberDto) {
+  async addMember(workspaceId: string, dto: AddMemberDto, actor: MemberActor) {
+    if (dto.role === 'OWNER') this.assertOwnerActor(actor, 'Solo un OWNER puede otorgar el rol OWNER');
     const orgUnitId = dto.orgUnitId
       ? (await this.unit(workspaceId, dto.orgUnitId)).id
       : (await this.ensureRoot(workspaceId)).id;
@@ -142,26 +156,28 @@ export class OrgService {
     return (await this.members(workspaceId)).find((m) => m.userId === user.id);
   }
 
-  async updateMember(workspaceId: string, membershipId: string, dto: UpdateMemberDto) {
+  async updateMember(workspaceId: string, membershipId: string, dto: UpdateMemberDto, actor: MemberActor) {
     const m = await this.membership(workspaceId, membershipId);
     if (dto.orgUnitId) await this.unit(workspaceId, dto.orgUnitId);
-    if (dto.role && m.role === 'OWNER' && dto.role !== 'OWNER')
-      await this.assertAnotherOwner(workspaceId, membershipId);
-    await this.prisma.membership.update({
-      where: { id: membershipId },
-      data: { role: dto.role, orgUnitId: dto.orgUnitId },
+    const changesOwner = dto.role !== undefined && dto.role !== m.role && (dto.role === 'OWNER' || m.role === 'OWNER');
+    if (changesOwner) this.assertOwnerActor(actor, 'Solo un OWNER puede otorgar o retirar el rol OWNER');
+    await this.prisma.$transaction(async (tx) => {
+      if (changesOwner && m.role === 'OWNER') await this.assertAnotherOwner(tx, workspaceId, membershipId);
+      await tx.membership.update({ where: { id: membershipId }, data: { role: dto.role, orgUnitId: dto.orgUnitId } });
     });
     return (await this.members(workspaceId)).find((x) => x.membershipId === membershipId);
   }
 
   /**
-   * Retira a un miembro. Sus agentes pasan al administrador que lo retira (`actorUserId`), sin cambiar su visibilidad,
-   * y sus shares directos se eliminan (ADR 0007 D3); también sale de los grupos de usuarios del workspace (D6). Si no
-   * hay actor (tareas internas) o el miembro se retira a sí mismo, pasan al OWNER más antiguo. La respuesta informa qué agentes se transfirieron y a quién.
+   * Retira a un miembro. Sus agentes pasan al administrador que lo retira (`actor.userId`), sin cambiar su visibilidad,
+   * y sus shares directos se eliminan (ADR 0007 D3); también sale de los grupos de usuarios del workspace (D6). Si el
+   * actor no es un usuario (tareas internas) o el miembro se retira a sí mismo, pasan al OWNER más antiguo. La
+   * respuesta informa qué agentes se transfirieron y a quién. Retirar a un OWNER exige ser OWNER.
    */
-  async removeMember(workspaceId: string, membershipId: string, actorUserId?: string) {
+  async removeMember(workspaceId: string, membershipId: string, actor: MemberActor) {
     const m = await this.membership(workspaceId, membershipId);
-    if (m.role === 'OWNER') await this.assertAnotherOwner(workspaceId, membershipId);
+    if (m.role === 'OWNER') this.assertOwnerActor(actor, 'Solo un OWNER puede retirar a otro OWNER');
+    const actorUserId = actor.userId;
     // Si alguien se retira a sí mismo, sus agentes pasan al OWNER más antiguo.
     const newOwnerId =
       actorUserId && actorUserId !== m.userId ? actorUserId : await this.oldestOwner(workspaceId, m.userId);
@@ -170,19 +186,20 @@ export class OrgService {
       select: { id: true, name: true, visibility: true },
       orderBy: { name: 'asc' },
     });
-    await this.prisma.$transaction([
-      this.prisma.agent.updateMany({ where: { workspaceId, ownerId: m.userId }, data: { ownerId: newOwnerId } }),
-      this.prisma.agentShare.deleteMany({
+    await this.prisma.$transaction(async (tx) => {
+      if (m.role === 'OWNER') await this.assertAnotherOwner(tx, workspaceId, membershipId);
+      await tx.agent.updateMany({ where: { workspaceId, ownerId: m.userId }, data: { ownerId: newOwnerId } });
+      await tx.agentShare.deleteMany({
         where: { principalType: 'USER', principalId: m.userId, agent: { workspaceId } },
-      }),
+      });
       // Sale de los grupos de este workspace (sus grupos en otros workspaces no cambian).
-      this.prisma.userGroupMember.deleteMany({ where: { userId: m.userId, group: { workspaceId } } }),
+      await tx.userGroupMember.deleteMany({ where: { userId: m.userId, group: { workspaceId } } });
       // El nuevo dueño no necesita un share directo sobre los agentes que recibe.
-      this.prisma.agentShare.deleteMany({
+      await tx.agentShare.deleteMany({
         where: { principalType: 'USER', principalId: newOwnerId ?? '', agentId: { in: agents.map((a) => a.id) } },
-      }),
-      this.prisma.membership.delete({ where: { id: membershipId } }),
-    ]);
+      });
+      await tx.membership.delete({ where: { id: membershipId } });
+    });
     return {
       removed: true,
       userId: m.userId,
@@ -212,8 +229,18 @@ export class OrgService {
     return m;
   }
 
-  private async assertAnotherOwner(workspaceId: string, exceptMembershipId: string) {
-    const owners = await this.prisma.membership.count({
+  private assertOwnerActor(actor: MemberActor, message: string): void {
+    if (actor.role !== 'OWNER') throw new ForbiddenException(message);
+  }
+
+  /**
+   * Dentro de la transacción: bloquea el workspace (serializa altas, bajas y cambios de rol concurrentes) y exige otro
+   * OWNER además de `exceptMembershipId`. Sin el bloqueo, dos OWNER que se degradan a la vez dejarían el workspace sin
+   * ninguno.
+   */
+  private async assertAnotherOwner(tx: Tx, workspaceId: string, exceptMembershipId: string) {
+    await tx.$queryRaw`SELECT id FROM "Workspace" WHERE id = ${workspaceId} FOR UPDATE`;
+    const owners = await tx.membership.count({
       where: { workspaceId, role: 'OWNER', id: { not: exceptMembershipId } },
     });
     if (!owners) throw new BadRequestException('El workspace debe conservar al menos un OWNER');

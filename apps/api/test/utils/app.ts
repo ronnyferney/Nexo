@@ -1,11 +1,15 @@
 import { getSharedConfigToken } from '@nestjs/bullmq';
 import { ValidationPipe, type INestApplication } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import { getStorageToken, type ThrottlerStorage } from '@nestjs/throttler';
 import request from 'supertest';
 import { AppModule } from '../../src/app.module';
 import { AllExceptionsFilter } from '../../src/common/filters/all-exceptions.filter';
+import type { TrustProxy } from '../../src/config/trust-proxy';
 import { PrismaService } from '../../src/infrastructure/prisma/prisma.service';
+import { RedisThrottlerStorage } from '../../src/infrastructure/throttler/redis-throttler.storage';
 
 /** Base Redis dedicada a la suite: aísla la cola de flujos de cualquier API/worker local que use la base 0. */
 export const E2E_REDIS_DB = Number(process.env.E2E_REDIS_DB ?? 7);
@@ -18,22 +22,32 @@ const noThrottle: ThrottlerStorage = {
   increment: async () => ({ totalHits: 1, timeToExpire: 60, isBlocked: false, timeToBlockExpire: 0 }),
 };
 
-/** Arranca la app Nest real con la misma configuración HTTP que `src/main.ts`. */
-export async function createTestApp(): Promise<INestApplication> {
+/** Redis de la suite (misma base que la cola de flujos de las pruebas). */
+function e2eRedis() {
+  return {
+    host: process.env.REDIS_HOST,
+    port: Number(process.env.REDIS_PORT),
+    password: process.env.REDIS_PASSWORD || undefined,
+    db: E2E_REDIS_DB,
+  };
+}
+
+/**
+ * Arranca la app Nest real con la misma configuración HTTP que `src/main.ts`. Con `throttle: true` el limitador usa
+ * el almacenamiento real en Redis (base de la suite) en vez de desactivarse: lo usan las pruebas del limitador.
+ */
+export async function createTestApp(opts: { throttle?: boolean } = {}): Promise<INestApplication> {
+  const storage = opts.throttle
+    ? new RedisThrottlerStorage({ getOrThrow: () => e2eRedis() } as unknown as ConfigService)
+    : noThrottle;
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(getStorageToken())
-    .useValue(noThrottle)
+    .useValue(storage)
     .overrideProvider(getSharedConfigToken())
-    .useValue({
-      connection: {
-        host: process.env.REDIS_HOST,
-        port: Number(process.env.REDIS_PORT),
-        password: process.env.REDIS_PASSWORD || undefined,
-        db: E2E_REDIS_DB,
-      },
-    })
+    .useValue({ connection: e2eRedis() })
     .compile();
-  const app = moduleRef.createNestApplication({ logger: ['error'] });
+  const app = moduleRef.createNestApplication<NestExpressApplication>({ logger: ['error'] });
+  app.set('trust proxy', app.get(ConfigService).getOrThrow<TrustProxy>('trustProxy'));
   app.setGlobalPrefix('api');
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
   app.useGlobalFilters(new AllExceptionsFilter());

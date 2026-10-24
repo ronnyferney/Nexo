@@ -74,17 +74,17 @@ export class GovernanceAdminController {
 
   @Post('org/members')
   addMember(@CurrentAuth() a: AuthContext, @Body() dto: AddMemberDto) {
-    return this.org.addMember(a.workspaceId, dto);
+    return this.org.addMember(a.workspaceId, dto, a);
   }
 
   @Patch('org/members/:id')
   updateMember(@CurrentAuth() a: AuthContext, @Param('id') id: string, @Body() dto: UpdateMemberDto) {
-    return this.org.updateMember(a.workspaceId, id, dto);
+    return this.org.updateMember(a.workspaceId, id, dto, a);
   }
 
   @Delete('org/members/:id')
   removeMember(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
-    return this.org.removeMember(a.workspaceId, id, a.userId);
+    return this.org.removeMember(a.workspaceId, id, a);
   }
 
   // Presupuestos

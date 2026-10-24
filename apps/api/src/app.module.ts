@@ -5,10 +5,13 @@ import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { CryptoModule } from './common/crypto/crypto.module';
+import { redactUrl } from './common/logging/redact-url';
 import { HttpClientModule } from './common/http/http-client.module';
 import configuration from './config/configuration';
 import { validateEnv } from './config/env.validation';
 import { PrismaModule } from './infrastructure/prisma/prisma.module';
+import { RedisThrottlerStorage } from './infrastructure/throttler/redis-throttler.storage';
+import { ThrottlerStorageModule } from './infrastructure/throttler/throttler-storage.module';
 import { AgentAccessModule } from './modules/agent-access/agent-access.module';
 import { AgentsModule } from './modules/agents/agents.module';
 import { CopilotModule } from './modules/copilot/copilot.module';
@@ -37,16 +40,26 @@ import { WorkspacesModule } from './modules/workspaces/workspaces.module';
         transport:
           process.env.NODE_ENV === 'production' ? undefined : { target: 'pino-pretty', options: { singleLine: true } },
         serializers: {
+          // Sin el token de los webhooks ni `code`/`state` de los callbacks OAuth (B1).
           req: (req: { id: unknown; method: string; url: string }) => ({
             id: req.id,
             method: req.method,
-            url: req.url,
+            url: redactUrl(req.url),
           }),
           res: (res: { statusCode: number }) => ({ statusCode: res.statusCode }),
         },
       },
     }),
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]),
+    // Límite general por IP real del cliente (`TRUST_PROXY`) con contadores compartidos en Redis entre réplicas.
+    ThrottlerModule.forRootAsync({
+      imports: [ThrottlerStorageModule],
+      inject: [RedisThrottlerStorage],
+      useFactory: (storage: RedisThrottlerStorage) => ({
+        throttlers: [{ ttl: 60_000, limit: 300 }],
+        storage,
+        errorMessage: 'Demasiadas solicitudes; intente de nuevo en unos minutos',
+      }),
+    }),
     BullModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({ connection: config.getOrThrow('redis') }),

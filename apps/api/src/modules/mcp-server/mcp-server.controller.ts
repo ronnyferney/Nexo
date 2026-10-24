@@ -3,14 +3,17 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { Request, Response } from 'express';
 import { CurrentAuth, type AuthContext } from '../../common/decorators/current-user.decorator';
+import { MinRole } from '../../common/decorators/roles.decorator';
 import { McpServerService } from './mcp-server.service';
 
 /**
  * Endpoint MCP (Streamable HTTP, modo sin estado): /api/mcp
- * Autenticación: `Authorization: Bearer nexo_...` (API key del workspace).
+ * Autenticación: `Authorization: Bearer nexo_...` (API key del workspace, rol EDITOR) o JWT de un EDITOR o superior.
+ * Las tools ejecutan flujos y agentes: exige el mismo rol que `POST /workflows/:id/run` (un VIEWER recibe 403).
  */
 @ApiTags('mcp')
 @ApiBearerAuth()
+@MinRole('EDITOR')
 @Controller('mcp')
 export class McpServerController {
   constructor(private readonly mcp: McpServerService) {}

@@ -6,6 +6,7 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { SecretsService } from '../workspaces/secrets.service';
 import { CONNECTOR_ADAPTERS, type ConnectorAdapter, type DiscoverOptions } from './domain/connector-adapter';
 import type { ConnectorAuth, ConnectorRuntime, InvocationResult } from './domain/connector.types';
+import { assertSafeSchemaPatterns, safeRegExp, UnsafePatternError } from './domain/safe-pattern';
 import { CreateConnectorDto, CreateOperationDto, UpdateConnectorDto, UpdateOperationDto } from './dto/connector.dto';
 
 const json = (v: unknown) => v as Prisma.InputJsonValue;
@@ -13,7 +14,10 @@ const json = (v: unknown) => v as Prisma.InputJsonValue;
 @Injectable()
 export class ConnectorsService {
   private readonly adapters: Map<ConnectorType, ConnectorAdapter>;
-  private readonly ajv = addFormats(new Ajv({ allErrors: true, strict: false, coerceTypes: true }));
+  // `safeRegExp`: los `pattern` de los esquemas se evalúan con límites anti-ReDoS (ver domain/safe-pattern.ts).
+  private readonly ajv = addFormats(
+    new Ajv({ allErrors: true, strict: false, coerceTypes: true, code: { regExp: safeRegExp } }),
+  );
   private readonly validators = new Map<string, { updatedAt: number; fn: ValidateFunction }>();
 
   constructor(
@@ -68,6 +72,7 @@ export class ConnectorsService {
   // ---------- Operaciones ----------
   async createOperation(workspaceId: string, connectorId: string, dto: CreateOperationDto) {
     await this.get(workspaceId, connectorId);
+    assertSchemaPatterns(dto.inputSchema);
     return this.prisma.connectorOperation.create({
       data: {
         ...dto,
@@ -80,6 +85,7 @@ export class ConnectorsService {
 
   async updateOperation(workspaceId: string, connectorId: string, opId: string, dto: UpdateOperationDto) {
     await this.getOperation(workspaceId, opId, connectorId);
+    assertSchemaPatterns(dto.inputSchema);
     return this.prisma.connectorOperation.update({
       where: { id: opId },
       data: {
@@ -176,12 +182,20 @@ export class ConnectorsService {
   private validateInput(op: ConnectorOperation, input: Record<string, unknown>): void {
     const cached = this.validators.get(op.id);
     let validate = cached?.updatedAt === op.updatedAt.getTime() ? cached.fn : undefined;
-    if (!validate) {
-      validate = this.ajv.compile(op.inputSchema as object);
-      this.validators.set(op.id, { updatedAt: op.updatedAt.getTime(), fn: validate });
+    let valid: boolean;
+    try {
+      if (!validate) {
+        validate = this.ajv.compile(op.inputSchema as object);
+        this.validators.set(op.id, { updatedAt: op.updatedAt.getTime(), fn: validate });
+      }
+      valid = validate(input) as boolean;
+    } catch (err) {
+      if (err instanceof UnsafePatternError)
+        throw new BadRequestException(`Entrada inválida para "${op.key}": ${err.message}`);
+      throw err;
     }
-    if (!validate(input)) {
-      const msg = (validate.errors ?? []).map((e) => `${e.instancePath || 'input'} ${e.message}`).join('; ');
+    if (!valid) {
+      const msg = (validate!.errors ?? []).map((e) => `${e.instancePath || 'input'} ${e.message}`).join('; ');
       throw new BadRequestException(`Entrada inválida para "${op.key}": ${msg}`);
     }
   }
@@ -201,5 +215,15 @@ export class ConnectorsService {
       auth: c.auth as unknown as ConnectorAuth,
       secrets: await this.secrets.resolveAll(c.workspaceId),
     };
+  }
+}
+
+/** Rechaza con 400 un `inputSchema` cuyos `pattern` no cumplen la política anti-ReDoS. */
+function assertSchemaPatterns(schema: unknown): void {
+  try {
+    assertSafeSchemaPatterns(schema);
+  } catch (err) {
+    if (err instanceof UnsafePatternError) throw new BadRequestException(err.message);
+    throw err;
   }
 }

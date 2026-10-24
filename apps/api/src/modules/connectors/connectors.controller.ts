@@ -46,6 +46,8 @@ export class ConnectorsController {
     return this.connectors.remove(a.workspaceId, id);
   }
 
+  // Provoca llamadas salientes con las credenciales del conector: no basta con poder leerlo.
+  @MinRole('EDITOR')
   @HttpCode(200)
   @Post(':id/test')
   test(@CurrentAuth() a: AuthContext, @Param('id') id: string) {

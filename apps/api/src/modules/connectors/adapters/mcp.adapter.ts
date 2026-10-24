@@ -18,6 +18,8 @@ import type {
 import { AuthResolverService } from './auth-resolver.service';
 
 const IDLE_MS = 5 * 60_000;
+/** Tope por respuesta/flujo MCP; al superarlo la sesión se descarta y se reabre en la siguiente llamada. */
+const MCP_MAX_STREAM_BYTES = 32 * 1024 * 1024;
 
 interface PooledClient {
   client: Client;
@@ -114,12 +116,15 @@ export class McpAdapter implements ConnectorAdapter, OnModuleDestroy {
     if (pooled) await this.evict(connector.id);
 
     const url = new URL(config.url);
+    // Validación temprana para un mensaje claro; la protección real está en `safeFetch` (IP fijada en cada conexión).
     await this.http.assertPublicHost(url.hostname);
     const client = new Client({ name: 'nexo', version: '1.0.0' });
+    // El flujo SSE puede quedar abierto y en silencio mucho tiempo: sin timeout de inactividad, con tope de tamaño.
+    const fetch = this.http.safeFetch({ idleTimeoutMs: 0, maxBodyBytes: MCP_MAX_STREAM_BYTES });
     const transport =
       config.transport === 'sse'
-        ? new SSEClientTransport(url, { requestInit: { headers } })
-        : new StreamableHTTPClientTransport(url, { requestInit: { headers } });
+        ? new SSEClientTransport(url, { requestInit: { headers }, fetch })
+        : new StreamableHTTPClientTransport(url, { requestInit: { headers }, fetch });
     await client.connect(transport);
     this.pool.set(connector.id, { client, fingerprint, lastUsed: Date.now() });
     return client;
