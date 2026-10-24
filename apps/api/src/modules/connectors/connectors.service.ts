@@ -188,14 +188,14 @@ export class ConnectorsService {
         validate = this.ajv.compile(op.inputSchema as object);
         this.validators.set(op.id, { updatedAt: op.updatedAt.getTime(), fn: validate });
       }
-      valid = validate(input) as boolean;
+      valid = validate(input);
     } catch (err) {
       if (err instanceof UnsafePatternError)
         throw new BadRequestException(`Entrada inválida para "${op.key}": ${err.message}`);
       throw err;
     }
     if (!valid) {
-      const msg = (validate!.errors ?? []).map((e) => `${e.instancePath || 'input'} ${e.message}`).join('; ');
+      const msg = (validate.errors ?? []).map((e) => `${e.instancePath || 'input'} ${e.message}`).join('; ');
       throw new BadRequestException(`Entrada inválida para "${op.key}": ${msg}`);
     }
   }

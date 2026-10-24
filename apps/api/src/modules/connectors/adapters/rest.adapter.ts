@@ -99,16 +99,25 @@ const EXPR = /\{\{\s*([^}]+?)\s*\}\}/g;
 /** Segmento `.`/`..`, también codificado (`%2e`), que el parser de URL interpretaría como recorrido de ruta. */
 const DOT_SEGMENT = /^(?:\.|%2e){1,2}$/i;
 
+/** `encodeURIComponent` deja de codificar `:`, `@` y `=`, válidos en un segmento (RFC 3986 `pchar`) y usados en ids. */
+function encodePathSegment(value: string): string {
+  return encodeURIComponent(value).replace(/%(3A|40|3D)/gi, (m) => decodeURIComponent(m));
+}
+
 /**
- * Renderiza la plantilla de ruta codificando cada valor con `encodeURIComponent` (equivale a un segmento de ruta o a
- * un valor de query). El texto literal de la plantilla (definido por quien configura la operación) no se altera.
+ * Renderiza la plantilla de ruta codificando cada valor interpolado: antes del primer `?`/`#` literal como segmento
+ * de ruta (no puede introducir `/`, `?`, `#`, `%` ni `;`), y después como valor de query (`encodeURIComponent`, sin
+ * `&` ni `=` crudos). El texto literal de la plantilla (definido por quien configura la operación) no se altera.
  */
 export function renderPath(template: unknown, ctx: TemplateContext): string {
   if (template === undefined || template === null) return '';
-  return String(template).replace(EXPR, (_, expr: string) => {
+  const text = String(template);
+  const queryStart = text.search(/[?#]/);
+  return text.replace(EXPR, (_match: string, expr: string, offset: number) => {
     const value = evaluateExpression(expr, ctx);
     if (value === undefined || value === null) return '';
-    return encodeURIComponent(typeof value === 'object' ? JSON.stringify(value) : String(value));
+    const raw = typeof value === 'object' ? JSON.stringify(value) : String(value);
+    return queryStart >= 0 && offset > queryStart ? encodeURIComponent(raw) : encodePathSegment(raw);
   });
 }
 

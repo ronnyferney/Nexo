@@ -13,8 +13,11 @@
  * 3. Longitud máxima del texto evaluado (`MAX_PATTERN_SUBJECT_LENGTH`): acota el costo polinómico residual
  *    (p. ej. `\s*\s*$`) a unos milisegundos.
  *
- * Puede rechazar algún patrón inofensivo con anidamiento (p. ej. `^([a-z]+\.)*[a-z]+$`): se reescribe sin anidar o
- * con `maxLength`. Los patrones del catálogo pasan esta validación (ver `safe-pattern.spec.ts`).
+ *    Excepción: grupos «delimitados» (ver `isDelimitedGroup`), p. ej. `([ \t]+<[^<>\s]{1,250}>){0,50}`.
+ *
+ * Es conservadora: puede rechazar algún patrón inofensivo (p. ej. `^(\w+\s?)+$` o grupos repetidos con grupos
+ * internos); se reescribe con un delimitador literal o se acota con `{n,m}` (m ≤ 10). Los patrones del catálogo pasan
+ * esta validación (ver `safe-pattern.spec.ts`).
  */
 
 export const MAX_PATTERN_LENGTH = 512;
@@ -30,11 +33,48 @@ export class UnsafePatternError extends Error {
   }
 }
 
+/** Átomo del nivel actual de un grupo (sin su cuantificador). */
+interface Atom {
+  text: string;
+  /** Carácter literal exacto (`a`, `\.`, `\t`), o `undefined` si es clase, escape de clase, `.` o grupo. */
+  literal?: string;
+  group: boolean;
+  quantified: boolean;
+}
+
 interface GroupFrame {
   /** El grupo contiene algún cuantificador (en cualquier nivel). */
   quantified: boolean;
   /** El grupo contiene una alternancia `|` en su propio nivel o anidada. */
   alternation: boolean;
+  atoms: Atom[];
+}
+
+const newFrame = (): GroupFrame => ({ quantified: false, alternation: false, atoms: [] });
+const ESCAPED_LITERALS: Record<string, string> = { t: '\t', n: '\n', r: '\r', f: '\f', v: '\v', '0': '\0' };
+
+/**
+ * Excepción a la regla 2 para grupos «delimitados» como `([ \t]+<[^<>\s]{1,250}>){0,50}`: sin alternancias ni grupos
+ * internos, con al menos un carácter literal obligatorio que ningún átomo cuantificado del grupo puede consumir, y
+ * como mucho un átomo cuantificado entre dos delimitadores (contando la vuelta de una repetición a la siguiente).
+ * Así cada repetición tiene una única forma de partir el texto y no hay retroceso exponencial.
+ */
+function isDelimitedGroup(frame: GroupFrame, flags: string): boolean {
+  if (frame.alternation || frame.atoms.some((a) => a.group)) return false;
+  const quantified = frame.atoms.filter((a) => a.quantified);
+  const matchers = quantified.map((a) => new RegExp(`^(?:${a.text})$`, flags));
+  const isDelimiter = (a: Atom) =>
+    !a.quantified && a.literal !== undefined && !matchers.some((m) => m.test(a.literal as string));
+  const first = frame.atoms.findIndex(isDelimiter);
+  if (first < 0) return false;
+  // Recorrido circular desde el primer delimitador: cuenta átomos cuantificados entre delimitadores consecutivos.
+  let run = 0;
+  for (let k = 1; k <= frame.atoms.length; k++) {
+    const atom = frame.atoms[(first + k) % frame.atoms.length];
+    if (isDelimiter(atom)) run = 0;
+    else if (atom.quantified && ++run > 1) return false;
+  }
+  return true;
 }
 
 /**
@@ -66,20 +106,25 @@ function readQuantifier(p: string, i: number): { length: number; repeats: boolea
 }
 
 /** Lanza `UnsafePatternError` si el patrón supera la longitud o tiene construcciones de retroceso exponencial. */
-export function assertSafePattern(pattern: string): void {
+export function assertSafePattern(pattern: string, flags = 'u'): void {
   if (typeof pattern !== 'string') throw new UnsafePatternError('El "pattern" debe ser una cadena');
   if (pattern.length > MAX_PATTERN_LENGTH) {
     throw new UnsafePatternError(`El "pattern" supera ${MAX_PATTERN_LENGTH} caracteres`);
   }
-  const stack: GroupFrame[] = [{ quantified: false, alternation: false }];
+  const stack: GroupFrame[] = [newFrame()];
+  const top = () => stack[stack.length - 1];
   let i = 0;
   while (i < pattern.length) {
     const c = pattern[i];
+    const start = i;
+    let literal: string | undefined;
     if (c === '\\') {
-      const next = pattern[i + 1];
+      const next = pattern[i + 1] ?? '';
       if ((next >= '1' && next <= '9') || next === 'k') {
         throw new UnsafePatternError('El "pattern" no admite referencias hacia atrás (\\1, \\k<nombre>)');
       }
+      if (ESCAPED_LITERALS[next]) literal = ESCAPED_LITERALS[next];
+      else if (next && !/[A-Za-z0-9]/.test(next)) literal = next;
       i += 2;
     } else if (c === '[') {
       // Clase de caracteres: se salta hasta el `]` de cierre (respetando escapes).
@@ -89,7 +134,7 @@ export function assertSafePattern(pattern: string): void {
       while (i < pattern.length && pattern[i] !== ']') i += pattern[i] === '\\' ? 2 : 1;
       i += 1;
     } else if (c === '(') {
-      stack.push({ quantified: false, alternation: false });
+      stack.push(newFrame());
       i += 1;
       // `(?:`, `(?=`, `(?!`, `(?<=`, `(?<!`, `(?<nombre>`
       if (pattern[i] === '?') {
@@ -101,34 +146,42 @@ export function assertSafePattern(pattern: string): void {
       }
       continue;
     } else if (c === ')') {
-      const frame = stack.length > 1 ? stack.pop()! : { quantified: false, alternation: false };
+      const frame = stack.length > 1 ? stack.pop()! : newFrame();
       i += 1;
       const q = readQuantifier(pattern, i);
       if (q) {
-        if (q.repeats && (frame.quantified || frame.alternation)) {
+        if (q.repeats && (frame.quantified || frame.alternation) && !isDelimitedGroup(frame, flags)) {
           throw new UnsafePatternError(
             'El "pattern" repite un grupo que ya contiene cuantificadores o alternativas (riesgo de ReDoS)',
           );
         }
         i += q.length;
       }
-      const parent = stack[stack.length - 1];
+      const parent = top();
       parent.quantified ||= frame.quantified || !!q;
       parent.alternation ||= frame.alternation;
+      parent.atoms.push({ text: '', group: true, quantified: !!q });
       continue;
     } else if (c === '|') {
-      stack[stack.length - 1].alternation = true;
+      top().alternation = true;
       i += 1;
       continue;
+    } else if (c === '^' || c === '$') {
+      i += 1; // anclas: ancho cero
+      continue;
     } else {
+      if (c !== '.') literal = c;
       i += 1;
     }
     // Tras un átomo (literal, escape o clase) puede venir un cuantificador.
+    const atom: Atom = { text: pattern.slice(start, i), literal, group: false, quantified: false };
     const q = readQuantifier(pattern, i);
     if (q) {
-      stack[stack.length - 1].quantified = true;
+      top().quantified = true;
+      atom.quantified = true;
       i += q.length;
     }
+    top().atoms.push(atom);
   }
 }
 
@@ -144,7 +197,7 @@ interface SafeRegExp {
  */
 export const safeRegExp = Object.assign(
   (pattern: string, flags?: string): SafeRegExp => {
-    assertSafePattern(pattern);
+    assertSafePattern(pattern, flags);
     const re = new RegExp(pattern, flags);
     return {
       test(subject: string): boolean {

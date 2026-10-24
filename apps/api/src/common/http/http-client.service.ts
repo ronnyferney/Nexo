@@ -158,7 +158,7 @@ export class HttpClientService implements OnModuleDestroy {
       maxBodyBytes: options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES,
       allowedHosts: options.allowedHosts?.map((h) => h.toLowerCase()),
     };
-    return ((input: RequestInfo | URL, init?: RequestInit) => this.dispatch(input, init, opts)) as typeof fetch;
+    return (input: RequestInfo | URL, init?: RequestInit) => this.dispatch(input, init, opts);
   }
 
   /**
@@ -218,18 +218,20 @@ export class HttpClientService implements OnModuleDestroy {
       let settled = false;
       let incoming: http.IncomingMessage | undefined;
       const req = (isHttps ? https : http).request(options);
-      const fail = (err: unknown) => {
+      const fail = (err: Error) => {
         clearTimeout(headerTimer);
         if (!settled) {
           settled = true;
           reject(err);
         }
-        const reason = err instanceof Error ? err : new Error(String(err));
         // Con la respuesta ya entregada, el error llega al lector del cuerpo a través del flujo.
-        incoming?.destroy(reason);
-        req.destroy(reason);
+        incoming?.destroy(err);
+        req.destroy(err);
       };
-      const onAbort = () => fail(signal.reason ?? new DOMException('Operación abortada', 'AbortError'));
+      const onAbort = () => {
+        const reason: unknown = signal.reason;
+        fail(reason instanceof Error ? reason : new DOMException('Operación abortada', 'AbortError'));
+      };
       const headerTimer = setTimeout(
         () => fail(new Error(`Tiempo de espera agotado (${opts.timeoutMs} ms) esperando a ${url.host}`)),
         opts.timeoutMs,
@@ -252,7 +254,7 @@ export class HttpClientService implements OnModuleDestroy {
           resolve(response);
         } catch (err) {
           res.destroy();
-          fail(err);
+          fail(err instanceof Error ? err : new Error(String(err)));
         }
       });
       req.end(body);

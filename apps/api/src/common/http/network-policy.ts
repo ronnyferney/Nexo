@@ -130,7 +130,7 @@ export async function resolvePublicAddresses(
  * usando para SNI, verificación del certificado y cabecera `Host`.
  */
 export function pinnedLookup(addresses: ResolvedAddress[]): LookupFunction {
-  return ((_hostname: string, options: { all?: boolean; family?: number | string }, callback: unknown) => {
+  return (_hostname: string, options: { all?: boolean; family?: number | string }, callback: unknown) => {
     const cb = (typeof options === 'function' ? options : callback) as (
       err: NodeJS.ErrnoException | null,
       address: string | ResolvedAddress[],
@@ -148,5 +148,5 @@ export function pinnedLookup(addresses: ResolvedAddress[]): LookupFunction {
     }
     if (opts.all) cb(null, list);
     else cb(null, list[0].address, list[0].family);
-  }) as LookupFunction;
+  };
 }

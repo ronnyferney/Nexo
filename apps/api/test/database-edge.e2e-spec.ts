@@ -303,6 +303,24 @@ describe('Conector DATABASE y Nexo Edge (e2e)', () => {
       }
     });
 
+    it('DNS rebinding: el driver conecta a la IP validada y no vuelve a resolver el nombre', async () => {
+      // `db.rebind.invalid` no existe en DNS: solo conecta si el driver usa la IP fijada por la política de red.
+      const resolvePublicHost = jest.fn(async () => [{ address: '127.0.0.1', family: 4 as const }]);
+      const http = { resolvePublicHost } as unknown as HttpClientService;
+      const adapter = new DatabaseAdapter(http, {} as EdgeService);
+      try {
+        const res = await adapter.test({
+          ...runtime,
+          config: directConfig({ host: 'db.rebind.invalid', password: PG.password }),
+        });
+        expect(res.ok).toBe(true);
+        expect(resolvePublicHost).toHaveBeenCalledTimes(1);
+        expect(resolvePublicHost).toHaveBeenCalledWith('db.rebind.invalid');
+      } finally {
+        await adapter.onModuleDestroy();
+      }
+    });
+
     it('vía API (flag true en la suite) el mismo host sí se permite', async () => {
       const http = new HttpClientService(new ConfigService({ http: { allowPrivateNetworks: true } }));
       const adapter = new DatabaseAdapter(http, {} as EdgeService);
