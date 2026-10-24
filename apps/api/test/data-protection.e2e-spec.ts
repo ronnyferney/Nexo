@@ -1,6 +1,12 @@
 import type { INestApplication } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Redis } from 'ioredis';
 import { ConversationRetentionService } from '../src/modules/data-protection/conversation-retention.service';
-import { PrivacySettingsService } from '../src/modules/data-protection/privacy-settings.service';
+import {
+  LEGACY_REDIS_KEY,
+  LEGACY_REDIS_PREFIX,
+  PrivacySettingsService,
+} from '../src/modules/data-protection/privacy-settings.service';
 import { RetentionService } from '../src/modules/workflows/retention.service';
 import { createTestApp, prismaOf } from './utils/app';
 import { addMember, chat, createAgent, registerOwner, type Session } from './utils/fixtures';
@@ -92,6 +98,42 @@ describe('Protección de datos · DataGuard y retención de conversaciones (ADR 
       expect(ok.body).toMatchObject({ dataGuardMode: 'mask', conversationRetentionDays: 30, isDefault: false });
       // Cada workspace tiene su propia política.
       expect((await policy(other).expect(200)).body).toMatchObject({ isDefault: true });
+    });
+
+    it('migra una sola vez los ajustes que versiones anteriores guardaban en Redis', async () => {
+      const legacy = await registerOwner(app, 'datos-legado');
+      const cfg = app
+        .get(ConfigService)
+        .getOrThrow<{ host: string; port: number; password?: string; db?: number }>('redis');
+      const redis = new Redis({ host: cfg.host, port: cfg.port, password: cfg.password, db: cfg.db });
+      const key = `${LEGACY_REDIS_PREFIX}${LEGACY_REDIS_KEY}`;
+      try {
+        await redis.hset(
+          key,
+          legacy.workspaceId,
+          JSON.stringify({ mode: 'off', retentionDays: 12, updatedAt: new Date().toISOString() }),
+        );
+        const settings = app.get(PrivacySettingsService);
+        await expect(settings.migrateLegacyRedisSettings()).resolves.toMatchObject({ migrated: 1, failed: 0 });
+        expect(await redis.hexists(key, legacy.workspaceId)).toBe(0);
+        expect((await policy(legacy).expect(200)).body).toMatchObject({
+          dataGuardMode: 'off',
+          conversationRetentionDays: 12,
+          isDefault: false,
+        });
+        const row = await prismaOf(app).workspace.findUniqueOrThrow({ where: { id: legacy.workspaceId } });
+        expect(row).toMatchObject({ dataGuardMode: 'OFF', conversationRetentionDays: 12 });
+
+        // Un valor viejo que reaparezca en Redis no pisa lo guardado después en PostgreSQL.
+        await setPolicy(legacy, { dataGuardMode: 'block' }).expect(200);
+        await redis.hset(key, legacy.workspaceId, JSON.stringify({ mode: 'mask', retentionDays: null, updatedAt: '' }));
+        await expect(settings.migrateLegacyRedisSettings()).resolves.toMatchObject({ migrated: 0 });
+        expect((await policy(legacy).expect(200)).body).toMatchObject({ dataGuardMode: 'block' });
+        expect(await redis.hexists(key, legacy.workspaceId)).toBe(0);
+      } finally {
+        await redis.hdel(key, legacy.workspaceId);
+        redis.disconnect();
+      }
     });
 
     it('POST /test devuelve hallazgos sin valores y la vista enmascarada', async () => {

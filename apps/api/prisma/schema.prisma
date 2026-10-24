@@ -101,6 +101,13 @@ enum LaunchStatus {
   LAUNCHED
 }
 
+/// Política de DataGuard hacia los modelos de IA (ADR 0008 D2).
+enum DataGuardMode {
+  OFF
+  MASK
+  BLOCK
+}
+
 enum CopilotMode {
   CREATE
   IMPROVE
@@ -208,30 +215,36 @@ model Invitation {
 }
 
 model Workspace {
-  id                  String          @id @default(cuid())
-  name                String
-  slug                String          @unique
+  id                        String          @id @default(cuid())
+  name                      String
+  slug                      String          @unique
   /// Permite que cualquier miembro cree agentes personales (ADR 0007).
-  allowPersonalAgents Boolean         @default(true)
-  createdAt           DateTime        @default(now())
-  updatedAt           DateTime        @updatedAt
-  memberships         Membership[]
-  connectors          Connector[]
-  agents              Agent[]
-  userGroups          UserGroup[]
-  workflows           Workflow[]
-  executions          Execution[]
-  apiKeys             ApiKey[]
-  secrets             Secret[]
-  llmConnections      LlmConnection[]
-  llmAuthFlows        LlmAuthFlow[]
-  orgUnits            OrgUnit[]
-  usage               UsageRecord[]
-  skills              Skill[]
-  knowledgeBases      KnowledgeBase[]
-  agentRoutines       AgentRoutine[]
-  edgeAgents          EdgeAgent[]
-  invitations         Invitation[]
+  allowPersonalAgents       Boolean         @default(true)
+  /// Política de DataGuard hacia los modelos de IA (ADR 0008 D2).
+  dataGuardMode             DataGuardMode   @default(MASK)
+  /// Días que se conservan conversaciones y mensajes (ADR 0008 D7; null = sin límite).
+  conversationRetentionDays Int?
+  /// Última vez que el workspace guardó sus ajustes de protección de datos (null = rige CONVERSATIONS_RETENTION_DAYS).
+  privacySettingsUpdatedAt  DateTime?
+  createdAt                 DateTime        @default(now())
+  updatedAt                 DateTime        @updatedAt
+  memberships               Membership[]
+  connectors                Connector[]
+  agents                    Agent[]
+  userGroups                UserGroup[]
+  workflows                 Workflow[]
+  executions                Execution[]
+  apiKeys                   ApiKey[]
+  secrets                   Secret[]
+  llmConnections            LlmConnection[]
+  llmAuthFlows              LlmAuthFlow[]
+  orgUnits                  OrgUnit[]
+  usage                     UsageRecord[]
+  skills                    Skill[]
+  knowledgeBases            KnowledgeBase[]
+  agentRoutines             AgentRoutine[]
+  edgeAgents                EdgeAgent[]
+  invitations               Invitation[]
 }
 
 model Membership {
@@ -420,6 +433,7 @@ model Conversation {
   updatedAt DateTime @updatedAt
 
   @@index([agentId, userId])
+  @@index([updatedAt])
 }
 
 /// Flujo de automatización como grafo dirigido (nodos + aristas).
@@ -539,11 +553,13 @@ model LlmAuthFlow {
   name             String?
   fields           Json?
   models           String[]        @default([])
-  /// device_code cifrado (solo DEVICE_CODE).
+  /// device_code cifrado (solo DEVICE_CODE, mientras `status = pending`).
   deviceCodeCipher String?
+  /// Tokens emitidos y cuenta autorizada, cifrados, mientras esperan la confirmación del ADMIN (`status = confirm`).
+  pendingCipher    String?
   intervalSec      Int?
   nextPollAt       DateTime?
-  /// pending | connected | expired | denied
+  /// pending | confirm | confirming | connected | expired | denied | cancelled
   status           String          @default("pending")
   connectionId     String?
   expiresAt        DateTime
@@ -956,6 +972,7 @@ model CopilotSession {
   updatedAt   DateTime          @updatedAt
 
   @@index([workspaceId, createdAt])
+  @@index([workspaceId, updatedAt])
 }
 
 /// Mensaje visible de la conversación (texto plano), calificable por el usuario.
