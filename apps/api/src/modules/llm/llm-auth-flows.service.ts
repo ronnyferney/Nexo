@@ -72,10 +72,22 @@ export interface DevicePollResult {
   confirmExpiresIn?: number;
 }
 
-/** Tokens emitidos y cuenta autorizada mientras se espera la confirmación (cifrados en `deviceCodeCipher`). */
+/** Tokens emitidos y cuenta autorizada mientras se espera la confirmación (cifrados en `pendingCipher`). */
 interface PendingAuthorization {
   tokens: { accessToken: string; refreshToken?: string; expiresAt: string | null; scope: string | null };
   account: AuthorizedAccount;
+}
+
+/** Al cerrar un flujo no queda nada cifrado: ni el device_code ni los tokens por confirmar. */
+const NO_CIPHERS = { deviceCodeCipher: null, pendingCipher: null } as const;
+
+/**
+ * Tokens por confirmar del flujo. Los flujos que pasaron a `confirm` antes de existir `pendingCipher` los guardaron en
+ * `deviceCodeCipher` (mismo contexto `llm-auth-flow.pending-tokens`); viven ≤ 10 min, así que basta este respaldo.
+ */
+function pendingCipherOf(flow: LlmAuthFlow): string | null {
+  if (flow.pendingCipher) return flow.pendingCipher;
+  return flow.status === 'confirm' || flow.status === 'confirming' ? flow.deviceCodeCipher : null;
 }
 
 /** Intervalo por defecto del flujo de dispositivo (RFC 8628 §3.2) y vida máxima del código. */
@@ -323,7 +335,7 @@ export class LlmAuthFlowsService {
       return { status: flow.status };
     }
     // Confirmación en curso (otra pestaña): se sigue mostrando la cuenta hasta que termine.
-    if (flow.status === 'confirming' && flow.deviceCodeCipher) return this.confirmView(flow);
+    if (flow.status === 'confirming' && pendingCipherOf(flow)) return this.confirmView(flow);
     if (flow.expiresAt.getTime() < Date.now()) {
       await this.discard(flow, 'expired');
       return { status: 'expired' };
@@ -394,10 +406,12 @@ export class LlmAuthFlowsService {
       where: { id: flow.id },
       data: {
         status: 'confirm',
-        deviceCodeCipher: this.crypto.encrypt(
+        pendingCipher: this.crypto.encrypt(
           JSON.stringify(pending),
           CipherContexts.llmPendingTokens(flow.workspaceId, flow.userId),
         ),
+        // El device_code ya se canjeó: no se conserva.
+        deviceCodeCipher: null,
         nextPollAt: null,
         expiresAt,
       },
@@ -444,7 +458,7 @@ export class LlmAuthFlowsService {
       });
       await this.prisma.llmAuthFlow.update({
         where: { id: flow.id },
-        data: { status: 'connected', connectionId: saved.id, deviceCodeCipher: null },
+        data: { status: 'connected', connectionId: saved.id, ...NO_CIPHERS },
       });
       return { status: 'connected', connection: saved };
     } catch (err) {
@@ -487,7 +501,7 @@ export class LlmAuthFlowsService {
 
   private pending(flow: LlmAuthFlow): PendingAuthorization {
     return JSON.parse(
-      this.crypto.decrypt(flow.deviceCodeCipher!, CipherContexts.llmPendingTokens(flow.workspaceId, flow.userId)),
+      this.crypto.decrypt(pendingCipherOf(flow)!, CipherContexts.llmPendingTokens(flow.workspaceId, flow.userId)),
     ) as PendingAuthorization;
   }
 
@@ -504,7 +518,7 @@ export class LlmAuthFlowsService {
    * de borrarlos: una autorización rechazada o vencida no debe quedar viva en la cuenta de quien escribió el código.
    */
   private async discard(flow: LlmAuthFlow, status: 'expired' | 'cancelled'): Promise<void> {
-    if (flow.status === 'confirm' && flow.deviceCodeCipher) {
+    if (flow.status === 'confirm' && pendingCipherOf(flow)) {
       try {
         const pending = this.pending(flow);
         const entry = this.providers.provider(flow.providerId);
@@ -522,7 +536,7 @@ export class LlmAuthFlowsService {
     }
     await this.prisma.llmAuthFlow.updateMany({
       where: { id: flow.id, status: flow.status },
-      data: { status, deviceCodeCipher: null },
+      data: { status, ...NO_CIPHERS },
     });
   }
 
@@ -580,7 +594,7 @@ export class LlmAuthFlowsService {
   }
 
   private async finish(flowId: string, status: 'expired' | 'denied' | 'cancelled'): Promise<void> {
-    await this.prisma.llmAuthFlow.update({ where: { id: flowId }, data: { status, deviceCodeCipher: null } });
+    await this.prisma.llmAuthFlow.update({ where: { id: flowId }, data: { status, ...NO_CIPHERS } });
   }
 
   private async isAdmin(userId: string, workspaceId: string): Promise<boolean> {

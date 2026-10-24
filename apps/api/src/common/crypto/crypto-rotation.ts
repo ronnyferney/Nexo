@@ -127,7 +127,8 @@ export function rotationTargets(db: Db, opts: { workspaceId?: string } = {}): Ro
         ).count,
     },
     {
-      // Vida corta (≤ 30 min); el contexto depende del estado: código de dispositivo o tokens por confirmar (M1b).
+      // Vida corta (≤ 30 min): el código de dispositivo (`pending`). Los flujos que pasaron a `confirm` antes de existir
+      // `pendingCipher` guardaron aquí los tokens por confirmar (M1b, ≤ 10 min) con su propio contexto.
       name: 'LlmAuthFlow.deviceCodeCipher',
       fetch: async (afterId, take, prefix) => {
         const rows = await db.llmAuthFlow.findMany({
@@ -152,6 +153,29 @@ export function rotationTargets(db: Db, opts: { workspaceId?: string } = {}): Ro
       update: async (id, from, to) =>
         (await db.llmAuthFlow.updateMany({ where: { id, deviceCodeCipher: from }, data: { deviceCodeCipher: to } }))
           .count,
+    },
+    {
+      // Tokens emitidos y cuenta autorizada a la espera de la confirmación del ADMIN (M1b, ≤ 10 min).
+      name: 'LlmAuthFlow.pendingCipher',
+      fetch: async (afterId, take, prefix) => {
+        const rows = await db.llmAuthFlow.findMany({
+          ...page(take),
+          where: {
+            ...after(afterId),
+            ...ws,
+            pendingCipher: { not: null },
+            NOT: { pendingCipher: { startsWith: prefix } },
+          },
+          select: { id: true, workspaceId: true, userId: true, pendingCipher: true },
+        });
+        return rows.map((r) => ({
+          id: r.id,
+          cipher: r.pendingCipher!,
+          context: CipherContexts.llmPendingTokens(r.workspaceId, r.userId),
+        }));
+      },
+      update: async (id, from, to) =>
+        (await db.llmAuthFlow.updateMany({ where: { id, pendingCipher: from }, data: { pendingCipher: to } })).count,
     },
     {
       name: 'OAuthCredential.accessTokenCipher',

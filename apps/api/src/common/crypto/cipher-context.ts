@@ -51,8 +51,9 @@ export const CipherContexts = {
     ids: [flowUserId],
   }),
   /**
-   * `LlmAuthFlow.deviceCodeCipher` cuando el flujo espera la confirmación del ADMIN (`status = confirm`, M1b): guarda
-   * los tokens ya emitidos y la cuenta autorizada hasta que se confirme o se descarte.
+   * `LlmAuthFlow.pendingCipher` cuando el flujo espera la confirmación del ADMIN (`status = confirm`, M1b): guarda
+   * los tokens ya emitidos y la cuenta autorizada hasta que se confirme o se descarte. Los flujos creados antes de esa
+   * columna los tienen en `deviceCodeCipher` con este mismo contexto.
    */
   llmPendingTokens: (workspaceId: string, flowUserId: string): CipherContext => ({
     purpose: 'llm-auth-flow.pending-tokens',

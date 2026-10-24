@@ -758,8 +758,10 @@ describe('Mecanismos oficiales de conexión de proveedores IA (E2E)', () => {
       );
       const pendingRow = await prismaOf(app).llmAuthFlow.findUniqueOrThrow({ where: { id: start.flowId } });
       expect(pendingRow.status).toBe('confirm');
-      expect(pendingRow.deviceCodeCipher).toMatch(/^v2:/);
-      expect(pendingRow.deviceCodeCipher).not.toMatch(/at-[0-9a-f]{12}/);
+      // Los tokens por confirmar van en su propia columna; el device_code ya canjeado no se conserva.
+      expect(pendingRow.pendingCipher).toMatch(/^v2:/);
+      expect(pendingRow.pendingCipher).not.toMatch(/at-[0-9a-f]{12}/);
+      expect(pendingRow.deviceCodeCipher).toBeNull();
       // Solo el ADMIN que inició el flujo lo ve y lo confirma.
       await admin.api.post('/admin/llm/providers/huggingface/device/poll', { flowId: start.flowId }).expect(404);
       await admin.api.post('/admin/llm/providers/huggingface/device/confirm', { flowId: start.flowId }).expect(404);
@@ -788,7 +790,7 @@ describe('Mecanismos oficiales de conexión de proveedores IA (E2E)', () => {
       expect(again).toMatchObject({ status: 'connected', connection: { id: done.connection.id } });
       expect(tokenCalls()).toBe(calls);
       const stored = await prismaOf(app).llmAuthFlow.findUniqueOrThrow({ where: { id: start.flowId } });
-      expect(stored.deviceCodeCipher).toBeNull();
+      expect(stored).toMatchObject({ deviceCodeCipher: null, pendingCipher: null });
 
       // Aislamiento: otro workspace no ve el flujo.
       await other.api.post('/admin/llm/providers/huggingface/device/poll', { flowId: start.flowId }).expect(404);
@@ -827,13 +829,40 @@ describe('Mecanismos oficiales de conexión de proveedores IA (E2E)', () => {
           .expect(200);
         expect(cancelled.body).toEqual({ status: 'cancelled' });
         const row = await prismaOf(app).llmAuthFlow.findUniqueOrThrow({ where: { id: start.flowId } });
-        expect(row).toMatchObject({ status: 'cancelled', deviceCodeCipher: null });
+        expect(row).toMatchObject({ status: 'cancelled', deviceCodeCipher: null, pendingCipher: null });
         expect((await poll(owner, start.flowId)).body).toEqual({ status: 'cancelled' });
         await owner.api.post('/admin/llm/providers/huggingface/device/confirm', { flowId: start.flowId }).expect(400);
         expect(await prismaOf(app).llmConnection.count({ where: { workspaceId: owner.workspaceId } })).toBe(before);
       } finally {
         idp.deviceIdToken = null;
       }
+    });
+
+    it('M1b: un flujo en curso con los tokens aún en deviceCodeCipher (antes de pendingCipher) se sigue confirmando', async () => {
+      const start = await startDevice();
+      idp.devices.set(deviceCodes().pop()!, ['approve']);
+      await advance(start.flowId);
+      expect((await poll(owner, start.flowId)).body).toMatchObject({ status: 'confirm' });
+      // Así quedaba la fila con la versión anterior: mismo texto cifrado (mismo contexto), en la otra columna.
+      const prisma = prismaOf(app);
+      const row = await prisma.llmAuthFlow.findUniqueOrThrow({ where: { id: start.flowId } });
+      await prisma.llmAuthFlow.update({
+        where: { id: start.flowId },
+        data: { deviceCodeCipher: row.pendingCipher, pendingCipher: null },
+      });
+      expect((await poll(owner, start.flowId)).body).toMatchObject({
+        status: 'confirm',
+        account: { available: false },
+      });
+      const done = await owner.api
+        .post('/admin/llm/providers/huggingface/device/confirm', { flowId: start.flowId })
+        .expect(200);
+      expect(done.body).toMatchObject({ status: 'connected' });
+      expect(await prisma.llmAuthFlow.findUniqueOrThrow({ where: { id: start.flowId } })).toMatchObject({
+        status: 'connected',
+        deviceCodeCipher: null,
+        pendingCipher: null,
+      });
     });
 
     it('M1b: la confirmación vence y descarta la autorización', async () => {
@@ -850,7 +879,7 @@ describe('Mecanismos oficiales de conexión de proveedores IA (E2E)', () => {
         .expect(200);
       expect(late.body).toEqual({ status: 'expired' });
       const row = await prismaOf(app).llmAuthFlow.findUniqueOrThrow({ where: { id: start.flowId } });
-      expect(row).toMatchObject({ status: 'expired', deviceCodeCipher: null });
+      expect(row).toMatchObject({ status: 'expired', deviceCodeCipher: null, pendingCipher: null });
     });
 
     it('expired (por el proveedor y por tiempo) y denied', async () => {
@@ -923,7 +952,7 @@ describe('Mecanismos oficiales de conexión de proveedores IA (E2E)', () => {
         scope: 'https://www.googleapis.com/auth/cloud-platform',
         provider,
       });
-      return connectedId((await callback(provider, { code, state }).expect(302)).headers.location as string, provider);
+      return connectedId((await callback(provider, { code, state }).expect(302)).headers.location, provider);
     }
 
     it('los canales de Claude se publican como una familia y comparten la app de Google', async () => {

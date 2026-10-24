@@ -41,6 +41,12 @@ describe('Cifrado versionado y rotación de claves (E2E, B7)', () => {
   let connectorId: string;
   let llmId: string;
   let otherWorkspaceId: string;
+  /** Flujos de dispositivo: esperando autorización, por confirmar y por confirmar con el formato previo a pendingCipher. */
+  const flows: Record<'pending' | 'confirm' | 'legacyConfirm', string> = {
+    pending: '',
+    confirm: '',
+    legacyConfirm: '',
+  };
 
   beforeAll(async () => {
     app = await createTestApp();
@@ -74,6 +80,24 @@ describe('Cifrado versionado y rotación de claves (E2E, B7)', () => {
       },
     });
     llmId = llm.id;
+    const crypto = app.get(CryptoService);
+    const flow = (status: string, data: { deviceCodeCipher?: string; pendingCipher?: string }) =>
+      prisma.llmAuthFlow.create({
+        data: {
+          workspaceId: ws,
+          userId: owner.userId,
+          type: 'DEVICE_CODE',
+          providerId: 'huggingface',
+          status,
+          expiresAt: new Date(Date.now() + 600_000),
+          ...data,
+        },
+      });
+    const deviceCtx = CipherContexts.llmDeviceCode(ws, owner.userId);
+    const tokensCtx = CipherContexts.llmPendingTokens(ws, owner.userId);
+    flows.pending = (await flow('pending', { deviceCodeCipher: crypto.encrypt('dc-1', deviceCtx) })).id;
+    flows.confirm = (await flow('confirm', { pendingCipher: crypto.encrypt('{"t":"nuevo"}', tokensCtx) })).id;
+    flows.legacyConfirm = (await flow('confirm', { deviceCodeCipher: crypto.encrypt('{"t":"previo"}', tokensCtx) })).id;
   });
 
   afterAll(async () => {
@@ -135,6 +159,9 @@ describe('Cifrado versionado y rotación de claves (E2E, B7)', () => {
     expect(by(stats, 'OAuthCredential.refreshTokenCipher')).toMatchObject({ rotated: 1, failed: 0 });
     expect(by(stats, 'LlmConnection.apiKeyCipher')).toMatchObject({ rotated: 1, failed: 0 });
     expect(by(stats, 'LlmConnection.oauthRefreshCipher')).toMatchObject({ rotated: 1, failed: 0 });
+    // Cada columna de LlmAuthFlow con su contexto; deviceCodeCipher aún admite los tokens del formato previo.
+    expect(by(stats, 'LlmAuthFlow.deviceCodeCipher')).toMatchObject({ rotated: 2, failed: 0 });
+    expect(by(stats, 'LlmAuthFlow.pendingCipher')).toMatchObject({ rotated: 1, failed: 0 });
     // El informe nunca incluye valores.
     expect(lines.join('\n')).not.toMatch(/v-\d|legacy|sk-/);
 
@@ -149,6 +176,18 @@ describe('Cifrado versionado y rotación de claves (E2E, B7)', () => {
     const llm = await prisma.llmConnection.findUniqueOrThrow({ where: { id: llmId } });
     expect(rotated.decrypt(llm.apiKeyCipher!, CipherContexts.llmApiKey(ws))).toBe('sk-legacy');
     expect(rotated.decrypt(llm.oauthRefreshCipher!, CipherContexts.llmRefresh(ws))).toBe('rt-llm-legacy');
+    const flowRow = (id: string) => prisma.llmAuthFlow.findUniqueOrThrow({ where: { id } });
+    const deviceCtx = CipherContexts.llmDeviceCode(ws, owner.userId);
+    const tokensCtx = CipherContexts.llmPendingTokens(ws, owner.userId);
+    const [pending, confirm, legacyConfirm] = await Promise.all(
+      [flows.pending, flows.confirm, flows.legacyConfirm].map(flowRow),
+    );
+    expect(pending.deviceCodeCipher).toMatch(/^v2:k1:/);
+    expect(rotated.decrypt(pending.deviceCodeCipher!, deviceCtx)).toBe('dc-1');
+    expect(confirm.pendingCipher).toMatch(/^v2:k1:/);
+    expect(rotated.decrypt(confirm.pendingCipher!, tokensCtx)).toBe('{"t":"nuevo"}');
+    expect(legacyConfirm.deviceCodeCipher).toMatch(/^v2:k1:/);
+    expect(rotated.decrypt(legacyConfirm.deviceCodeCipher!, tokensCtx)).toBe('{"t":"previo"}');
 
     // Segunda ejecución: nada pendiente salvo el valor dañado.
     const again = await rotateCiphertexts(rotated, targets, { batchSize: 3 });
