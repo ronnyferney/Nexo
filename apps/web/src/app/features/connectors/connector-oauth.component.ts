@@ -3,16 +3,17 @@ import { DatePipe } from '@angular/common';
 import { errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { IntegrationsApi } from '../../core/integrations.api';
-import type { OAuthStatus } from '../../core/integrations.models';
+import type { ConnectorUsage, OAuthStatus } from '../../core/integrations.models';
 import { ToastService } from '../../core/toast.service';
 import { IconComponent } from '../../shared/icon.component';
 import { RelativeTimePipe } from '../../shared/relative-time.pipe';
 import { isHttpUrl } from '../../shared/safe-url';
+import { AccountConfirmComponent } from '../integrations/account-confirm.component';
 
 /** Tarjeta «Cuenta conectada» de un conector con OAuth2 de usuario (ADR 0005 D3). */
 @Component({
   selector: 'nx-connector-oauth',
-  imports: [IconComponent, RelativeTimePipe, DatePipe],
+  imports: [IconComponent, RelativeTimePipe, DatePipe, AccountConfirmComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="card stack" aria-labelledby="oauth-title" [attr.aria-busy]="loading()">
@@ -67,6 +68,10 @@ import { isHttpUrl } from '../../shared/safe-url';
         }
       }
     </section>
+    @if (confirming(); as c) {
+      <nx-account-confirm [name]="status()?.accountLabel || 'la cuenta'" action="disconnect" [usage]="c.usage"
+        [busy]="busy() === 'disconnect'" (confirmed)="doDisconnect()" (cancelled)="confirming.set(null)" />
+    }
   `,
   styles: `
     .grow { flex: 1; min-width: 0; }
@@ -122,9 +127,20 @@ export class ConnectorOAuthComponent implements OnInit {
     }
   }
 
+  /** Confirmación de desconexión con lo que deja de funcionar (null = consultando). */
+  readonly confirming = signal<{ usage: ConnectorUsage | null } | null>(null);
+
   async disconnect() {
-    if (!confirm('¿Desconectar la cuenta? Se revocarán los tokens y los agentes y flujos que usan este conector dejarán de funcionar hasta reconectarla.'))
-      return;
+    this.confirming.set({ usage: null });
+    try {
+      this.confirming.set({ usage: await this.api.connectorUsage(this.connectorId()) });
+    } catch (e) {
+      this.confirming.set(null);
+      this.toast.error(errorMessage(e));
+    }
+  }
+
+  async doDisconnect() {
     this.busy.set('disconnect');
     try {
       await this.api.oauthDisconnect(this.connectorId());
@@ -134,6 +150,7 @@ export class ConnectorOAuthComponent implements OnInit {
       this.toast.error(errorMessage(e));
     } finally {
       this.busy.set(null);
+      this.confirming.set(null);
     }
   }
 }

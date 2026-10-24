@@ -3,6 +3,8 @@ import { inject, Injectable } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
 import type {
+  ConnectorUsage,
+  CatalogAccount,
   CatalogEntry,
   CatalogInstallInput,
   CatalogInstallResult,
@@ -39,6 +41,9 @@ export class IntegrationsApi {
 
   // OAuth2 de usuario
   oauthStatus = (connectorId: string) => this.get<OAuthStatus>(`/connectors/${connectorId}/oauth`);
+  catalogAccounts = (catalogId: string) => this.get<CatalogAccount[]>(`/connector-catalog/${catalogId}/accounts`);
+  connectorUsage = (connectorId: string) => this.get<ConnectorUsage>(`/connectors/${connectorId}/usage`);
+  removeConnector = (connectorId: string) => this.delete(`/connectors/${connectorId}`);
   oauthStart = (connectorId: string) => this.post<{ authorizeUrl: string }>(`/connectors/${connectorId}/oauth/start`);
   oauthDisconnect = (connectorId: string) => this.delete(`/connectors/${connectorId}/oauth`);
 

@@ -401,6 +401,10 @@ describe('Catálogo de conectores y OAuth2 de usuario (E2E, ADR 0005)', () => {
       expect(JSON.stringify(status.body)).not.toContain(provider.clientSecret);
       // Instalada pero sin cuenta conectada: el catálogo la marca pendiente, no como lista para usar.
       expect((await catalog(owner)).find((i) => i.id === 'hubspot')).toMatchObject({ installed: 1, pendingAuth: 1 });
+      const pending = await owner.api.get('/connector-catalog/hubspot/accounts').expect(200);
+      expect(pending.body).toEqual([
+        { connectorId: hubspot.id, name: expect.any(String), oauth: true, connected: false, accountLabel: null },
+      ]);
       const inv = await invoke(owner, hubspot.id, searchOpId, { query: 'ana' }).expect(400);
       expect(JSON.stringify(inv.body)).toContain('Conecte la cuenta OAuth del conector');
     });
@@ -435,6 +439,12 @@ describe('Catálogo de conectores y OAuth2 de usuario (E2E, ADR 0005)', () => {
       });
       expect(new Date(status.expiresAt as string).getTime()).toBeGreaterThan(Date.now() + 60_000);
       expect((await catalog(owner)).find((i) => i.id === 'hubspot')).toMatchObject({ installed: 1, pendingAuth: 0 });
+      const accounts = await viewer.api.get('/connector-catalog/hubspot/accounts').expect(200);
+      expect(accounts.body).toMatchObject([
+        { connectorId: hubspot.id, connected: true, accountLabel: 'vendedora@acme.test' },
+      ]);
+      expect(JSON.stringify(accounts.body)).not.toContain(provider.accessToken);
+      await owner.api.get('/connector-catalog/no-existe/accounts').expect(404);
       expect(JSON.stringify(status)).not.toContain(provider.accessToken);
 
       const cred = await prismaOf(app).oAuthCredential.findUnique({ where: { connectorId: hubspot.id } });
@@ -594,11 +604,46 @@ describe('Catálogo de conectores y OAuth2 de usuario (E2E, ADR 0005)', () => {
       expect(status.expiresAt).toBeTruthy();
     });
 
+    it('usage: lista los agentes y flujos que usan el conector (lo que deja de funcionar al desconectarlo)', async () => {
+      expect((await owner.api.get(`/connectors/${hubspot.id}/usage`).expect(200)).body).toEqual({
+        agents: [],
+        workflows: [],
+      });
+      const agent = await owner.api
+        .post('/agents', { name: 'Agente CRM', provider: 'mock', model: 'mock-echo' })
+        .expect(201);
+      const agentId = (agent.body as { id: string }).id;
+      await owner.api.put(`/agents/${agentId}/tools`, { tools: [{ operationId: searchOpId }] }).expect(200);
+      const wf = await owner.api
+        .post('/workflows', {
+          name: 'Flujo CRM',
+          definition: {
+            nodes: [
+              { id: 't', type: 'trigger', name: 'Inicio', config: {} },
+              { id: 'c', type: 'connector', name: 'Buscar', config: { operationId: searchOpId, input: {} } },
+            ],
+            edges: [{ id: 'e', source: 't', target: 'c' }],
+          },
+        })
+        .expect(201);
+      const usage = await viewer.api.get(`/connectors/${hubspot.id}/usage`).expect(200);
+      expect(usage.body).toEqual({
+        agents: [{ id: agentId, name: 'Agente CRM' }],
+        workflows: [{ id: (wf.body as { id: string }).id, name: 'Flujo CRM', active: expect.any(Boolean) }],
+      });
+      // Aislamiento: otro workspace no ve el conector.
+      await other.api.get(`/connectors/${hubspot.id}/usage`).expect(404);
+      await owner.api.delete(`/agents/${agentId}`).expect(200);
+      await owner.api.delete(`/workflows/${(wf.body as { id: string }).id}`).expect(200);
+    });
+
     it('desconectar elimina los tokens y la invocación vuelve a pedir conexión', async () => {
       await viewer.api.delete(`/connectors/${hubspot.id}/oauth`).expect(403);
       await owner.api.delete(`/connectors/${hubspot.id}/oauth`).expect(200);
       const status = await owner.api.get(`/connectors/${hubspot.id}/oauth`).expect(200);
       expect(status.body).toMatchObject({ connected: false });
+      const accounts = await owner.api.get('/connector-catalog/hubspot/accounts').expect(200);
+      expect(accounts.body).toMatchObject([{ connectorId: hubspot.id, connected: false, accountLabel: null }]);
       const inv = await invoke(owner, hubspot.id, searchOpId, { query: 'ana' }).expect(400);
       expect(JSON.stringify(inv.body)).toContain('Conecte la cuenta OAuth del conector');
     });

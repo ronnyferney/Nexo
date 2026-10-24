@@ -52,6 +52,26 @@ export class CatalogService {
     return CATALOG.map((e) => this.view(e, installed.get(e.id) ?? { total: 0, pendingAuth: 0 }));
   }
 
+  async accounts(workspaceId: string, id: string) {
+    if (!findCatalogEntry(id)) throw new NotFoundException('Integración no encontrada en el catálogo');
+    const rows = await this.prisma.connector.findMany({
+      where: { workspaceId, catalogId: id },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, name: true, auth: true, oauth: { select: { accountLabel: true, expiresAt: true } } },
+    });
+    return rows.map((r) => {
+      const oauth = (r.auth as { type?: string } | null)?.type === 'oauth2_code';
+      return {
+        connectorId: r.id,
+        name: r.name,
+        oauth,
+        // Sin OAuth (clave de API, MCP) la cuenta queda lista al instalar.
+        connected: oauth ? !!r.oauth : true,
+        accountLabel: r.oauth?.accountLabel ?? null,
+      };
+    });
+  }
+
   /**
    * Instala la integración. En OAuth devuelve además `browserNonce`, que el controlador entrega solo en la cookie
    * de ligadura al navegador (M1b) y nunca en el cuerpo.

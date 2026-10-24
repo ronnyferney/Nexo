@@ -44,6 +44,21 @@ export interface CatalogEntry {
   pendingAuth: number;
 }
 
+/** Cuenta instalada de una integración (`GET /connector-catalog/:id/accounts`). */
+export interface CatalogAccount {
+  connectorId: string;
+  name: string;
+  oauth: boolean;
+  connected: boolean;
+  accountLabel: string | null;
+}
+
+/** Qué usa un conector (`GET /connectors/:id/usage`): lo que deja de funcionar al desconectarlo. */
+export interface ConnectorUsage {
+  agents: { id: string; name: string }[];
+  workflows: { id: string; name: string; active: boolean }[];
+}
+
 /** Cuerpo de `POST /connector-catalog/:id/install`. */
 export interface CatalogInstallInput {
   name?: string;

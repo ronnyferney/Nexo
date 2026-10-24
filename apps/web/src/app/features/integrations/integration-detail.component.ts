@@ -3,16 +3,23 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  DOCUMENT,
   ElementRef,
   inject,
   input,
   output,
+  signal,
   viewChild,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
+import { IntegrationsApi } from '../../core/integrations.api';
+import type { CatalogAccount, ConnectorUsage } from '../../core/integrations.models';
+import { ToastService } from '../../core/toast.service';
 import { IconComponent } from '../../shared/icon.component';
 import { isHttpUrl } from '../../shared/safe-url';
+import { AccountConfirmComponent, type AccountAction } from './account-confirm.component';
 import { BrandLogoComponent } from './brand-logo.component';
 import { AUTH_METHOD_META, categoryLabel, type CatalogEntryView } from './catalog-meta';
 import { oauthProvider } from './integration-logos';
@@ -20,7 +27,7 @@ import { oauthProvider } from './integration-logos';
 /** Panel lateral de detalle de una integración del catálogo (`<dialog>` modal: foco atrapado, Escape cierra). */
 @Component({
   selector: 'nx-integration-detail',
-  imports: [RouterLink, IconComponent, BrandLogoComponent],
+  imports: [RouterLink, IconComponent, BrandLogoComponent, AccountConfirmComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <dialog #dlg class="modal drawer" aria-labelledby="idt-title" aria-describedby="idt-desc" (close)="closed.emit()">
@@ -51,11 +58,39 @@ import { oauthProvider } from './integration-logos';
           </div>
         </div>
         <p id="idt-desc" class="desc">{{ e.description }}</p>
-        @if (e.pendingAuth) {
-          <div class="callout warning" role="status"><nx-icon name="alert" [size]="16" />
-            <span class="grow">El inicio de sesión no terminó: la integración está instalada pero sin cuenta conectada, así que los
-              agentes no pueden usarla. Abra <strong>Mis conectores</strong>, revise la app OAuth que se usará y pulse
-              <strong>Conectar cuenta</strong>.</span></div>
+        @if (e.installed) {
+          <section aria-labelledby="idt-accounts">
+            <h3 id="idt-accounts">Cuentas</h3>
+            <ul class="accounts">
+              @for (acc of accounts(); track acc.connectorId) {
+                <li>
+                  <span class="dot" [class.ok]="acc.connected" aria-hidden="true"></span>
+                  <span class="grow">
+                    <strong>{{ acc.accountLabel || acc.name }}</strong>
+                    <span class="muted small block">{{ acc.connected ? 'Conectada' : 'Sin conectar: los agentes no pueden usarla' }}</span>
+                  </span>
+                  @if (auth.canEdit()) {
+                    @if (acc.oauth) {
+                      <button type="button" class="btn sm" [class.primary]="!acc.connected" [disabled]="!!busy()" (click)="connect(acc)">
+                        <nx-icon [name]="acc.connected ? 'refresh' : 'link'" [size]="14" />{{ acc.connected ? 'Reconectar' : 'Conectar' }}</button>
+                    }
+                    @if (acc.oauth && acc.connected) {
+                      <button type="button" class="btn sm danger" [disabled]="!!busy()" (click)="disconnect(acc)">
+                        <nx-icon name="unlink" [size]="14" />Desconectar</button>
+                    } @else {
+                      <button type="button" class="btn sm ghost danger" [disabled]="!!busy()" (click)="remove(acc)"
+                        [attr.aria-label]="'Eliminar ' + (acc.accountLabel || acc.name)" title="Eliminar"><nx-icon name="trash" [size]="14" /></button>
+                    }
+                  }
+                </li>
+              } @empty {
+                <li class="muted small">Cargando cuentas…</li>
+              }
+              @if (auth.canEdit()) {
+                <li><button type="button" class="btn ghost sm add" (click)="install.emit()"><nx-icon name="plus" [size]="14" />Agregar otra cuenta</button></li>
+              }
+            </ul>
+          </section>
         }
 
         <section aria-labelledby="idt-auth">
@@ -109,6 +144,10 @@ import { oauthProvider } from './integration-logos';
         }
       </div>
     </dialog>
+    @if (pending(); as p) {
+      <nx-account-confirm [name]="p.acc.accountLabel || p.acc.name" [action]="p.action" [usage]="p.usage"
+        [busy]="busy() === p.acc.connectorId" (confirmed)="confirmPending()" (cancelled)="pending.set(null)" />
+    }
   `,
   styles: `
     dialog.drawer { margin: 0 0 0 auto; height: 100dvh; max-height: 100dvh; width: min(480px, 100vw); max-width: 100vw; border-radius: var(--radius) 0 0 var(--radius); display: none; flex-direction: column; }
@@ -126,6 +165,12 @@ import { oauthProvider } from './integration-logos';
     .ops li { display: grid; gap: 2px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
     .ops li:last-child { border-bottom: 0; }
     .op-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .accounts { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius); }
+    .accounts li { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+    .accounts li:last-child { border-bottom: 0; }
+    .accounts .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warning); flex-shrink: 0; }
+    .accounts .dot.ok { background: var(--success); }
+    .accounts .add { margin-left: -6px; }
     .notes summary { cursor: pointer; color: var(--primary); font-weight: 550; }
     .notes p { margin: 8px 0 0; overflow-wrap: anywhere; }
     .docs { margin-right: auto; }
@@ -143,13 +188,88 @@ export class IntegrationDetailComponent {
   /** El usuario pidió instalar: la página cierra el panel y abre el asistente de instalación. */
   readonly install = output<void>();
 
+  private readonly api = inject(IntegrationsApi);
+  private readonly toast = inject(ToastService);
+  private readonly document = inject(DOCUMENT);
+  /** Cuentas de esta integración; cambió algo (desconectar/eliminar) → la galería recarga el estado. */
+  readonly changed = output<void>();
+  readonly accounts = signal<CatalogAccount[]>([]);
+  readonly busy = signal<string | null>(null);
+
   readonly meta = AUTH_METHOD_META;
   readonly category = computed(() => categoryLabel(this.entry().category));
   readonly provider = computed(() => oauthProvider(this.entry()));
   isHttp = isHttpUrl;
 
   constructor() {
-    afterNextRender(() => this.dialog().nativeElement.showModal());
+    afterNextRender(() => {
+      this.dialog().nativeElement.showModal();
+      if (this.entry().installed) void this.loadAccounts();
+    });
+  }
+
+  async loadAccounts() {
+    try {
+      this.accounts.set(await this.api.catalogAccounts(this.entry().id));
+    } catch (e) {
+      this.toast.error(errorMessage(e));
+    }
+  }
+
+  async connect(acc: CatalogAccount) {
+    this.busy.set(acc.connectorId);
+    try {
+      const { authorizeUrl } = await this.api.oauthStart(acc.connectorId);
+      if (!isHttpUrl(authorizeUrl)) throw new Error('La API devolvió una URL de autorización no válida');
+      this.document.location.assign(authorizeUrl);
+    } catch (e) {
+      this.toast.error(errorMessage(e));
+      this.busy.set(null);
+    }
+  }
+
+  /** Confirmación en curso: primero se consulta qué agentes y flujos usan la cuenta. */
+  readonly pending = signal<{ acc: CatalogAccount; action: AccountAction; usage: ConnectorUsage | null } | null>(null);
+
+  disconnect(acc: CatalogAccount) {
+    void this.ask(acc, 'disconnect');
+  }
+
+  remove(acc: CatalogAccount) {
+    void this.ask(acc, 'remove');
+  }
+
+  private async ask(acc: CatalogAccount, action: AccountAction) {
+    this.pending.set({ acc, action, usage: null });
+    try {
+      const usage = await this.api.connectorUsage(acc.connectorId);
+      if (this.pending()?.acc.connectorId === acc.connectorId) this.pending.set({ acc, action, usage });
+    } catch (e) {
+      this.pending.set(null);
+      this.toast.error(errorMessage(e));
+    }
+  }
+
+  async confirmPending() {
+    const p = this.pending();
+    if (!p) return;
+    if (p.action === 'remove') await this.run(p.acc, () => this.api.removeConnector(p.acc.connectorId), 'Cuenta eliminada');
+    else await this.run(p.acc, () => this.api.oauthDisconnect(p.acc.connectorId), 'Cuenta desconectada');
+    this.pending.set(null);
+  }
+
+  private async run(acc: CatalogAccount, action: () => Promise<unknown>, done: string) {
+    this.busy.set(acc.connectorId);
+    try {
+      await action();
+      this.toast.success(done);
+      await this.loadAccounts();
+      this.changed.emit();
+    } catch (e) {
+      this.toast.error(errorMessage(e));
+    } finally {
+      this.busy.set(null);
+    }
   }
 
   close() {

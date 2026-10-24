@@ -118,6 +118,6 @@
 </div>
 
 @if (detail(); as d) {
-  <nx-integration-detail [entry]="d" (closed)="detail.set(null)" (install)="startInstall(d)" />
+  <nx-integration-detail [entry]="d" (closed)="detail.set(null)" (install)="startInstall(d)" (changed)="load()" />
 }
 @if (selected(); as s) { <nx-install-wizard [entry]="s" (closed)="wizardClosed()" /> }

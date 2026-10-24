@@ -24,6 +24,12 @@ export class ConnectorsController {
     return this.connectors.list(a.workspaceId);
   }
 
+  /** Agentes y flujos que usan el conector: lo que deja de funcionar al desconectarlo o eliminarlo. */
+  @Get(':id/usage')
+  usage(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
+    return this.connectors.usage(a.workspaceId, id);
+  }
+
   @Get(':id')
   get(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
     return this.connectors.detail(a.workspaceId, id);

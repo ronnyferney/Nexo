@@ -74,6 +74,32 @@ export class ConnectorsService {
   }
 
   /** Detalle para la API: incluye las referencias a secretos y cuáles están bloqueadas (sin consultar la bóveda). */
+  async usage(workspaceId: string, id: string) {
+    const opIds = new Set((await this.get(workspaceId, id)).operations.map((o) => o.id));
+    const agents = await this.prisma.agent.findMany({
+      where: { workspaceId, tools: { some: { operation: { connectorId: id } } } },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+    // Los flujos guardan la operación dentro de la definición (JSON): se revisan sus nodos de conector.
+    const workflows = (
+      await this.prisma.workflow.findMany({
+        where: { workspaceId },
+        select: { id: true, name: true, active: true, definition: true },
+        orderBy: { name: 'asc' },
+      })
+    )
+      .filter((w) =>
+        (
+          (w.definition as { nodes?: { type?: string; config?: { operationId?: unknown } }[] } | null)?.nodes ?? []
+        ).some(
+          (n) => n.type === 'connector' && typeof n.config?.operationId === 'string' && opIds.has(n.config.operationId),
+        ),
+      )
+      .map((w) => ({ id: w.id, name: w.name, active: w.active }));
+    return { agents, workflows };
+  }
+
   async detail(workspaceId: string, id: string) {
     return this.withSecretStatus(await this.get(workspaceId, id));
   }

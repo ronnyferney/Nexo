@@ -22,6 +22,12 @@ export class CatalogController {
     return this.catalog.list(a.workspaceId);
   }
 
+  /** Cuentas instaladas de una integración, con su estado de conexión (sin secretos ni tokens). */
+  @Get(':id/accounts')
+  accounts(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
+    return this.catalog.accounts(a.workspaceId, id);
+  }
+
   @MinRole('EDITOR')
   @Post('starter-kit/commercial')
   commercialKit(@CurrentAuth() a: AuthContext) {
