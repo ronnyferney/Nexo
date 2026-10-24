@@ -138,6 +138,68 @@ export const HEALTH_CATEGORY_LABELS: Record<HealthCategory, string> = {
   OPERATIONS: 'Operación',
 };
 
+/**
+ * Metadatos por severidad de un hallazgo (ADR 0006 D3, §4.3 del rediseño UX): etiqueta orientada a la acción,
+ * tono del design system, ícono y rango de orden (bloqueantes primero). Un hallazgo es una revisión no superada.
+ */
+export const HEALTH_SEVERITY_META: Record<
+  HealthSeverity,
+  { label: string; tone: 'danger' | 'warning' | 'info'; icon: string; rank: number }
+> = {
+  CRITICAL: { label: 'Bloqueante', tone: 'danger', icon: 'xCircle', rank: 0 },
+  WARNING: { label: 'Advertencia', tone: 'warning', icon: 'alert', rank: 1 },
+  INFO: { label: 'Informativa', tone: 'info', icon: 'info', rank: 2 },
+};
+
+/**
+ * Estado de publicación derivado de los hallazgos (§4.3): el criterio NO es solo el puntaje.
+ * - `BLOCKED`: hay al menos un hallazgo bloqueante (severidad CRITICAL sin superar).
+ * - `WARNINGS`: sin bloqueantes, pero quedan advertencias.
+ * - `READY`: sin bloqueantes ni advertencias (a lo sumo hallazgos informativos).
+ */
+export type PublishState = 'READY' | 'WARNINGS' | 'BLOCKED';
+
+export const PUBLISH_STATE_META: Record<
+  PublishState,
+  { label: string; tone: 'success' | 'warning' | 'danger'; icon: string; description: string }
+> = {
+  READY: {
+    label: 'Preparado para publicar',
+    tone: 'success',
+    icon: 'checkCircle',
+    description: 'El agente cumple los requisitos esenciales. Puede lanzarlo cuando quiera.',
+  },
+  WARNINGS: {
+    label: 'Publicable con advertencias',
+    tone: 'warning',
+    icon: 'alert',
+    description: 'Puede lanzarlo, pero hay mejoras recomendadas antes de usarlo con toda la empresa.',
+  },
+  BLOCKED: {
+    label: 'Publicación bloqueada',
+    tone: 'danger',
+    icon: 'xCircle',
+    description: 'Resuelva los hallazgos bloqueantes antes de lanzar el agente.',
+  },
+};
+
+/** Deriva el estado de publicación a partir de las revisiones de salud. Lógica pura y testeable (§4.3). */
+export function derivePublishState(checks: readonly Pick<HealthCheck, 'passed' | 'severity'>[]): PublishState {
+  const pending = checks.filter((c) => !c.passed);
+  if (pending.some((c) => c.severity === 'CRITICAL')) return 'BLOCKED';
+  if (pending.some((c) => c.severity === 'WARNING')) return 'WARNINGS';
+  return 'READY';
+}
+
+/** Cuenta los hallazgos (revisiones no superadas) por severidad, para el resumen del panel de salud. */
+export function countFindingsBySeverity(
+  checks: readonly Pick<HealthCheck, 'passed' | 'severity'>[],
+): Record<HealthSeverity, number> {
+  const counts: Record<HealthSeverity, number> = { CRITICAL: 0, WARNING: 0, INFO: 0 };
+  for (const c of checks) if (!c.passed) counts[c.severity]++;
+  return counts;
+}
+
 /** Normaliza la respuesta de `GET /agents/health` a una lista de resúmenes. */
 export function normalizeHealthSummary(raw: unknown): AgentHealthSummary[] {
   const wrapped = raw as { agents?: unknown[]; items?: unknown[] } | null;
