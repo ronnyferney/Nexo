@@ -349,14 +349,13 @@ describe('Nexo Copilot (e2e)', () => {
         password: PASSWORD,
         workspaceName: 'Nexo plataforma E2E',
       });
-      let token = (reg.body as { accessToken?: string }).accessToken;
-      if (!token) {
-        const login = await new Api(app).post('/auth/login', { email: PLATFORM_ADMIN, password: PASSWORD }).expect(200);
-        token = (login.body as { accessToken: string }).accessToken;
-      }
-      platform = new Api(app, token);
+      // B4: el registro no inicia sesión ni revela si el correo ya existía (ejecuciones anteriores de la suite).
+      expect(reg.status).toBe(201);
+      const existed = !!(await prismaOf(app).user.findUnique({ where: { email: PLATFORM_ADMIN } }))?.emailVerifiedAt;
+      const login = await new Api(app).post('/auth/login', { email: PLATFORM_ADMIN, password: PASSWORD }).expect(200);
+      platform = new Api(app, (login.body as { accessToken: string }).accessToken);
       // A7: con el registro abierto la cuenta nace sin verificar y aún no es administradora de la plataforma.
-      if (reg.status === 201) {
+      if (!existed) {
         expect((await platform.get('/platform/me').expect(200)).body).toEqual({ isPlatformAdmin: false });
         await platform.get('/platform/copilot/metrics').expect(403);
       }

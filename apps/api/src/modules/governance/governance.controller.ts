@@ -1,9 +1,11 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentAuth, type AuthContext } from '../../common/decorators/current-user.decorator';
 import { OptionalAuth, Public } from '../../common/decorators/public.decorator';
 import { MinRole } from '../../common/decorators/roles.decorator';
+import { SessionCookieService } from '../../common/guards/session-cookie.service';
 import { BudgetsService } from './budgets.service';
 import {
   AcceptInvitationDto,
@@ -140,8 +142,17 @@ export class GovernanceAdminController {
 @ApiTags('auth')
 @Controller('auth/invitations')
 export class InvitationsPublicController {
-  constructor(private readonly invitations: InvitationsService) {}
+  constructor(
+    private readonly invitations: InvitationsService,
+    private readonly cookies: SessionCookieService,
+  ) {}
 
+  /**
+   * Vista previa pública. `accountExists`/`requiresLogin` revelan si el correo invitado tiene cuenta, lo cual se
+   * acepta (B4): solo los ve quien tiene el enlace de un solo uso, que se envía a ese correo (o lo comparte el
+   * administrador que invitó, que ya conoce el correo); el token de 256 bits no se puede adivinar ni enumerar, y la
+   * página necesita el dato para pedir contraseña nueva o inicio de sesión. El correo se muestra enmascarado.
+   */
   @Public()
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @Get(':token')
@@ -149,12 +160,22 @@ export class InvitationsPublicController {
     return this.invitations.preview(token);
   }
 
-  /** Sin sesión crea o recupera la cuenta; con sesión (cuenta verificada) acepta como ese usuario. */
+  /**
+   * Sin sesión crea o recupera la cuenta; con sesión (cuenta verificada) acepta como ese usuario. Deja iniciada la
+   * sesión de la web en el workspace que invitó (cookie, M6).
+   */
   @OptionalAuth()
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @HttpCode(200)
   @Post(':token/accept')
-  accept(@Param('token') token: string, @Body() dto: AcceptInvitationDto, @CurrentAuth() a?: AuthContext) {
-    return this.invitations.accept(token, dto, a?.via === 'jwt' ? a : undefined);
+  async accept(
+    @Param('token') token: string,
+    @Body() dto: AcceptInvitationDto,
+    @Res({ passthrough: true }) res: Response,
+    @CurrentAuth() a?: AuthContext,
+  ) {
+    const result = await this.invitations.accept(token, dto, a?.via === 'jwt' ? a : undefined);
+    this.cookies.set(res, result.accessToken);
+    return result;
   }
 }

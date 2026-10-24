@@ -145,8 +145,8 @@ export class AccountPage implements OnInit {
     if (this.next !== this.confirm) return;
     this.saving.set(true);
     try {
-      // Cambiar la contraseña cierra las demás sesiones: se adopta el token nuevo que devuelve la API.
-      this.auth.adopt(await this.api.changePassword({ currentPassword: this.current, newPassword: this.next }));
+      // Cambiar la contraseña cierra las demás sesiones; la API renueva la cookie de esta.
+      await this.api.changePassword({ currentPassword: this.current, newPassword: this.next });
       this.current = this.next = this.confirm = '';
       this.toast.success('Contraseña actualizada; se cerraron sus otras sesiones');
     } catch (e) {

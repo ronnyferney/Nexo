@@ -180,6 +180,31 @@ independiente.
   clientes y calidad del Copilot (calificaciones; conversación solo si el usuario la compartió). Conjunto de evaluación
   propio en `copilot/eval/`.
 
+## Sesión de la web y CSRF (auditoría M6, B4)
+
+- **Credenciales aceptadas** por el `AuthGuard` global, en este orden: `Authorization: Bearer <jwt|nexo_…>`,
+  `x-api-key` y, sin cabecera, la cookie `nexo_session`. API keys, clientes MCP y scripts siguen con Bearer.
+- **Cookie de sesión**: `nexo_session` = JWT de sesión, `HttpOnly`, `SameSite=Strict`, `Path=/api`, `Secure` con
+  `SESSION_COOKIE_SECURE` (por defecto, solo en producción), misma vida que el JWT. La emiten o renuevan
+  `POST /auth/login`, `POST /auth/invitations/:token/accept`, `POST /auth/change-password` y
+  `POST /auth/switch-workspace` (este cierra la sesión anterior del navegador). El cuerpo sigue trayendo `accessToken`
+  para clientes con Bearer. Strict no rompe los callbacks OAuth: son públicos y se validan con el `state` firmado y la
+  cookie de ligadura (`SameSite=Lax`); al volver a la web, sus peticiones a `/api` ya son del mismo sitio.
+- **CSRF**: doble envío firmado. `nexo_csrf` (legible, `Path=/`) = HMAC del JWT de sesión con un secreto derivado de
+  `JWT_SECRET`; toda petición autenticada con la cookie que use POST/PUT/PATCH/DELETE debe repetirlo en
+  `X-CSRF-Token` (si no, 403). El servidor lo recalcula desde la cookie de sesión, así que un valor plantado no sirve.
+  Se prefirió a comparar `Origin` con `CORS_ORIGINS` porque no depende de la topología del despliegue.
+- **Cierre de sesión**: `POST /auth/logout` revoca el `jti` del token en Redis (`nexo:session-revoked:`) hasta que
+  vence y borra las cookies; sin sesión válida responde 200 y solo borra las cookies. `User.tokenVersion` sigue
+  cerrando todas las sesiones (cambio de contraseña, cuenta recuperada). Una cookie inválida se borra en la respuesta.
+- **Web**: no guarda el token (borra el `nexo.session` heredado de `localStorage` al arrancar); el estado sale de
+  `GET /auth/me`, `HttpClient` usa `withCredentials` y añade `X-CSRF-Token` (`withXsrfConfiguration`), y los `fetch`
+  de SSE (chat, Copilot) envían la cookie y la cabecera.
+- **Enumeración de correos (B4)**: `POST /auth/register` responde siempre `201 { accepted, message }`, exista o no el
+  correo, sin sesión (la web inicia sesión a continuación); si existía y hay SMTP, se avisa a su dueño. El login
+  compara contra un hash bcrypt ficticio cuando el correo no existe. `GET /auth/invitations/:token` sí informa
+  `accountExists`: solo lo ve quien posee el enlace de un solo uso enviado a ese correo, y la página lo necesita.
+
 ## Usuario maestro de primer arranque
 
 `BootstrapAdminService` crea al arrancar, si `BOOTSTRAP_ADMIN_EMAIL` y `BOOTSTRAP_ADMIN_PASSWORD` (≥ 12 caracteres)

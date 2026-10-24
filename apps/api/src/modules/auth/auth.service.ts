@@ -9,8 +9,9 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
-import { createHash } from 'node:crypto';
-import type { JwtPayload } from '../../common/guards/auth.guard';
+import { createHash, randomUUID } from 'node:crypto';
+import type { JwtPayload, SessionCredential } from '../../common/guards/auth.guard';
+import { SessionRevocationService } from '../../common/guards/session-revocation.service';
 import type { RegistrationMode } from '../../config/configuration';
 import { MailService } from '../../infrastructure/mail/mail.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
@@ -25,6 +26,30 @@ interface EmailVerificationClaims {
   sub: string;
   email: string;
 }
+
+/** Coste de bcrypt de las contraseñas. */
+const BCRYPT_ROUNDS = 12;
+
+/**
+ * Hash ficticio con el mismo coste que los reales (B4): el login compara contra él cuando el correo no existe, así
+ * que tarda lo mismo exista o no la cuenta. Se calcula una vez por proceso, en el primer uso; nadie conoce su
+ * contraseña.
+ */
+let dummyPasswordHash: Promise<string> | undefined;
+function dummyHash(): Promise<string> {
+  return (dummyPasswordHash ??= bcrypt.hash(randomUUID(), BCRYPT_ROUNDS));
+}
+
+/**
+ * Respuesta de `POST /auth/register` (B4): idéntica exista o no el correo, para no revelar qué correos tienen cuenta.
+ * El registro ya no inicia sesión: la web inicia sesión a continuación con la contraseña elegida.
+ */
+export const REGISTER_ACCEPTED = {
+  accepted: true as const,
+  message:
+    'Si el correo no tenía cuenta, ya quedó creada: inicie sesión con la contraseña que eligió. Si ya tenía una ' +
+    'cuenta, inicie sesión con su contraseña habitual o pida una invitación al administrador de su empresa.',
+};
 
 /** Correo tal como se guarda: sin espacios y en minúsculas. */
 export function normalizeEmail(email: string): string {
@@ -52,6 +77,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly mail: MailService,
+    private readonly revocations: SessionRevocationService,
     config: ConfigService,
   ) {
     this.registrationMode = config.get<RegistrationMode>('registrationMode') ?? 'open';
@@ -59,6 +85,8 @@ export class AuthService {
     this.verificationSecret = createHash('sha256')
       .update(`${config.getOrThrow<string>('jwt.secret')}::email-verification`)
       .digest('hex');
+    // Precalcula el hash ficticio: ni el primer login con un correo inexistente tarda distinto.
+    void dummyHash();
   }
 
   /** Datos públicos para la pantalla de inicio de sesión y registro. */
@@ -69,14 +97,44 @@ export class AuthService {
   /**
    * Registro público (C1): con `REGISTRATION_MODE=invite_only` se rechaza (solo se entra por invitación). Con `open`,
    * la cuenta nace sin verificar: usa su propio workspace, pero no puede unirse a otros sin el token de una invitación.
+   *
+   * B4: la respuesta y el tiempo son los mismos exista o no el correo (siempre se calcula el hash de la contraseña) y
+   * no se emite sesión. Si el correo ya tenía cuenta y hay SMTP, se avisa a su dueño (sin esperar el envío).
    */
-  async register(dto: RegisterDto) {
+  async register(dto: RegisterDto): Promise<typeof REGISTER_ACCEPTED> {
     if (this.registrationMode !== 'open') {
       throw new ForbiddenException(
         'El registro público está cerrado: pida una invitación al administrador de su empresa',
       );
     }
-    return this.createAccount(dto, { verified: false });
+    const email = normalizeEmail(dto.email);
+    const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
+    const existing = await this.prisma.user.findUnique({ where: { email }, select: { id: true, name: true } });
+    if (existing) {
+      this.notifyExistingAccount(email, existing.name);
+      return REGISTER_ACCEPTED;
+    }
+    try {
+      await this.insertAccount(email, dto, passwordHash, { verified: false });
+    } catch (err) {
+      // Carrera con otro registro del mismo correo (P2002): misma respuesta que si ya existiera.
+      if ((err as { code?: string }).code !== 'P2002') throw err;
+    }
+    return REGISTER_ACCEPTED;
+  }
+
+  private notifyExistingAccount(email: string, name: string): void {
+    if (!this.mail.enabled) return;
+    void this.mail
+      .send({
+        to: email,
+        subject: 'Intento de registro con su correo en Nexo',
+        text:
+          `Hola, ${name}:\n\nAlguien intentó crear una cuenta en Nexo con este correo, que ya tiene una. Si fue usted, ` +
+          `inicie sesión en ${this.webUrl}/login con su contraseña habitual.\n\nSi no fue usted, ignore este mensaje: ` +
+          'su cuenta no cambió.',
+      })
+      .catch(() => undefined);
   }
 
   /** Crea una cuenta como OWNER de un workspace nuevo. `verified` solo para el usuario maestro del arranque. */
@@ -85,9 +143,13 @@ export class AuthService {
     if (await this.prisma.user.findUnique({ where: { email } })) {
       throw new ConflictException('El correo ya está registrado');
     }
-    const passwordHash = await bcrypt.hash(dto.password, 12);
+    const user = await this.insertAccount(email, dto, await bcrypt.hash(dto.password, BCRYPT_ROUNDS), opts);
+    return this.issue(user.id, user.memberships[0].workspaceId);
+  }
+
+  private insertAccount(email: string, dto: RegisterDto, passwordHash: string, opts: { verified: boolean }) {
     const wsName = dto.workspaceName?.trim() || `Workspace de ${dto.name}`;
-    const user = await this.prisma.user.create({
+    return this.prisma.user.create({
       data: {
         email,
         name: dto.name,
@@ -108,7 +170,6 @@ export class AuthService {
       },
       include: { memberships: true },
     });
-    return this.issue(user.id, user.memberships[0].workspaceId);
   }
 
   async login(dto: LoginDto) {
@@ -116,7 +177,9 @@ export class AuthService {
       where: { email: normalizeEmail(dto.email) },
       include: { memberships: { orderBy: { createdAt: 'asc' }, take: 1 } },
     });
-    if (!user || !(await bcrypt.compare(dto.password, user.passwordHash))) {
+    // Sin cuenta se compara contra el hash ficticio: el tiempo de respuesta no revela si el correo existe (B4).
+    const valid = await bcrypt.compare(dto.password, user?.passwordHash ?? (await dummyHash()));
+    if (!user || !valid) {
       throw new UnauthorizedException('Credenciales inválidas');
     }
     return this.issue(user.id, user.memberships[0]?.workspaceId);
@@ -138,7 +201,7 @@ export class AuthService {
     }
     await this.prisma.user.update({
       where: { id: userId },
-      data: { passwordHash: await bcrypt.hash(dto.newPassword, 12), tokenVersion: { increment: 1 } },
+      data: { passwordHash: await bcrypt.hash(dto.newPassword, BCRYPT_ROUNDS), tokenVersion: { increment: 1 } },
     });
     return { changed: true as const, ...(await this.issue(userId, workspaceId)) };
   }
@@ -217,6 +280,14 @@ export class AuthService {
       select: { tokenVersion: true },
     });
     const payload: JwtPayload = { sub: userId, wid: workspaceId, role: membership.role, tv: tokenVersion };
-    return { accessToken: await this.jwt.signAsync(payload), workspaceId, role: membership.role };
+    // `jti`: identifica la sesión para poder cerrarla sola (`POST /auth/logout`).
+    const accessToken = await this.jwt.signAsync(payload, { jwtid: randomUUID() });
+    return { accessToken, workspaceId, role: membership.role };
+  }
+
+  /** Cierra la sesión de esta credencial: su `jti` queda revocado hasta que el token vence (M6). */
+  async logout(credential: SessionCredential | undefined): Promise<{ loggedOut: true }> {
+    if (credential?.jti) await this.revocations.revoke(credential.jti, credential.exp);
+    return { loggedOut: true };
   }
 }

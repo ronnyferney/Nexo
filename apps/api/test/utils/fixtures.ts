@@ -29,9 +29,11 @@ async function me(app: INestApplication, token: string): Promise<string> {
 /** Registra un usuario nuevo: crea su workspace (con unidad raíz) y lo deja como OWNER. */
 export async function registerOwner(app: INestApplication, tag = 'owner'): Promise<Session> {
   const email = uniqueEmail(tag);
-  const res = await new Api(app)
+  await new Api(app)
     .post('/auth/register', { email, name: `Dueño ${tag}`, password: PASSWORD, workspaceName: `WS ${tag} ${seq}` })
     .expect(201);
+  // B4: el registro responde lo mismo exista o no el correo y no inicia sesión; se entra con la contraseña elegida.
+  const res = await new Api(app).post('/auth/login', { email, password: PASSWORD }).expect(200);
   const body = res.body as { accessToken: string; workspaceId: string; role: string };
   const userId = await me(app, body.accessToken);
   return {

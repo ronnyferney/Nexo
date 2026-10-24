@@ -33,6 +33,7 @@ async function bootstrap() {
       .setDescription('Plataforma de agentes de IA, conectores (REST, SOAP, GraphQL, MCP) y flujos de automatización')
       .setVersion('1.0.0')
       .addBearerAuth()
+      .addCookieAuth('nexo_session')
       .build();
     SwaggerModule.setup('api/docs', app, SwaggerModule.createDocument(app, doc));
   }

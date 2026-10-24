@@ -28,6 +28,10 @@ const schema = z.object({
     .regex(/^(smtps?:\/\/.+)?$/i, 'SMTP_URL debe empezar por smtp:// o smtps://')
     .optional(),
   MAIL_FROM: z.string().optional(),
+  SESSION_COOKIE_SECURE: z
+    .string()
+    .regex(/^(true|false)?$/i, 'SESSION_COOKIE_SECURE debe ser true o false')
+    .optional(),
   SWAGGER_ENABLED: z
     .string()
     .regex(/^(true|false)?$/i, 'SWAGGER_ENABLED debe ser true o false')

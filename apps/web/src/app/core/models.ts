@@ -4,8 +4,8 @@ export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export type Role = 'OWNER' | 'ADMIN' | 'EDITOR' | 'VIEWER';
 
+/** Sesión de la web: el token viaja en la cookie HttpOnly (M6), nunca en el estado de la página. */
 export interface Session {
-  accessToken: string;
   workspaceId: string;
   role: Role;
 }

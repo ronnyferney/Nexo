@@ -1,4 +1,4 @@
-import { registrationModeFrom, swaggerEnabledFrom } from './configuration';
+import { registrationModeFrom, sessionCookieSecureFrom, swaggerEnabledFrom } from './configuration';
 import { maskEmail } from '../infrastructure/mail/mail.service';
 import { parseTrustProxy, trustProxyError } from './trust-proxy';
 
@@ -30,6 +30,15 @@ describe('SWAGGER_ENABLED (B10)', () => {
     expect(swaggerEnabledFrom({ NODE_ENV: 'production' })).toBe(false);
     expect(swaggerEnabledFrom({ NODE_ENV: 'production', SWAGGER_ENABLED: 'true' })).toBe(true);
     expect(swaggerEnabledFrom({ NODE_ENV: 'development', SWAGGER_ENABLED: 'false' })).toBe(false);
+  });
+});
+
+describe('SESSION_COOKIE_SECURE (M6)', () => {
+  it('Secure por defecto solo en producción; el valor explícito manda', () => {
+    expect(sessionCookieSecureFrom({ NODE_ENV: 'production' })).toBe(true);
+    expect(sessionCookieSecureFrom({})).toBe(false);
+    expect(sessionCookieSecureFrom({ NODE_ENV: 'development', SESSION_COOKIE_SECURE: 'TRUE' })).toBe(true);
+    expect(sessionCookieSecureFrom({ NODE_ENV: 'production', SESSION_COOKIE_SECURE: 'false' })).toBe(false);
   });
 });
 

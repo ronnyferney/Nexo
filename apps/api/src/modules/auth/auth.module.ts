@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { AuthGuard } from '../../common/guards/auth.guard';
+import { SessionCookieService } from '../../common/guards/session-cookie.service';
+import { SessionRevocationService } from '../../common/guards/session-revocation.service';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { BootstrapAdminService } from './bootstrap-admin.service';
@@ -19,7 +21,13 @@ import { BootstrapAdminService } from './bootstrap-admin.service';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, BootstrapAdminService, { provide: APP_GUARD, useClass: AuthGuard }],
-  exports: [AuthService],
+  providers: [
+    AuthService,
+    BootstrapAdminService,
+    SessionCookieService,
+    SessionRevocationService,
+    { provide: APP_GUARD, useClass: AuthGuard },
+  ],
+  exports: [AuthService, SessionCookieService],
 })
 export class AuthModule {}

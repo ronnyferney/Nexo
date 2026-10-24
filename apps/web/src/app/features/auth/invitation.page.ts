@@ -129,7 +129,7 @@ export class InvitationPage implements OnInit {
   }
 
   switchAccount() {
-    this.auth.logout(`/invitacion/${this.token}`);
+    void this.auth.logout(`/invitacion/${this.token}`);
   }
 
   fmt(iso: string) {

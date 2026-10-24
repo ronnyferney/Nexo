@@ -55,12 +55,13 @@ export class CopilotApi {
   ): Promise<void> {
     const res = await fetch(`${this.base}/copilot/sessions/${sessionId}/messages`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${this.auth.token}` },
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', ...this.auth.csrfHeaders() },
       body: JSON.stringify({ message, stream: true }),
       signal,
     });
     if (!res.ok || !res.body) {
-      if (res.status === 401) this.auth.logout();
+      if (res.status === 401) this.auth.expire();
       const err = await res.json().catch(() => ({ message: res.statusText }));
       throw new CopilotStreamError(Array.isArray(err.message) ? err.message.join(', ') : err.message, res.status);
     }

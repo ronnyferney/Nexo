@@ -117,11 +117,14 @@ export class ApiService {
   ): Promise<void> {
     const res = await fetch(`${this.base}/agents/${agentId}/chat`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${this.auth.token}` },
+      // Sesión por cookie (M6): `same-origin` la envía; el POST lleva el token CSRF.
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', ...this.auth.csrfHeaders() },
       body: JSON.stringify({ ...body, stream: true }),
       signal,
     });
     if (!res.ok || !res.body) {
+      if (res.status === 401) this.auth.expire();
       const err = await res.json().catch(() => ({ message: res.statusText }));
       throw new Error(Array.isArray(err.message) ? err.message.join(', ') : err.message);
     }

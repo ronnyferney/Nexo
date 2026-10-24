@@ -15,6 +15,11 @@ export interface AppConfig {
   registrationMode: RegistrationMode;
   /** Correo saliente (`SMTP_URL`, `MAIL_FROM`), opcional: invitaciones y verificación de correo. */
   mail: { smtpUrl: string | null; from: string | null };
+  /**
+   * Cookie de sesión de la web (M6): `nexo_session` (HttpOnly, SameSite=Strict, path `/api`) y `nexo_csrf` (legible
+   * por la web, doble envío). `cookieSecure` (`SESSION_COOKIE_SECURE`; por defecto, solo en producción) añade `Secure`.
+   */
+  session: { cookieSecure: boolean };
   jwt: { secret: string; expiresIn: string };
   encryptionKey: string;
   /**
@@ -149,6 +154,14 @@ export function redisConfigFrom(env: NodeJS.ProcessEnv): RedisConnectionConfig {
   };
 }
 
+/** `SESSION_COOKIE_SECURE=true|false` manda; sin definir, las cookies de sesión llevan `Secure` solo en producción. */
+export function sessionCookieSecureFrom(env: NodeJS.ProcessEnv): boolean {
+  const raw = env.SESSION_COOKIE_SECURE?.trim().toLowerCase();
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  return env.NODE_ENV === 'production';
+}
+
 /** Swagger: `SWAGGER_ENABLED=true|false` manda; sin definir, se publica solo fuera de producción. */
 export function swaggerEnabledFrom(env: NodeJS.ProcessEnv): boolean {
   const raw = env.SWAGGER_ENABLED?.trim().toLowerCase();
@@ -175,6 +188,7 @@ export default (): AppConfig => ({
     secret: process.env.JWT_SECRET ?? '',
     expiresIn: process.env.JWT_EXPIRES_IN ?? '12h',
   },
+  session: { cookieSecure: sessionCookieSecureFrom(process.env) },
   encryptionKey: process.env.ENCRYPTION_KEY ?? '',
   redis: redisConfigFrom(process.env),
   llm: {

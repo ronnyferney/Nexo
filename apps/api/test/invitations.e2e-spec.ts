@@ -78,9 +78,10 @@ describe('Invitaciones y verificación de correo (C1, E2E)', () => {
   it('C1: una cuenta pre-registrada por un atacante no obtiene la membresía; la persona real toma el control', async () => {
     const email = uniqueEmail('maria-gomez');
     // 1. El atacante registra el correo de la víctima con una contraseña que conoce.
-    const attacker = await new Api(app)
+    await new Api(app)
       .post('/auth/register', { email, name: 'Atacante', password: ATTACKER_PASSWORD, workspaceName: 'Señuelo' })
       .expect(201);
+    const attacker = await login(app, email, ATTACKER_PASSWORD);
     const attackerApi = new Api(app, (attacker.body as { accessToken: string }).accessToken);
     expect((await attackerApi.get('/auth/me').expect(200)).body).toMatchObject({ emailVerifiedAt: null });
 
