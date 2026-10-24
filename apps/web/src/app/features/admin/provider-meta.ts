@@ -167,7 +167,7 @@ const LLM_OAUTH_ERRORS: Record<string, (name: string) => string> = {
 };
 
 export function llmOAuthError(reason: string | null, name = 'el proveedor'): string {
-  const msg = reason ? LLM_OAUTH_ERRORS[reason] : undefined;
+  const msg = reason && Object.hasOwn(LLM_OAUTH_ERRORS, reason) ? LLM_OAUTH_ERRORS[reason] : undefined;
   return `No se pudo conectar ${name}. ${msg ? msg(name) : 'Intente de nuevo.'}`;
 }
 
