@@ -4,7 +4,7 @@ import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { AuthService } from './auth.service';
 import { type DateRange, lastDays } from '../shared/date-range.component';
-import type { CopilotFeedbackItem, CopilotMetrics, PlatformMe } from './platform.models';
+import type { CopilotFeedbackItem, CopilotMetrics, PlatformMe, PlatformOAuthProvider } from './platform.models';
 
 /** Fachada de la consola de plataforma Nexo (ADR 0006 D6). Solo administradores de Nexo. */
 @Injectable({ providedIn: 'root' })
@@ -20,6 +20,15 @@ export class PlatformApi {
   readonly isPlatformAdmin = signal<boolean | null>(null);
   /** Rango de fechas compartido por las pestañas de la consola (se conserva al navegar entre ellas). */
   readonly range = signal<DateRange>(lastDays(30));
+
+  /** Apps OAuth de la plataforma («Iniciar sesión con…») — solo administradores de plataforma. */
+  oauthApps = () => firstValueFrom(this.http.get<PlatformOAuthProvider[]>(`${this.base}/platform/oauth-apps`));
+  saveOAuthApp = (provider: string, clientId: string, clientSecret: string) =>
+    firstValueFrom(
+      this.http.put<{ provider: string; clientIdHint: string }>(`${this.base}/platform/oauth-apps/${provider}`, { clientId, clientSecret }),
+    );
+  removeOAuthApp = (provider: string) =>
+    firstValueFrom(this.http.delete(`${this.base}/platform/oauth-apps/${provider}`));
 
   /** Consulta `GET /platform/me` una sola vez por sesión; ante error se asume que no es administrador. */
   loadMe(force = false): Promise<boolean> {

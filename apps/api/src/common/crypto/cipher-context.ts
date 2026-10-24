@@ -25,7 +25,8 @@ export type CipherPurpose =
   | 'llm-auth-flow.pending-tokens'
   | 'oauth-credential.access-token'
   | 'oauth-credential.refresh-token'
-  | 'oauth-state.code-verifier';
+  | 'oauth-state.code-verifier'
+  | 'platform-oauth-app.client-secret';
 
 /** Serialización canónica del contexto (JSON: sin ambigüedad aunque un nombre contenga separadores). */
 export function serializeContext(ctx: CipherContext): string {
@@ -34,6 +35,12 @@ export function serializeContext(ctx: CipherContext): string {
 
 /** Constructores de contexto por campo cifrado: un solo lugar para cifrar, descifrar y rotar. */
 export const CipherContexts = {
+  /** `PlatformOAuthApp.clientSecretCipher`: app OAuth de la plataforma (sin workspace: `platform`). */
+  platformOAuthSecret: (provider: string): CipherContext => ({
+    purpose: 'platform-oauth-app.client-secret',
+    workspaceId: 'platform',
+    ids: [provider],
+  }),
   /** `Secret.ciphertext`: el nombre es inmutable (la bóveda hace upsert por `workspaceId + name`). */
   secret: (workspaceId: string, name: string): CipherContext => ({
     purpose: 'secret.value',

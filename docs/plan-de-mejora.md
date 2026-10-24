@@ -94,6 +94,7 @@ claves cifrados con AES-256-GCM, `redirect: 'manual'` en el cliente HTTP, `postM
 | C-3 | P1 | Gestionar cuentas por app: conectar, reconectar, desconectar y eliminar, con el impacto en agentes y flujos | Hecho (e1a616e) |
 | C-4 | P1 | Errores del proveedor explicados en español y enlace de aprobación de administrador (Microsoft) para TI | Hecho |
 | C-5 | P1 | Al eliminar una cuenta, borrar las credenciales que solo ella usaba (evita reutilizar valores viejos) | Hecho |
-| C-6 | P0 | Verificación de editor de la app de Microsoft (AI Cloud Partner Program) y verificación de Google (CASA para Gmail) | Pendiente (trámite del negocio; ver `docs/apps-oauth-de-la-plataforma.md`) |
+| C-6 | P0 | Consola de plataforma: configurar una vez la app OAuth de cada proveedor; los clientes conectan con un clic sin registrar nada | Hecho |
+| C-7b | P0 | Verificación de editor de la app de Microsoft (AI Cloud Partner Program) y verificación de Google (CASA para Gmail) | Pendiente (trámite externo; lo gestiona el negocio) |
 | C-7 | P2 | Apps menos usadas vía servidores MCP externos, opcionales y aprobados por un ADMIN | Pendiente (decisión de negocio) |
 

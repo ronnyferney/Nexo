@@ -921,6 +921,18 @@ model PromptSuggestion {
 // ===================== Catálogo, OAuth2 y Nexo Edge (ADR 0005) =====================
 
 /// Tokens OAuth2 (authorization code) de un conector, cifrados con AES-256-GCM.
+/// App OAuth de la plataforma por proveedor («Iniciar sesión con…» de las apps conectadas). La configura un
+/// administrador de la plataforma desde la consola; el secreto va cifrado (contexto platform-oauth-app.client-secret).
+/// Las variables OAUTH_<PROVEEDOR>_CLIENT_ID/SECRET quedan como respaldo si no hay fila.
+model PlatformOAuthApp {
+  provider           String   @id
+  clientId           String
+  clientSecretCipher String
+  updatedById        String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
 model OAuthCredential {
   id                 String    @id @default(cuid())
   connectorId        String    @unique

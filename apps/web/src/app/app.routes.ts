@@ -62,6 +62,7 @@ export const routes: Routes = [
         children: [
           { path: '', loadComponent: () => import('./features/platform/platform-success.page').then((m) => m.PlatformSuccessPage) },
           { path: 'copilot-quality', loadComponent: () => import('./features/platform/platform-quality.page').then((m) => m.PlatformQualityPage) },
+          { path: 'oauth-apps', loadComponent: () => import('./features/platform/platform-oauth-apps.page').then((m) => m.PlatformOAuthAppsPage) },
         ],
       },
     ],

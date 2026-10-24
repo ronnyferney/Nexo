@@ -16,6 +16,14 @@ quien necesite su propia marca o cuota.
 | Google | **Verificación de la app** en la pantalla de consentimiento; Gmail usa alcances restringidos y exige además la evaluación de seguridad (CASA) | Pantalla «Google no verificó esta app», límite de 100 usuarios y refresh token que vence a los 7 días (L8) |
 | Slack | Publicación en el Slack Marketplace (opcional) | Funciona, pero cada workspace ve la app como «no publicada» |
 
+## Dónde se configura (consola de plataforma)
+
+Un administrador de Nexo (`PLATFORM_ADMIN_EMAILS`) abre **Consola de plataforma → Apps de inicio de sesión** y, por cada
+proveedor, pega el client ID y el secreto una sola vez. La consola muestra la URL de redirección a registrar y los
+permisos que piden las integraciones. El secreto se guarda cifrado (contexto `platform-oauth-app.client-secret`) y nunca
+se devuelve. Desde ese momento, cualquier cliente conecta sus cuentas con un clic, sin ver nada técnico. Las variables
+`OAUTH_<PROVEEDOR>_CLIENT_ID/SECRET` siguen funcionando como respaldo si no hay fila en la consola.
+
 ## Registro de cada app
 
 - **Redirect URI**: `${PUBLIC_URL}/api/oauth/callback` (en local, `http://localhost:3000/api/oauth/callback`). Use una app

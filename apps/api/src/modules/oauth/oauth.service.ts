@@ -1,8 +1,9 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Connector, OAuthCredential } from '@prisma/client';
 import { CipherContexts } from '../../common/crypto/cipher-context';
 import { CryptoService } from '../../common/crypto/crypto.service';
+import { PlatformOAuthAppsService } from './platform-oauth-apps.service';
 import { bindingMatches, browserBindingCookie, newBrowserBinding } from '../../common/oauth/browser-binding';
 import { ROLE_RANK } from '../../common/decorators/roles.decorator';
 import { HttpClientService } from '../../common/http/http-client.service';
@@ -118,6 +119,8 @@ export class OAuthService {
     private readonly config: ConfigService,
     /** Uso único del `state` compartido entre réplicas (Redis, falla cerrado; B2). */
     private readonly singleUse: SingleUseService,
+    /** Apps OAuth de la plataforma configuradas desde la consola (sin él, solo las del entorno). */
+    @Optional() private readonly platformApps?: PlatformOAuthAppsService,
   ) {
     this.publicUrl = config.get<string>('publicUrl') ?? 'http://localhost:3000';
     this.webUrl = config.get<string>('webUrl') ?? 'http://localhost:4200';
@@ -130,10 +133,16 @@ export class OAuthService {
   /** Cookie `Secure` cuando la API se publica por https. */
   /** ¿Hay app OAuth de la plataforma para este proveedor? Con su client ID abreviado (nunca el secreto). */
   platformApp(provider: string): { available: boolean; clientIdHint: string | null } {
-    const id = str(this.config.get<string>(platformEnvName(provider, 'CLIENT_ID')));
-    const secret = str(this.config.get<string>(platformEnvName(provider, 'CLIENT_SECRET')));
-    const available = !!(OAUTH_PROVIDERS[provider] && id && secret);
-    return { available, clientIdHint: available ? maskClientId(id) : null };
+    const app = OAUTH_PROVIDERS[provider] ? this.platformAppFor(provider) : null;
+    return { available: !!app, clientIdHint: app ? maskClientId(app.clientId) : null };
+  }
+
+  /** App de la plataforma: la de la consola (base de datos) y, si no hay, la del entorno. */
+  private platformAppFor(provider: string): { clientId: string; clientSecret: string } | null {
+    if (this.platformApps) return this.platformApps.get(provider);
+    const clientId = str(this.config.get<string>(platformEnvName(provider, 'CLIENT_ID')));
+    const clientSecret = str(this.config.get<string>(platformEnvName(provider, 'CLIENT_SECRET')));
+    return clientId && clientSecret ? { clientId, clientSecret } : null;
   }
 
   get secureCookies(): boolean {
@@ -396,16 +405,17 @@ export class OAuthService {
         revokeUrl: auth.revokeUrl,
       };
     }
-    const idVar = platformEnvName(auth.provider ?? '', 'CLIENT_ID');
-    const secretVar = platformEnvName(auth.provider ?? '', 'CLIENT_SECRET');
     const provider = OAUTH_PROVIDERS[auth.provider];
-    const clientId = str(this.config.get<string>(idVar));
-    const clientSecret = str(this.config.get<string>(secretVar));
-    if (!provider || !clientId || !clientSecret) {
+    const platform = this.platformAppFor(auth.provider ?? '');
+    if (!provider || !platform) {
+      const idVar = platformEnvName(auth.provider ?? '', 'CLIENT_ID');
+      const secretVar = platformEnvName(auth.provider ?? '', 'CLIENT_SECRET');
       throw new BadRequestException(
-        `No hay app OAuth de la plataforma para "${auth.provider}": defina ${idVar} y ${secretVar} o ingrese las credenciales de su propia app OAuth`,
+        `No hay app OAuth de la plataforma para "${auth.provider}": un administrador de la plataforma debe configurarla en ` +
+          `Consola de plataforma → Apps de inicio de sesión (o con ${idVar} y ${secretVar})`,
       );
     }
+    const { clientId, clientSecret } = platform;
     if (auth.authorizeUrl !== provider.authorizeUrl || auth.tokenUrl !== provider.tokenUrl) {
       throw new BadRequestException(
         'Las URLs OAuth del conector no coinciden con las del proveedor; para personalizarlas use una app OAuth propia',

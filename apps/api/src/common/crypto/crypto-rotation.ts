@@ -47,7 +47,7 @@ export interface RotationOptions {
   log?: (line: string) => void;
 }
 
-type Db = Pick<PrismaClient, 'secret' | 'llmConnection' | 'llmAuthFlow' | 'oAuthCredential'>;
+type Db = Pick<PrismaClient, 'secret' | 'llmConnection' | 'llmAuthFlow' | 'oAuthCredential' | 'platformOAuthApp'>;
 
 const page = (take: number) => ({ orderBy: { id: 'asc' as const }, take });
 const after = (afterId: string | undefined) => (afterId ? { id: { gt: afterId } } : {});
@@ -60,6 +60,37 @@ export function rotationTargets(db: Db, opts: { workspaceId?: string } = {}): Ro
   const ws = opts.workspaceId ? { workspaceId: opts.workspaceId } : {};
   const connectorWs = opts.workspaceId ? { connector: { workspaceId: opts.workspaceId } } : {};
   return [
+    // Apps OAuth de la plataforma: no pertenecen a un workspace (se omiten al rotar uno solo).
+    ...(opts.workspaceId
+      ? []
+      : [
+          {
+            name: 'PlatformOAuthApp.clientSecretCipher',
+            fetch: async (afterId: string | undefined, take: number, prefix: string) => {
+              const rows = await db.platformOAuthApp.findMany({
+                orderBy: { provider: 'asc' },
+                take,
+                where: {
+                  ...(afterId ? { provider: { gt: afterId } } : {}),
+                  NOT: { clientSecretCipher: { startsWith: prefix } },
+                },
+                select: { provider: true, clientSecretCipher: true },
+              });
+              return rows.map((r) => ({
+                id: r.provider,
+                cipher: r.clientSecretCipher,
+                context: CipherContexts.platformOAuthSecret(r.provider),
+              }));
+            },
+            update: async (id: string, from: string, to: string) =>
+              (
+                await db.platformOAuthApp.updateMany({
+                  where: { provider: id, clientSecretCipher: from },
+                  data: { clientSecretCipher: to },
+                })
+              ).count,
+          },
+        ]),
     {
       name: 'Secret.ciphertext',
       fetch: async (afterId, take, prefix) => {

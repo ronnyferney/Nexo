@@ -48,3 +48,16 @@ export interface CopilotFeedbackItem {
   copilotVersion?: string | null;
   sharedConversation?: SharedCopilotMessage[] | null;
 }
+
+/** Proveedor OAuth de la plataforma en la consola (`GET /platform/oauth-apps`). */
+export interface PlatformOAuthProvider {
+  provider: string;
+  label: string;
+  configured: boolean;
+  source: 'console' | 'env' | null;
+  clientIdHint: string | null;
+  redirectUri: string;
+  scopes: string[];
+  integrations: string[];
+}
+
