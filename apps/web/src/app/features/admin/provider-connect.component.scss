@@ -7,6 +7,17 @@ dialog.connect { width: min(600px, calc(100vw - 24px)); border-radius: 18px; }
 .links { display: flex; gap: 8px; flex-wrap: wrap; }
 .pill { border-radius: 999px; height: 40px; padding: 0 18px; }
 .wide { width: 100%; justify-content: center; }
+.panel, .key-form { display: flex; flex-direction: column; gap: 14px; }
+.big { height: 46px; font-size: 15px; }
+.btn-logo { width: 26px; height: 26px; border-radius: 50%; background: #fff; display: inline-grid; place-items: center; color: #171a2b; }
+.unavail { margin: -4px 0 0; display: flex; gap: 6px; align-items: flex-start; color: var(--muted); font-size: 12.5px; }
+.unavail nx-icon { margin-top: 2px; flex-shrink: 0; }
+.wait { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--info-50); font-size: 13px; }
+.alts { list-style: none; margin: -4px 0 0; padding: 0; display: grid; gap: 4px; }
+.alt { width: 100%; justify-content: center; color: var(--primary); }
+.alt:disabled { color: var(--muted); }
+.alts .unavail { justify-content: center; margin: 0 0 4px; text-align: center; }
+.go { transform: rotate(-90deg); }
 .or { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 12.5px; }
 .or::before, .or::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 .steps { background: var(--surface-2); border-radius: 12px; padding: 14px 16px; font-size: 13.5px; }
@@ -34,6 +45,7 @@ dialog.connect { width: min(600px, calc(100vw - 24px)); border-radius: 18px; }
 .tier { height: 18px; font-size: 10.5px; padding: 0 7px; margin-left: 4px; }
 .foot { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; padding-top: 4px; }
 .spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.4); border-top-color: #fff; animation: spin 0.7s linear infinite; }
+.spin.dark { border-color: var(--border); border-top-color: var(--info); flex-shrink: 0; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .done { align-items: center; text-align: center; padding: 32px 24px 22px; }
 .done p { margin: 0; max-width: 440px; }

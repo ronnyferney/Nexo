@@ -1,0 +1,74 @@
+<dialog #dlg class="modal detail" aria-labelledby="pd-title" aria-describedby="pd-sub" (close)="closed.emit()">
+  @let d = data();
+  <div class="pd-head">
+    <nx-brand-logo [entry]="d.entry" [logo]="d.logo" [size]="48" />
+    <div class="grow">
+      <h2 id="pd-title">{{ d.title }}</h2>
+      <p id="pd-sub" class="pd-sub">{{ count() }} · <span class="state {{ d.status }}"><span class="dot" aria-hidden="true"></span>{{ d.statusLabel }}</span></p>
+    </div>
+    <button type="button" class="btn ghost icon" aria-label="Cerrar" title="Cerrar" (click)="close()"><nx-icon name="x" /></button>
+  </div>
+
+  <div class="pd-tools" role="search">
+    <div class="search">
+      <nx-icon name="search" [size]="16" />
+      <label class="sr-only" for="pd-search">Buscar modelos de {{ d.title }}</label>
+      <input id="pd-search" class="input" type="search" placeholder="Buscar modelos" autocomplete="off" [ngModel]="query()" (ngModelChange)="query.set($event)" />
+    </div>
+    <div class="selects">
+      <label class="sr-only" for="pd-sp">Especialidad</label>
+      <select id="pd-sp" class="input pill-select" [class.on]="!!specialty()" [ngModel]="specialty()" (ngModelChange)="specialty.set($event)">
+        <option value="">Todas las especialidades</option>
+        @for (s of specialties; track s) { <option [value]="s">{{ specialtyLabels[s] }}</option> }
+      </select>
+      <label class="sr-only" for="pd-cost">Costo</label>
+      <select id="pd-cost" class="input pill-select" [class.on]="!!cost()" [ngModel]="cost()" (ngModelChange)="cost.set($event)">
+        <option value="">Cualquier costo</option>
+        @for (c of costOptions; track c.id) { <option [value]="c.id">{{ c.label }}</option> }
+      </select>
+      <label class="sr-only" for="pd-mem">Memoria (ventana de contexto)</label>
+      <select id="pd-mem" class="input pill-select" [class.on]="!!memory()" [ngModel]="memory()" (ngModelChange)="memory.set($event)">
+        <option value="">Cualquier memoria</option>
+        @for (m of memoryOptions; track m.id) { <option [value]="m.id">{{ m.label }}</option> }
+      </select>
+    </div>
+  </div>
+
+  <div class="pd-list">
+    <p class="sr-only" role="status">{{ filtered().length }} {{ filtered().length === 1 ? 'modelo' : 'modelos' }}</p>
+    @if (!d.models.length) {
+      <div class="empty small-empty"><nx-icon name="cpu" [size]="28" /><h3>Sin modelos habilitados</h3>
+        <p>Esta conexión aún no tiene modelos. Agréguelos o habilítelos en «Modelos de IA».</p>
+        <button type="button" class="btn" (click)="goModels.emit()"><nx-icon name="cpu" [size]="16" />Ir a Modelos de IA</button></div>
+    } @else if (!filtered().length) {
+      <div class="empty small-empty"><nx-icon name="search" [size]="28" /><h3>Sin resultados</h3><p>Ningún modelo coincide con los filtros.</p>
+        <button type="button" class="btn" (click)="clearFilters()">Limpiar filtros</button></div>
+    } @else {
+      <ul aria-label="Modelos">
+        @for (m of filtered(); track m.key) {
+          <li class="pm" [class.off]="!m.enabled">
+            <nx-brand-logo [entry]="d.entry" [logo]="m.vendor?.logo ?? d.logo" [size]="32" />
+            <span class="pm-body">
+              <strong>{{ m.label }}@if (!m.enabled) { <span class="badge tag">Deshabilitado</span> }</strong>
+              <span class="pm-meta">{{ meta(m) }}</span>
+            </span>
+            <span class="pm-side">
+              <span class="badge {{ tierClass(m.tier) }}">{{ tierLabels[m.tier] }}</span>
+              <span class="pm-price" [class.warn]="m.input == null || m.output == null" title="USD por millón de tokens (entrada / salida)">{{ price(m) }}</span>
+            </span>
+          </li>
+        }
+      </ul>
+    }
+  </div>
+
+  <div class="pd-foot">
+    <span class="foot-label"><nx-icon [name]="d.signedIn ? 'user' : d.canDisconnect ? 'key' : 'shield'" [size]="15" />
+      <span>{{ d.footLabel }}@if (d.sessionNote) { <span class="note">{{ d.sessionNote }}</span> }</span></span>
+    <span class="spacer"></span>
+    @if (d.models.length) { <button type="button" class="btn pill" (click)="goModels.emit()">Gestionar modelos</button> }
+    @if (d.canDisconnect) {
+      <button type="button" class="btn danger pill" (click)="disconnect.emit()"><nx-icon [name]="d.signedIn ? 'logout' : 'unlink'" [size]="15" />{{ d.signedIn ? 'Cerrar sesión' : 'Desconectar' }}</button>
+    }
+  </div>
+</dialog>

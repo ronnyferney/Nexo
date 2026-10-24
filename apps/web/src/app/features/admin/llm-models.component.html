@@ -44,7 +44,8 @@
             @if (r.tag === 'TEST') { <span class="badge warning tag">Pruebas</span> }
             @if (r.unpriced) { <span class="badge warning tag" title="Configure la tarifa para que cuente en presupuestos">Sin tarifa</span> }
             @if (saved() === r.key) { <span class="ok" role="status"><nx-icon name="check" [size]="13" />Guardado</span> }
-            <code class="block muted">{{ r.modelId }}</code></span>
+            <code class="block muted">{{ r.modelId }}</code>
+            @if (r.meta) { <span class="block muted small">{{ r.meta }}</span> }</span>
         </span>
         <span class="src" role="cell"><span class="lbl">Conexión</span>{{ r.providerName }}@if (r.source !== r.providerName) { <span class="muted small block">{{ r.source }}</span> }</span>
         <span role="cell"><span class="lbl">Nivel</span>

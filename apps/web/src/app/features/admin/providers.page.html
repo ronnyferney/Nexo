@@ -1,3 +1,11 @@
+@if (popupDone(); as done) {
+  <div class="page popup-done" role="status">
+    <nx-icon [name]="done === 'connected' ? 'checkCircle' : 'alert'" [size]="36" />
+    <h1>{{ done === 'connected' ? 'Inicio de sesión completado' : 'No se pudo completar el inicio de sesión' }}</h1>
+    <p class="muted">Ya puede cerrar esta ventana y volver a Nexo.</p>
+    <button type="button" class="btn" (click)="closeWindow()">Cerrar ventana</button>
+  </div>
+} @else {
 <div class="page">
   <div class="gallery">
     <header class="top">
@@ -48,13 +56,16 @@
               <div class="sec-head"><h2 id="sec-connected">Conectados</h2><span class="count">{{ connected().length }}</span></div>
               <ul class="cards-grid">
                 @for (c of connected(); track c.key) {
-                  <li class="conn-card">
-                    <nx-brand-logo [entry]="c.entry" [logo]="c.logo" [size]="40" />
-                    <div class="cc-body">
-                      <strong class="cc-title"><span class="st {{ c.status }}" [title]="c.statusLabel"></span>{{ c.title }}</strong>
-                      <span class="cc-sub">{{ c.subtitle }}<span class="sr-only"> · {{ c.statusLabel }}</span></span>
-                      @if (c.connectionName) { <span class="cc-name">{{ c.connectionName }}</span> }
-                    </div>
+                  <li class="conn-card" [attr.data-provider]="c.provider?.id ?? c.entry.id">
+                    <button type="button" class="cc-main" (click)="openDetail(c, $event)" [attr.aria-label]="c.title + ': ver modelos y conexión'"
+                      [attr.aria-describedby]="'cc-sub-' + c.key">
+                      <nx-brand-logo [entry]="c.entry" [logo]="c.logo" [size]="40" />
+                      <span class="cc-body">
+                        <strong class="cc-title"><span class="st {{ c.status }}" [title]="c.statusLabel"></span>{{ c.title }}</strong>
+                        <span class="cc-sub" [id]="'cc-sub-' + c.key">{{ c.subtitle }}<span class="sr-only"> · {{ c.statusLabel }}</span></span>
+                        @if (c.connectionName) { <span class="cc-name">{{ c.connectionName }}</span> }
+                      </span>
+                    </button>
                     @if (testing() === c.key) { <span class="small muted" role="status">Probando…</span> }
                     <div class="menu-wrap">
                       <button type="button" class="btn ghost icon" [id]="'menu-btn-' + c.key" aria-haspopup="menu" [attr.aria-expanded]="menu() === c.key"
@@ -71,7 +82,7 @@
                           }
                           @if (c.connectionId) {
                             <button type="button" role="menuitem" (click)="toggleEnabled(c)"><nx-icon [name]="c.enabled ? 'stop' : 'play'" [size]="16" />{{ c.enabled ? 'Deshabilitar' : 'Habilitar' }}</button>
-                            <button type="button" role="menuitem" class="danger" (click)="disconnect(c)"><nx-icon name="unlink" [size]="16" />Desconectar</button>
+                            <button type="button" role="menuitem" class="danger" (click)="disconnect(c)"><nx-icon [name]="c.signedIn ? 'logout' : 'unlink'" [size]="16" />{{ c.signedIn ? 'Cerrar sesión' : 'Desconectar' }}</button>
                           }
                           @if (c.platform && c.provider) {
                             <button type="button" role="menuitem" (click)="openConnect(c.provider, $event)"><nx-icon name="key" [size]="16" />Usar clave propia</button>
@@ -109,17 +120,31 @@
               <ul class="grid-rows" [attr.aria-labelledby]="s.title ? 'cat-' + s.id : 'sec-available'">
                 @for (r of s.rows; track r.p.id) {
                   <li>
-                    <button type="button" class="prov-row" (click)="openConnect(r.p, $event)" [attr.aria-label]="'Conectar ' + r.p.name"
-                      [attr.aria-describedby]="'pd-' + r.p.id">
-                      <nx-brand-logo [entry]="r.p" [logo]="r.logo" [size]="44" />
-                      <span class="pr-body">
-                        <span class="pr-name"><strong>{{ r.p.name }}</strong>
-                          @if (r.p.auth === 'OAUTH') { <span class="badge tag">Inicio de sesión</span> }</span>
-                        <span class="pr-desc" [id]="'pd-' + r.p.id">
-                          @if (r.matchedModel) { Incluye {{ r.matchedModel }} · } {{ modelCount(r.p) }} · {{ billingLabels[r.p.billing] }}</span>
-                      </span>
-                      <span class="act" aria-hidden="true"><nx-icon name="plus" [size]="16" /></span>
-                    </button>
+                    @if (oauth.pending()?.providerId === r.p.id) {
+                      <div class="prov-row pending" role="group" [attr.aria-label]="r.p.name">
+                        <nx-brand-logo [entry]="r.p" [logo]="r.logo" [size]="44" />
+                        <span class="pr-body">
+                          <span class="pr-name"><strong>{{ r.p.name }}</strong></span>
+                          <span class="pr-desc pr-wait" role="status"><span class="spin" aria-hidden="true"></span>Conectando…<span class="sr-only"> Complete el inicio de sesión en la ventana de {{ r.p.name }}.</span></span>
+                        </span>
+                        <button type="button" class="btn pill-sm" [id]="'cancel-' + r.p.id" (click)="cancelLogin(r.p)">Cancelar</button>
+                      </div>
+                    } @else {
+                      <div class="prov-row">
+                        <button type="button" class="pr-main" (click)="openConnect(r.p, $event)" [attr.aria-label]="r.p.name + ': opciones de conexión'"
+                          [attr.aria-describedby]="'pd-' + r.p.id">
+                          <nx-brand-logo [entry]="r.p" [logo]="r.logo" [size]="44" />
+                          <span class="pr-body">
+                            <span class="pr-name"><strong>{{ r.p.name }}</strong>
+                              @if (r.login) { <span class="badge tag">Inicio de sesión</span> }</span>
+                            <span class="pr-desc" [id]="'pd-' + r.p.id">
+                              @if (r.matchedModel) { Incluye {{ r.matchedModel }} · } {{ r.subtitle }}</span>
+                          </span>
+                        </button>
+                        <button type="button" class="act" [id]="'act-' + r.p.id" (click)="quickConnect(r.p, $event)"
+                          [attr.aria-label]="'Conectar ' + r.p.name + ': ' + r.action" [title]="r.action"><nx-icon name="plus" [size]="16" /></button>
+                      </div>
+                    }
                   </li>
                 }
               </ul>
@@ -144,5 +169,25 @@
 </div>
 
 @if (connecting(); as p) {
-  <nx-provider-connect [provider]="p" (closed)="connectClosed()" (connected)="onConnected(p)" (goModels)="goModels(p.id)" />
+  <nx-provider-connect [provider]="p" [autostart]="autostart()" [oauthError]="oauthErrors()[p.id] ?? null" (closed)="connectClosed()"
+    (connected)="onConnected(p)" (signedIn)="onSignedIn(p)" (goModels)="goModels(p.id)" />
+}
+
+@if (detail(); as d) {
+  <nx-provider-detail [data]="d" (closed)="detailClosed()" (disconnect)="disconnectFromDetail()" (goModels)="detailGoModels(d)" />
+}
+
+@if (confirmTarget(); as t) {
+  <nx-disconnect-confirm [name]="t.name" [signedIn]="t.signedIn" [busy]="disconnecting()" (confirmed)="confirmDisconnect()" (cancelled)="cancelDisconnect()" />
+}
+
+<div class="notice-wrap" aria-live="polite" aria-atomic="true">
+  @if (notice(); as n) {
+    <div class="notice" role="status">
+      <span class="n-logo"><nx-brand-logo [entry]="n.entry" [logo]="n.logo" [size]="28" />@if (n.kind === 'ok') { <span class="n-check"><nx-icon name="check" [size]="11" /></span> }</span>
+      <span class="n-text">{{ n.text }}</span>
+      <button type="button" class="btn ghost icon n-x" aria-label="Cerrar aviso" title="Cerrar aviso" (click)="notice.set(null)"><nx-icon name="x" [size]="16" /></button>
+    </div>
+  }
+</div>
 }

@@ -1,6 +1,7 @@
 import {
   siAnthropic,
   siDeepseek,
+  siGooglecloud,
   siGooglegemini,
   siHuggingface,
   siLmstudio,
@@ -18,8 +19,8 @@ import { type BrandLogo, brandLogo } from '../integrations/integration-logos';
 /**
  * Logos de los proveedores de IA, en el mismo formato que `integration-logos.ts` (se pintan con `nx-brand-logo [logo]`).
  *
- * - `simple-icons` (CC0-1.0): Anthropic, Gemini, Mistral, Ollama, Hugging Face, NVIDIA, DeepSeek, OpenRouter, LM Studio,
- *   Moonshot (Kimi), Meta, Qwen y Perplexity. Las marcas cuyo color oficial es negro se pintan con `currentColor`
+ * - `simple-icons` (CC0-1.0): Anthropic, Gemini, Google Cloud (Vertex AI), Mistral, Ollama,
+ *   Hugging Face, NVIDIA, DeepSeek, OpenRouter, LM Studio, Moonshot (Kimi), Meta, Qwen y Perplexity. Las marcas cuyo color oficial es negro se pintan con `currentColor`
  *   para que se vean en modo oscuro.
  * - SVG propio con colores oficiales: OpenAI, Azure OpenAI, Amazon Bedrock y xAI (no están en simple-icons 16).
  * - Monograma con color oficial: Groq, Cerebras, Fireworks AI y Together AI; cualquier id desconocido usa el
@@ -96,6 +97,11 @@ const LOGOS: Record<string, BrandLogo> = {
   openai: OPENAI,
   gemini: fromSimpleIcon(siGooglegemini),
   google: fromSimpleIcon(siGooglegemini),
+  vertex: fromSimpleIcon(siGooglecloud),
+  vertexai: fromSimpleIcon(siGooglecloud),
+  'vertex-ai': fromSimpleIcon(siGooglecloud),
+  'google-vertex': fromSimpleIcon(siGooglecloud),
+  googlecloud: fromSimpleIcon(siGooglecloud),
   mistral: fromSimpleIcon(siMistralai),
   groq: monogram('Groq', 'g', '#F55036'),
   deepseek: fromSimpleIcon(siDeepseek),
@@ -107,6 +113,7 @@ const LOGOS: Record<string, BrandLogo> = {
   moonshot: fromSimpleIcon(siMoonshotai),
   kimi: fromSimpleIcon(siMoonshotai),
   huggingface: fromSimpleIcon(siHuggingface),
+  'hugging-face': fromSimpleIcon(siHuggingface),
   openrouter: fromSimpleIcon(siOpenrouter),
   'azure-openai': AZURE,
   azure: AZURE,
@@ -114,6 +121,7 @@ const LOGOS: Record<string, BrandLogo> = {
   'aws-bedrock': BEDROCK,
   ollama: fromSimpleIcon(siOllama),
   lmstudio: fromSimpleIcon(siLmstudio),
+  'lm-studio': fromSimpleIcon(siLmstudio),
   meta: fromSimpleIcon(siMeta),
   qwen: fromSimpleIcon(siQwen),
   perplexity: fromSimpleIcon(siPerplexity),
@@ -126,4 +134,32 @@ const slug = (v: string | undefined | null) => (v ?? '').split(':').pop()!.trim(
 export function providerLogo(p: { id: string; name: string; logo?: string | null }): BrandLogo {
   const byLogo = slug(p.logo);
   return LOGOS[byLogo] ?? LOGOS[byLogo.replace(/-/g, '')] ?? LOGOS[slug(p.id)] ?? brandLogo(p);
+}
+
+/** Fabricantes de modelos que se distinguen por el prefijo del id en enrutadores (`anthropic/claude-…`, `meta/llama-…`). */
+const VENDOR_NAMES: Record<string, string> = {
+  anthropic: 'Anthropic',
+  openai: 'OpenAI',
+  google: 'Google',
+  'meta-llama': 'Meta',
+  meta: 'Meta',
+  mistralai: 'Mistral AI',
+  mistral: 'Mistral AI',
+  deepseek: 'DeepSeek',
+  qwen: 'Qwen',
+  'x-ai': 'xAI',
+  xai: 'xAI',
+  moonshotai: 'Moonshot AI',
+  nvidia: 'NVIDIA',
+  perplexity: 'Perplexity',
+};
+const VENDOR_LOGO_KEY: Record<string, string> = { 'meta-llama': 'meta', mistralai: 'mistral', 'x-ai': 'xai', moonshotai: 'moonshot', google: 'gemini' };
+
+/** Logo y nombre del fabricante si el id del modelo lo indica (`vendor/modelo`) y es conocido; si no, `null`. */
+export function vendorOf(modelId: string): { name: string; logo: BrandLogo } | null {
+  const i = modelId.indexOf('/');
+  if (i <= 0) return null;
+  const v = modelId.slice(0, i).toLowerCase();
+  const logo = LOGOS[VENDOR_LOGO_KEY[v] ?? v];
+  return logo && VENDOR_NAMES[v] ? { name: VENDOR_NAMES[v], logo } : null;
 }

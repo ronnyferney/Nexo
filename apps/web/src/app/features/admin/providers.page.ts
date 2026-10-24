@@ -3,24 +3,33 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { LlmProvidersApi } from '../../core/llm-providers.api';
-import type { ProviderCategory, ProviderView } from '../../core/llm-providers.models';
+import type { DeleteConnectionResult, LlmConnectionMeta, LlmModelMeta, ProviderCategory, ProviderView } from '../../core/llm-providers.models';
 import type { LlmConnection, LlmModel, ProviderInfo } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
 import { IconComponent } from '../../shared/icon.component';
 import type { BrandLogo } from '../integrations/integration-logos';
 import { BrandLogoComponent } from '../integrations/brand-logo.component';
-import { providerLogo } from './ai-provider-logos';
+import { providerLogo, vendorOf } from './ai-provider-logos';
+import { DisconnectConfirmComponent } from './disconnect-confirm.component';
 import { LlmModelsComponent } from './llm-models.component';
+import { LlmOAuthFlow, type OAuthOutcome } from './llm-oauth.flow';
 import { ProviderConnectComponent } from './provider-connect.component';
+import { type DetailModel, ProviderDetailComponent, type ProviderDetailData } from './provider-detail.component';
 import {
   BILLING_LABELS,
+  brandOf,
   CATEGORY_LABELS,
   CATEGORY_ORDER,
   CONNECTION_FILTERS,
   type ConnectionFilter,
   llmOAuthError,
   matchesFilter,
+  mechanismsOf,
+  mechanismSubtitle,
   normalize,
+  oauthFields,
+  primaryMechanism,
+  specialtiesOf,
 } from './provider-meta';
 
 type Tab = 'providers' | 'models';
@@ -30,6 +39,30 @@ interface Row {
   logo: BrandLogo;
   /** Modelo que coincidió con la búsqueda cuando no coincide el nombre ni la descripción. */
   matchedModel: string | null;
+  /** Subtítulo según el mecanismo principal («Iniciar sesión con Google · Vertex AI», «Clave de API · Pago por uso»). */
+  subtitle: string;
+  /** El mecanismo principal es un inicio de sesión (OAuth o código de dispositivo). */
+  login: boolean;
+  /** Título del botón «+»: lo que hará al pulsarlo. */
+  action: string;
+}
+
+interface Notice {
+  id: number;
+  text: string;
+  /** `ok` lleva la marca de verificación (sesión iniciada, conectado); `info` no (sesión cerrada). */
+  kind: 'ok' | 'info';
+  entry: { id: string; name: string };
+  logo: BrandLogo;
+}
+
+interface ConfirmTarget {
+  name: string;
+  entry: { id: string; name: string };
+  connectionId: string;
+  signedIn: boolean;
+  /** Elemento al que vuelve el foco si se cancela. */
+  returnFocus: string | null;
 }
 
 /** Tarjeta de «Conectados»: conexión de un proveedor, conexión incluida por Nexo o conexión heredada sin proveedor. */
@@ -48,12 +81,23 @@ interface ConnectedCard {
   platform: boolean;
   /** Valor del filtro de proveedor en «Modelos de IA» para «Ver modelos». */
   modelsKey: string;
+  /** Conexión creada con inicio de sesión (OAuth o código de dispositivo). */
+  signedIn: boolean;
 }
 
 /** Galería de proveedores de IA del workspace (solo ADMIN+, ruta bajo `adminGuard`). */
 @Component({
   selector: 'nx-admin-providers',
-  imports: [FormsModule, IconComponent, BrandLogoComponent, ProviderConnectComponent, LlmModelsComponent],
+  imports: [
+    FormsModule,
+    IconComponent,
+    BrandLogoComponent,
+    ProviderConnectComponent,
+    ProviderDetailComponent,
+    DisconnectConfirmComponent,
+    LlmModelsComponent,
+  ],
+  providers: [LlmOAuthFlow],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './providers.page.html',
   styleUrl: './providers.page.scss',
@@ -66,6 +110,7 @@ export class ProvidersPage implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly document = inject(DOCUMENT);
+  readonly oauth = inject(LlmOAuthFlow);
 
   readonly filters = CONNECTION_FILTERS;
   readonly billingLabels = BILLING_LABELS;
@@ -84,6 +129,18 @@ export class ProvidersPage implements OnInit {
   readonly grouped = signal(true);
   readonly modelsProvider = signal('');
   readonly connecting = signal<ProviderView | null>(null);
+  /** El diálogo se abrió con «+»: inicia el mecanismo principal (código de dispositivo, detección local). */
+  readonly autostart = signal(false);
+  readonly oauthErrors = signal<Partial<Record<string, string>>>({});
+  readonly detail = signal<ProviderDetailData | null>(null);
+  readonly confirmTarget = signal<ConfirmTarget | null>(null);
+  readonly disconnecting = signal(false);
+  readonly notice = signal<Notice | null>(null);
+  /** Esta pestaña es la ventana emergente que volvió del proveedor: solo avisa a la principal y se cierra. */
+  readonly popupDone = signal<'connected' | 'error' | null>(null);
+  private noticeSeq = 0;
+  /** Conexiones por proveedor al iniciar sesión, para saber si la ventana cerrada sin aviso sí conectó. */
+  private readonly before = new Map<string, number>();
   readonly menu = signal<string | null>(null);
   readonly testing = signal<string | null>(null);
   private trigger: HTMLElement | null = null;
@@ -104,13 +161,16 @@ export class ProvidersPage implements OnInit {
     for (const p of this.providers()) {
       if (f && !matchesFilter(p, f)) continue;
       const logo = providerLogo(p);
+      const m = primaryMechanism(p);
+      const login = m.type === 'OAUTH' || m.type === 'DEVICE_CODE';
+      const base = { p, logo, subtitle: mechanismSubtitle(p), login, action: m.available ? m.label : `Conectar ${p.name}` };
       if (!q) {
-        out.push({ p, logo, matchedModel: null });
+        out.push({ ...base, matchedModel: null });
         continue;
       }
       const head = normalize(`${p.name} ${p.id} ${p.description} ${CATEGORY_LABELS[p.category] ?? ''}`).includes(q);
-      const m = head ? null : (p.suggestedModels ?? []).find((s) => normalize(`${s.label} ${s.id}`).includes(q));
-      if (head || m) out.push({ p, logo, matchedModel: m?.label ?? null });
+      const sm = head ? null : (p.suggestedModels ?? []).find((s) => normalize(`${s.label} ${s.id}`).includes(q));
+      if (head || sm) out.push({ ...base, matchedModel: sm?.label ?? null });
     }
     return out;
   });
@@ -154,6 +214,7 @@ export class ProvidersPage implements OnInit {
         enabled: !!platformConfigured,
         platform: true,
         modelsKey: 'anthropic',
+        signedIn: false,
       });
     }
     const mapped = new Set<string>();
@@ -161,7 +222,8 @@ export class ProvidersPage implements OnInit {
       for (const c of r.p.connected ?? []) {
         mapped.add(c.connectionId);
         const n = conns.get(c.connectionId)?.models.length ?? c.modelCount;
-        out.push(this.card(r.p, r.logo, c.connectionId, c.name, n, c.enabled));
+        const cred = (conns.get(c.connectionId) as LlmConnectionMeta | undefined)?.credentialType;
+        out.push(this.card(r.p, r.logo, c.connectionId, c.name, n, c.enabled, this.isSignedIn(r.p, c.mechanism, cred)));
       }
     }
     for (const p of this.providers()) for (const c of p.connected ?? []) mapped.add(c.connectionId);
@@ -171,7 +233,7 @@ export class ProvidersPage implements OnInit {
         if (mapped.has(c.id) || c.kind === 'MOCK') continue;
         const entry = c.kind === 'ANTHROPIC' ? { id: 'anthropic', name: 'Anthropic' } : { id: `conn-${c.id}`, name: c.name };
         out.push({
-          ...this.card(null, providerLogo(entry), c.id, c.name, c.models.length, c.enabled),
+          ...this.card(null, providerLogo(entry), c.id, c.name, c.models.length, c.enabled, false),
           title: c.name,
           entry,
           subtitle: `${c.models.length} ${c.models.length === 1 ? 'modelo' : 'modelos'} · ${c.kind === 'ANTHROPIC' ? 'Anthropic' : 'Compatible con OpenAI'}`,
@@ -185,13 +247,32 @@ export class ProvidersPage implements OnInit {
 
   readonly totalAvailable = computed(() => this.providers().filter((p) => !p.connected?.length).length);
 
+  constructor() {
+    this.oauth.onOutcome((o) => void this.onOAuthOutcome(o));
+  }
+
   async ngOnInit() {
     const qp = this.route.snapshot.queryParamMap;
     if (qp.get('tab') === 'models') this.tab.set('models');
     const llm = qp.get('llm');
-    if (llm === 'connected') this.toast.success('OpenRouter quedó conectado. Revise sus modelos y tarifas en «Modelos de IA».');
-    else if (llm === 'error') this.toast.error(llmOAuthError(qp.get('reason')));
-    if (llm) void this.router.navigate([], { queryParams: { llm: null, reason: null }, queryParamsHandling: 'merge', replaceUrl: true });
+    if (llm === 'connected' || llm === 'error') {
+      const ret = { llm, provider: qp.get('provider'), connectionId: qp.get('connectionId'), reason: qp.get('reason') } as const;
+      // Ventana emergente de vuelta del proveedor: avisa a la principal y se cierra sin cargar la galería.
+      if (this.oauth.notifyOpener(ret)) {
+        this.popupDone.set(llm);
+        this.loading.set(false);
+        return;
+      }
+      // Sin ventana emergente (el navegador la bloqueó): el retorno llega a esta pestaña.
+      void this.router.navigate([], {
+        queryParams: { llm: null, reason: null, provider: null, connectionId: null },
+        queryParamsHandling: 'merge',
+        replaceUrl: true,
+      });
+      await this.load();
+      await this.onOAuthOutcome({ status: llm, providerId: ret.provider, connectionId: ret.connectionId, reason: ret.reason }, false);
+      return;
+    }
     await this.load();
   }
 
@@ -235,10 +316,33 @@ export class ProvidersPage implements OnInit {
     this.filter.set('');
   }
 
-  openConnect(p: ProviderView, ev: Event) {
+  openConnect(p: ProviderView, ev: Event, autostart = false) {
     this.trigger = (ev.currentTarget as HTMLElement) ?? null;
     this.menu.set(null);
+    this.oauthErrors.update(({ [p.id]: _, ...rest }) => rest);
+    this.autostart.set(autostart);
     this.connecting.set(p);
+  }
+
+  /**
+   * Botón «+» de la fila: inicia directamente el mecanismo principal. OAuth sin datos previos abre la ventana del
+   * proveedor (la fila muestra «Conectando…/Cancelar»); el resto abre el diálogo y arranca el código o la detección.
+   */
+  quickConnect(p: ProviderView, ev: Event) {
+    const m = primaryMechanism(p);
+    if (m.type === 'OAUTH' && m.available && !oauthFields(p, m).length) {
+      this.menu.set(null);
+      this.before.set(p.id, p.connected?.length ?? 0);
+      this.oauth.start(p).catch((e) => this.toast.error(errorMessage(e)));
+      setTimeout(() => this.document.getElementById(`cancel-${p.id}`)?.focus());
+      return;
+    }
+    this.openConnect(p, ev, m.available && (m.type === 'DEVICE_CODE' || m.type === 'LOCAL_DETECT'));
+  }
+
+  cancelLogin(p: ProviderView) {
+    this.oauth.cancel();
+    setTimeout(() => this.document.getElementById(`act-${p.id}`)?.focus());
   }
 
   connectClosed() {
@@ -248,13 +352,170 @@ export class ProvidersPage implements OnInit {
   }
 
   async onConnected(p: ProviderView) {
-    this.toast.success(`${p.name} quedó conectado`);
+    this.showNotice(`${p.name} quedó conectado`, p);
     this.trigger = null;
     await this.load(true);
   }
 
+  /** Código de dispositivo autorizado: se cierra el diálogo y la fila pasa a «Conectados». */
+  async onSignedIn(p: ProviderView) {
+    this.trigger = null;
+    this.connecting.set(null);
+    await this.load(true);
+    this.showNotice(`Sesión iniciada en ${p.name}`, p);
+    this.focusConnected(p.id);
+  }
+
+  private async onOAuthOutcome(o: OAuthOutcome, reload = true) {
+    const find = () => this.providers().find((p) => p.id === o.providerId) ?? null;
+    if (o.status === 'closed') {
+      // Ventana cerrada sin aviso: puede que sí haya conectado (p. ej. si el proveedor cortó `window.opener`).
+      const prev = this.before.get(o.providerId) ?? 0;
+      await this.load(true);
+      const p = find();
+      if (p && (p.connected?.length ?? 0) > prev) await this.onOAuthOutcome({ ...o, status: 'connected' }, false);
+      return;
+    }
+    if (o.status === 'connected') {
+      if (reload) await this.load(true);
+      const p = find();
+      const name = p?.name ?? 'el proveedor';
+      if (this.connecting()?.id === o.providerId || !o.providerId) {
+        this.trigger = null;
+        this.connecting.set(null);
+      }
+      this.showNotice(`Sesión iniciada en ${name}`, p ?? { id: o.providerId ?? 'llm', name });
+      if (p) this.focusConnected(p.id);
+      return;
+    }
+    const p = find();
+    const msg = llmOAuthError(o.reason, p?.name);
+    if (p && this.connecting()?.id === p.id) this.oauthErrors.update((e) => ({ ...e, [p.id]: msg }));
+    else this.toast.error(msg);
+  }
+
+  showNotice(text: string, p: { id: string; name: string; logo?: string | null }, kind: Notice['kind'] = 'ok') {
+    const id = ++this.noticeSeq;
+    this.notice.set({ id, text, kind, entry: { id: p.id, name: p.name }, logo: providerLogo(p) });
+    setTimeout(() => this.notice()?.id === id && this.notice.set(null), 6000);
+  }
+
+  private focusConnected(providerId: string) {
+    setTimeout(() => this.document.querySelector<HTMLElement>(`[data-provider="${CSS.escape(providerId)}"] .cc-main`)?.focus(), 50);
+  }
+
+  // ----- Diálogo del proveedor conectado -----
+
+  openDetail(card: ConnectedCard, ev: Event) {
+    this.trigger = (ev.currentTarget as HTMLElement) ?? null;
+    this.menu.set(null);
+    this.detail.set(this.detailData(card));
+  }
+
+  detailGoModels(d: ProviderDetailData) {
+    this.goModels(this.connected().find((c) => c.key === d.key)?.modelsKey ?? null);
+  }
+
+  closeWindow() {
+    this.document.defaultView?.close();
+  }
+
+  detailClosed() {
+    if (this.confirmTarget()) return;
+    this.detail.set(null);
+    const t = this.trigger;
+    if (t?.isConnected) setTimeout(() => t.focus());
+  }
+
+  private detailData(c: ConnectedCard): ProviderDetailData {
+    const p = c.provider;
+    const suggested = new Map((p?.suggestedModels ?? []).map((m) => [m.id, m]));
+    let models: DetailModel[];
+    if (c.platform) {
+      const system = this.catalog().find((x) => x.system && x.kind === 'ANTHROPIC');
+      models = (system?.models ?? []).map((m) => {
+        const s = suggested.get(m.id);
+        return {
+          key: m.id,
+          label: m.label,
+          modelId: m.id,
+          tier: m.tier,
+          specialties: specialtiesOf(m.id, s?.specialties),
+          contextTokens: s?.contextTokens ?? null,
+          input: m.inputUsdPerMTok,
+          output: m.outputUsdPerMTok,
+          enabled: true,
+        };
+      });
+    } else {
+      const conn = this.connections().find((x) => x.id === c.connectionId);
+      models = ((conn?.models ?? []) as LlmModelMeta[]).map((m) => {
+        const s = suggested.get(m.modelId);
+        return {
+          key: m.id,
+          label: m.label,
+          modelId: m.modelId,
+          tier: m.tier,
+          specialties: specialtiesOf(m.modelId, m.specialties ?? s?.specialties),
+          contextTokens: m.contextTokens ?? s?.contextTokens ?? null,
+          input: m.inputUsdPerMTok ?? null,
+          output: m.outputUsdPerMTok ?? null,
+          enabled: m.enabled,
+          needsPricing: m.needsPricing,
+          local: p?.category === 'LOCAL',
+          vendor: vendorOf(m.modelId),
+        };
+      });
+    }
+    const local = p?.category === 'LOCAL';
+    const conn = this.connections().find((x) => x.id === c.connectionId) as LlmConnectionMeta | undefined;
+    const brand = p ? brandOf(primaryMechanism(p), p) : c.title;
+    return {
+      key: c.key,
+      title: c.title,
+      entry: c.entry,
+      logo: c.logo,
+      status: c.status,
+      statusLabel: c.status === 'on' ? 'Conectado' : c.status === 'off' ? 'Deshabilitado' : 'No configurado',
+      footLabel: c.platform
+        ? 'Incluido por Nexo'
+        : c.signedIn
+          ? `Sesión iniciada con ${brand}`
+          : local
+            ? 'Conectado a su servidor local'
+            : 'Conectado con clave de API',
+      signedIn: c.signedIn,
+      sessionNote: this.sessionNote(conn),
+      canDisconnect: !!c.connectionId,
+      models,
+    };
+  }
+
+  /** Renovación del token OAuth de la conexión (solo `credentialType: 'OAUTH'`). */
+  private sessionNote(conn?: LlmConnectionMeta): string | null {
+    if (conn?.credentialType !== 'OAUTH') return null;
+    if (conn.oauthRenewable) return 'La sesión se renueva automáticamente.';
+    const exp = conn.oauthExpiresAt ? new Date(conn.oauthExpiresAt) : null;
+    const when = exp && !Number.isNaN(exp.getTime()) ? ` (${exp.toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' })})` : '';
+    return exp && exp.getTime() < Date.now()
+      ? `La sesión expiró${when}: vuelva a iniciar sesión.`
+      : `Vuelva a iniciar sesión cuando expire${when}.`;
+  }
+
+  /**
+   * Conexión creada con inicio de sesión: por `mechanism` de la referencia o `credentialType` de la conexión;
+   * si el servidor no informa ninguno, se asume solo cuando el proveedor no ofrece otra vía.
+   */
+  private isSignedIn(p: ProviderView, mechanism?: string, credential?: string) {
+    if (mechanism) return mechanism === 'OAUTH' || mechanism === 'DEVICE_CODE';
+    if (credential) return credential === 'OAUTH';
+    const types = mechanismsOf(p).map((m) => m.type);
+    return types.length > 0 && types.every((t) => t === 'OAUTH' || t === 'DEVICE_CODE');
+  }
+
   goModels(providerId: string | null) {
     this.connecting.set(null);
+    this.detail.set(null);
     this.modelsProvider.set(providerId ?? '');
     this.selectTab('models', true);
   }
@@ -328,17 +589,62 @@ export class ProvidersPage implements OnInit {
     }
   }
 
-  async disconnect(card: ConnectedCard) {
+  /** Abre la confirmación «¿Cerrar sesión de…?» / «¿Desconectar…?» (desde el menú o el diálogo del proveedor). */
+  disconnect(card: ConnectedCard) {
     this.menu.set(null);
     if (!card.connectionId) return;
-    const name = card.connectionName ?? card.title;
-    if (!confirm(`¿Desconectar «${name}»? Se eliminan la conexión y sus modelos. No se puede si hay agentes usándola.`)) return;
+    this.confirmTarget.set({
+      name: card.connectionName ? `${card.title} (${card.connectionName})` : card.title,
+      entry: { id: card.provider?.id ?? card.entry.id, name: card.title },
+      connectionId: card.connectionId,
+      signedIn: card.signedIn,
+      returnFocus: `menu-btn-${card.key}`,
+    });
+  }
+
+  disconnectFromDetail() {
+    const d = this.detail();
+    const card = d && this.connected().find((c) => c.key === d.key);
+    if (!card?.connectionId) return;
+    this.confirmTarget.set({
+      name: card.title,
+      entry: { id: card.provider?.id ?? card.entry.id, name: card.title },
+      connectionId: card.connectionId,
+      signedIn: card.signedIn,
+      returnFocus: null,
+    });
+  }
+
+  cancelDisconnect() {
+    const t = this.confirmTarget();
+    this.confirmTarget.set(null);
+    setTimeout(() => {
+      const el = t?.returnFocus
+        ? this.document.getElementById(t.returnFocus)
+        : this.document.querySelector<HTMLElement>('dialog.detail .pd-foot .btn.danger');
+      el?.focus();
+    });
+  }
+
+  async confirmDisconnect() {
+    const t = this.confirmTarget();
+    if (!t || this.disconnecting()) return;
+    this.disconnecting.set(true);
     try {
-      await this.api.deleteLlmConnection(card.connectionId);
-      this.toast.success(`${name} se desconectó`);
+      const res = (await this.api.deleteLlmConnection(t.connectionId)) as DeleteConnectionResult | null;
+      const revoked = !!res?.revoked;
+      this.confirmTarget.set(null);
+      this.detail.set(null);
+      this.trigger = null;
+      const base = t.signedIn ? `Se cerró la sesión de ${t.name}` : `${t.name} se desconectó`;
+      this.showNotice(revoked ? `${base} y se revocó el acceso de Nexo en el proveedor.` : base, t.entry, 'info');
       await this.load(true);
+      setTimeout(() => this.document.getElementById('sec-available')?.closest('section')?.querySelector<HTMLElement>('button')?.focus());
     } catch (e) {
       this.toast.error(errorMessage(e));
+      this.cancelDisconnect();
+    } finally {
+      this.disconnecting.set(false);
     }
   }
 
@@ -348,12 +654,21 @@ export class ProvidersPage implements OnInit {
     return `${n} ${n === 1 ? 'modelo' : 'modelos'}`;
   }
 
-  private card(p: ProviderView | null, logo: BrandLogo, id: string, name: string, n: number, enabled: boolean): ConnectedCard {
+  private card(
+    p: ProviderView | null,
+    logo: BrandLogo,
+    id: string,
+    name: string,
+    n: number,
+    enabled: boolean,
+    signedIn: boolean,
+  ): ConnectedCard {
     const title = p?.name ?? name;
+    const how = signedIn ? 'Sesión iniciada' : p ? BILLING_LABELS[p.billing] : 'Conexión propia';
     return {
       key: id,
       title,
-      subtitle: `${n} ${n === 1 ? 'modelo' : 'modelos'} · ${p ? BILLING_LABELS[p.billing] : 'Conexión propia'}`,
+      subtitle: `${n} ${n === 1 ? 'modelo' : 'modelos'} · ${how}`,
       connectionName: name && name !== title ? name : null,
       logo,
       entry: { id: p?.id ?? id, name: title },
@@ -364,6 +679,7 @@ export class ProvidersPage implements OnInit {
       enabled,
       platform: false,
       modelsKey: p?.id ?? `conn:${id}`,
+      signedIn,
     };
   }
 }

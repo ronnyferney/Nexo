@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, model, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService, errorMessage } from '../../core/api.service';
-import type { ProviderView } from '../../core/llm-providers.models';
+import type { LlmModelMeta, ProviderView } from '../../core/llm-providers.models';
 import type { LlmConnection, LlmModel, LlmModelInput, ModelTier, ProviderInfo } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
 import { TIER_LABELS } from '../../shared/budget';
@@ -10,7 +10,7 @@ import { UsdPipe } from '../../shared/usd.pipe';
 import type { BrandLogo } from '../integrations/integration-logos';
 import { BrandLogoComponent } from '../integrations/brand-logo.component';
 import { providerLogo } from './ai-provider-logos';
-import { normalize } from './provider-meta';
+import { formatContext, normalize, SPECIALTY_LABELS, specialtiesOf } from './provider-meta';
 
 interface ModelRow {
   key: string;
@@ -28,6 +28,17 @@ interface ModelRow {
   model: LlmModel | null;
   tag: 'PLATFORM' | 'TEST' | null;
   unpriced: boolean;
+  /** «128 K de memoria · Código, Visión» (si el servidor o el catálogo lo informan). */
+  meta: string | null;
+}
+
+function metaOf(modelId: string, ctx: number | null | undefined, given: readonly string[] | null | undefined) {
+  const parts: string[] = [];
+  const c = formatContext(ctx);
+  if (c) parts.push(`${c} de memoria`);
+  const sp = specialtiesOf(modelId, given).filter((s) => s !== 'GENERAL').map((s) => SPECIALTY_LABELS[s]);
+  if (sp.length) parts.push(sp.join(', '));
+  return parts.join(' · ') || null;
 }
 
 const MOCK = { id: 'mock', name: 'Simulado', logo: 'mock' };
@@ -69,7 +80,9 @@ export class LlmModelsComponent {
       const p = byConn.get(c.id) ?? (test ? MOCK : c.kind === 'ANTHROPIC' ? anthropic : undefined);
       const prov = p ?? { id: `conn:${c.id}`, name: c.name, logo: '' };
       const local = (p as ProviderView | undefined)?.category === 'LOCAL';
-      for (const m of c.models) {
+      const suggested = new Map(((p as ProviderView | undefined)?.suggestedModels ?? []).map((s) => [s.id, s]));
+      for (const m of c.models as LlmModelMeta[]) {
+        const sm = suggested.get(m.modelId);
         const input = m.inputUsdPerMTok ?? null;
         const output = m.outputUsdPerMTok ?? null;
         out.push({
@@ -86,7 +99,8 @@ export class LlmModelsComponent {
           enabled: m.enabled,
           model: m,
           tag: test ? 'TEST' : null,
-          unpriced: !test && (input === null || output === null || (!local && input === 0 && output === 0)),
+          unpriced: !test && (!!m.needsPricing || input === null || output === null || (!local && input === 0 && output === 0)),
+          meta: test ? null : metaOf(m.modelId, m.contextTokens ?? sm?.contextTokens, m.specialties ?? sm?.specialties),
         });
       }
     }
@@ -110,6 +124,7 @@ export class LlmModelsComponent {
           model: null,
           tag: test ? 'TEST' : 'PLATFORM',
           unpriced: false,
+          meta: null,
         });
       }
     }

@@ -2,7 +2,15 @@ import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
-import type { ProviderConnectInput, ProviderConnectResult, ProviderView } from './llm-providers.models';
+import type {
+  DetectResult,
+  DevicePollResult,
+  DeviceStartResult,
+  OAuthStartInput,
+  ProviderConnectInput,
+  ProviderConnectResult,
+  ProviderView,
+} from './llm-providers.models';
 
 /** Fachada tipada de la galería de proveedores de IA (`/admin/llm/providers`, solo ADMIN+). */
 @Injectable({ providedIn: 'root' })
@@ -17,7 +25,18 @@ export class LlmProvidersApi {
     firstValueFrom(
       this.http.get<{ models: string[] }>(`${this.base}/${encodeURIComponent(id)}/discover`, { params: { connectionId } }),
     );
-  /** Inicio del flujo OAuth (hoy solo `openrouter`): el navegador se redirige a `authorizeUrl`. */
-  oauthStart = (id: string) =>
-    firstValueFrom(this.http.post<{ authorizeUrl: string }>(`${this.base}/${encodeURIComponent(id)}/oauth/start`, {}));
+  /** Inicio del flujo OAuth: la web abre `authorizeUrl` en una ventana emergente (o redirige si se bloquea). */
+  oauthStart = (id: string, data: OAuthStartInput = {}) =>
+    firstValueFrom(this.http.post<{ authorizeUrl: string }>(`${this.url(id)}/oauth/start`, data));
+  /** Flujo de código de dispositivo (RFC 8628, p. ej. Hugging Face). */
+  deviceStart = (id: string) => firstValueFrom(this.http.post<DeviceStartResult>(`${this.url(id)}/device/start`, {}));
+  devicePoll = (id: string, flowId: string) =>
+    firstValueFrom(this.http.post<DevicePollResult>(`${this.url(id)}/device/poll`, { flowId }));
+  /** Detección de un servidor local (Ollama, LM Studio) y de sus modelos instalados. */
+  detect = (id: string, baseUrl?: string) =>
+    firstValueFrom(this.http.post<DetectResult>(`${this.url(id)}/detect`, baseUrl ? { baseUrl } : {}));
+
+  private url(id: string) {
+    return `${this.base}/${encodeURIComponent(id)}`;
+  }
 }
