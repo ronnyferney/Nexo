@@ -206,6 +206,26 @@ export function keylessError(err: unknown): KeylessAuthError | null {
 }
 
 /**
+ * Retira los bloques de razonamiento (`thinking`/`redacted_thinking`) de los turnos ya cerrados del historial.
+ *
+ * Cada bloque de razonamiento va firmado y ligado a la conversación y al modelo que lo produjo (razonamiento
+ * preservado): si entre un turno y el siguiente cambia el system prompt, las herramientas o el modelo del agente,
+ * la firma deja de validar contra el nuevo prefijo y la API responde «Invalid signature in thinking block». Un turno
+ * ya terminado no necesita su razonamiento para continuar la conversación, así que se descarta antes de reenviarlo.
+ * El razonamiento del turno en curso (el que se agrega dentro del bucle de tool use) nunca pasa por aquí y se conserva
+ * intacto, que es donde sí hace falta. Es la misma operación que haría el servidor con
+ * `prefix_mismatch_behavior: "drop_block"`, pero determinista, sin depender de una cabecera beta y válida para
+ * cualquier canal. Al ser determinista, no rompe la caché de prompts.
+ */
+export function stripHistoricalThinking(history: MessageParam[]): MessageParam[] {
+  return history.map((msg) => {
+    if (msg.role !== 'assistant' || !Array.isArray(msg.content)) return msg;
+    const content = msg.content.filter((b) => b.type !== 'thinking' && b.type !== 'redacted_thinking');
+    return content.length === msg.content.length ? msg : { ...msg, content };
+  });
+}
+
+/**
  * Cliente Claude (Messages API) con bucle de tool use manual:
  * streaming, thinking adaptativo + effort, caché automática de prompts (ahorro de costos),
  * fallback server-side ante rechazos por política e historial nativo append-only.
@@ -290,7 +310,10 @@ class AnthropicClient implements LlmClient {
   }
 
   async run(req: LlmRunRequest): Promise<LlmRunResult> {
-    const history = [...(req.history as MessageParam[]), { role: 'user', content: req.userMessage } as MessageParam];
+    const history = [
+      ...stripHistoricalThinking(req.history as MessageParam[]),
+      { role: 'user', content: req.userMessage } as MessageParam,
+    ];
     const tools: Anthropic.Beta.Messages.BetaTool[] = req.tools.map((t) => ({
       name: t.name,
       description: t.description,

@@ -7,7 +7,13 @@ import type { ConfigService } from '@nestjs/config';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { HttpClientService } from '../../../common/http/http-client.service';
-import { AnthropicDriver, claudeSdkClient, isCustomAnthropicEndpoint, providerErrorMessage } from './anthropic.driver';
+import {
+  AnthropicDriver,
+  claudeSdkClient,
+  isCustomAnthropicEndpoint,
+  providerErrorMessage,
+  stripHistoricalThinking,
+} from './anthropic.driver';
 
 describe('Driver de Claude por canal', () => {
   const token = () => Promise.resolve('token-google');
@@ -70,6 +76,46 @@ describe('Driver de Claude por canal', () => {
     expect(parseClaudeOptions({ channel: 'otro-canal' })).toBeNull();
     expect(parseClaudeOptions('vertex')).toBeNull();
     expect(parseClaudeOptions({ channel: 'foundry', resource: 'x'.repeat(500) })).toEqual({ channel: 'foundry' });
+  });
+});
+
+describe('Razonamiento preservado: se descarta el de turnos ya cerrados del historial', () => {
+  type Block = { type: string; [k: string]: unknown };
+  const msg = (role: string, content: Block[]) =>
+    ({ role, content }) as unknown as Parameters<typeof stripHistoricalThinking>[0][number];
+
+  // Regresión: al cambiar el system prompt o las herramientas del agente entre turnos, la firma del bloque de
+  // razonamiento guardado dejaba de validar y la API respondía «Invalid signature in thinking block».
+  it('quita thinking y redacted_thinking de los mensajes del asistente, conservando texto y tool_use', () => {
+    const history = [
+      msg('user', [{ type: 'text', text: 'hola' }]),
+      msg('assistant', [
+        { type: 'thinking', thinking: 'razonando…', signature: 'firma-ligada-a-otro-prefijo' },
+        { type: 'redacted_thinking', data: 'opaco' },
+        { type: 'text', text: 'Hice la tarea.' },
+        { type: 'tool_use', id: 'tu_1', name: 'listar', input: {} },
+      ]),
+      msg('user', [{ type: 'tool_result', tool_use_id: 'tu_1', content: 'ok' }]),
+    ];
+
+    const out = stripHistoricalThinking(history) as unknown as { role: string; content: Block[] }[];
+
+    expect(out[1].content.map((b) => b.type)).toEqual(['text', 'tool_use']);
+    // El resto del historial no se toca (mismas referencias: sin copias innecesarias).
+    expect(out[0]).toBe(history[0]);
+    expect(out[2]).toBe(history[2]);
+    // No muta el original (la caché de prompts depende de un historial estable).
+    expect((history[1] as unknown as { content: Block[] }).content).toHaveLength(4);
+  });
+
+  it('deja intactos los mensajes del asistente sin razonamiento y el contenido en texto plano', () => {
+    const history = [
+      msg('assistant', 'respuesta simple' as unknown as Block[]),
+      msg('assistant', [{ type: 'text', text: 'sin thinking' }]),
+    ];
+    const out = stripHistoricalThinking(history);
+    expect(out[0]).toBe(history[0]);
+    expect(out[1]).toBe(history[1]);
   });
 });
 
