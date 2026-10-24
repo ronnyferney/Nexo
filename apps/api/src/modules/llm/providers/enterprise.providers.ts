@@ -23,7 +23,7 @@ import { API_KEY_FIELD, type OAuthAppSpec, type ProviderCatalogEntry } from './p
  *   `AWS_BEARER_TOKEN_BEDROCK`, validación de región) y platform.claude.com «Claude in Amazon Bedrock» (bedrock-mantle).
  */
 /** App OAuth web de Nexo en Google Cloud (`OAUTH_LLM_VERTEX_CLIENT_ID/SECRET`). */
-const GOOGLE_CLOUD_OAUTH: OAuthAppSpec = {
+export const GOOGLE_CLOUD_OAUTH: OAuthAppSpec = {
   idpName: 'Google',
   authorizeUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
   tokenUrl: 'https://oauth2.googleapis.com/token',

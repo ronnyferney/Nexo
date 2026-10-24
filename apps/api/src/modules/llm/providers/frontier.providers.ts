@@ -16,7 +16,7 @@ import { API_KEY_FIELD, type ModelSpecialty, type ProviderCatalogEntry } from '.
  * «para razonamiento exigente», Opus «para agentes de código y trabajo de conocimiento de larga duración», Sonnet
  * «la mejor combinación de velocidad e inteligencia» (latencia «Fast») y Haiku el más rápido.
  */
-const ANTHROPIC_SPECIALTIES: Record<string, ModelSpecialty[]> = {
+export const ANTHROPIC_SPECIALTIES: Record<string, ModelSpecialty[]> = {
   'claude-fable-5-1': ['REASONING', 'VISION'],
   'claude-opus-5-5': ['CODE', 'GENERAL', 'VISION'],
   'claude-sonnet-5-5': ['GENERAL', 'FAST', 'VISION'],
@@ -26,8 +26,8 @@ const ANTHROPIC_SPECIALTIES: Record<string, ModelSpecialty[]> = {
 export const FRONTIER_PROVIDERS: ProviderCatalogEntry[] = [
   {
     id: 'anthropic',
-    name: 'Anthropic Claude',
-    description: 'Modelos Claude con la API oficial de Anthropic (driver nativo con thinking y caché de prompts).',
+    name: 'Claude · API de Anthropic',
+    description: 'Directo con Anthropic: clave de API de la Consola de Claude, todas las funciones el mismo día.',
     logo: 'anthropic',
     category: 'FRONTIER',
     billing: 'PAY_AS_YOU_GO',
@@ -58,6 +58,8 @@ export const FRONTIER_PROVIDERS: ProviderCatalogEntry[] = [
       'Claude Haiku 5.5 cobra 0,50/2,50 USD por MTok en prompts de más de 100.000 tokens; Nexo aplica la tarifa base.',
     pendingVerification: [],
     authHeader: 'bearer',
+    family: 'CLAUDE',
+    claudeChannel: 'anthropic',
   },
   {
     id: 'openai',

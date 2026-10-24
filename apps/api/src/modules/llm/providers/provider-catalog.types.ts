@@ -13,6 +13,12 @@ export type ProviderAuth = 'API_KEY' | 'OAUTH' | 'NONE';
 /** Especialidades de un modelo para los filtros de la consola (solo valores verificados; si no, `GENERAL`). */
 export type ModelSpecialty = 'CODE' | 'REASONING' | 'VISION' | 'FAST' | 'GENERAL';
 export const MODEL_SPECIALTIES: readonly ModelSpecialty[] = ['CODE', 'REASONING', 'VISION', 'FAST', 'GENERAL'];
+/**
+ * Canal oficial por el que se llega a los modelos Claude. Los modelos son los mismos; cambian la autenticación, la
+ * facturación y quién opera el servicio: Anthropic (API directa y Claude en Google Cloud), Google (Vertex AI) o
+ * Microsoft (Foundry).
+ */
+export type ClaudeChannel = 'anthropic' | 'google-cloud' | 'vertex' | 'foundry';
 /** Mecanismo de conexión que ofrece la galería. */
 export type MechanismType = 'API_KEY' | 'OAUTH' | 'DEVICE_CODE' | 'LOCAL_DETECT';
 
@@ -43,6 +49,11 @@ export interface OAuthAppSpec {
    * jamás un client_id de otro producto. Las URLs que empiezan por `/` son rutas de `PUBLIC_URL`.
    */
   builtinClientId?: string;
+  /**
+   * Clave de las variables `OAUTH_LLM_<CLAVE>_CLIENT_ID/SECRET` (por defecto el id del proveedor). Permite que varias
+   * entradas compartan la misma app de Nexo, p. ej. la app de Google para Vertex AI y Claude en Google Cloud.
+   */
+  appKey?: string;
 }
 
 export interface ProviderMechanismSpec {
@@ -129,6 +140,10 @@ export interface ProviderCatalogEntry {
   deriveValues?: (values: Record<string, string>) => Record<string, string>;
   /** Solo existe con `LLM_DEV_SIMULATOR=true` fuera de producción; su URL base es `PUBLIC_URL` + `baseUrl`. */
   devOnly?: boolean;
+  /** Familia de modelos: la galería agrupa los canales de Claude bajo «Claude». */
+  family?: 'CLAUDE';
+  /** Canal de Claude (solo `kind: 'ANTHROPIC'`): decide qué cliente oficial usa el driver. */
+  claudeChannel?: ClaudeChannel;
 }
 
 /** Mecanismos efectivos de una entrada (los declarados o el valor por defecto de su categoría). */

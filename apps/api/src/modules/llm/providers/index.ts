@@ -1,4 +1,5 @@
 import { render } from '../../../common/template/template.engine';
+import { CLAUDE_CHANNEL_PROVIDERS } from './claude.providers';
 import { DEV_PROVIDERS } from './dev.providers';
 import { ENTERPRISE_PROVIDERS } from './enterprise.providers';
 import { FRONTIER_PROVIDERS } from './frontier.providers';
@@ -15,6 +16,7 @@ export * from './provider-catalog.types';
  */
 export const PROVIDER_CATALOG: readonly ProviderCatalogEntry[] = [
   ...FRONTIER_PROVIDERS,
+  ...CLAUDE_CHANNEL_PROVIDERS,
   ...OPEN_MODEL_PROVIDERS,
   ...ENTERPRISE_PROVIDERS,
   ...ROUTER_PROVIDERS,

@@ -138,6 +138,35 @@ Diseño:
 - `LLM_OAUTH_ENDPOINT_OVERRIDES` (JSON `{ "<proveedor>": { authorizeUrl?, tokenUrl?, deviceUrl?, revokeUrl? } }`)
   sustituye los endpoints OAuth (proxies de identidad corporativos y pruebas); solo lo define el operador.
 
+### D9. Claude como familia de modelos con canales oficiales (addendum, 2026-10-24)
+Claude es una **familia de modelos** (Opus 5.5, Sonnet 5.5, Haiku 5.5, Fable 5.1) a la que se llega por varios canales
+oficiales; los modelos son los mismos y cambian quién opera el servicio, la autenticación y la facturación. La galería
+los agrupa bajo «Claude» (`ProviderCatalogEntry.family = 'CLAUDE'`, `claudeChannel`) y el driver `ANTHROPIC` usa el
+**SDK oficial de cada canal** (mismo bucle de tool use, thinking adaptativo y caché):
+
+| Canal (`providerId`) | Operado por | Conexión | Cliente oficial | Facturación |
+|---|---|---|---|---|
+| API de Anthropic (`anthropic`) | Anthropic | Clave de API (cuenta de servicio); próximo: WIF | `@anthropic-ai/sdk` | Tarifas de Anthropic |
+| Claude en Google Cloud (`claude-google-cloud`) | Anthropic | «Iniciar sesión con Google» (token de Google, rol `roles/claude.user`), proyecto y workspace `wrkspc_` | `@anthropic-ai/google-cloud-sdk` (`bearerTokenProvider`) | Google Cloud Marketplace |
+| Claude en Vertex AI (`claude-vertex`) | Google | «Iniciar sesión con Google», proyecto y región | `@anthropic-ai/vertex-sdk` (`authClient` OAuth2 con el token vigente, uno por solicitud) | Tarifas de Google |
+| Claude en Microsoft Foundry (`claude-foundry`) | Microsoft (Azure) | Clave del recurso (`api-key`); Entra ID pendiente de verificar el alcance | `@anthropic-ai/foundry-sdk` | Microsoft Marketplace a tarifas de Anthropic (CCU) |
+
+- **Este es el «iniciar sesión» legítimo para Claude:** Anthropic prohíbe que terceros ofrezcan el inicio de sesión de
+  Claude.ai o usen planes Free/Pro/Max (code.claude.com/docs/en/legal-and-compliance). El acceso con cuenta de empresa
+  y sin claves es por la nube del cliente (Google Cloud, Vertex AI) o, a futuro, por Workload Identity Federation.
+- Las entradas de Google comparten la **misma app OAuth de Nexo** (`OAuthAppSpec.appKey = 'vertex'` →
+  `OAUTH_LLM_VERTEX_CLIENT_ID/SECRET`); en la app se registra un redirect URI por entrada
+  (`/api/llm/oauth/<claude-google-cloud|claude-vertex|vertex>/callback`).
+- La conexión guarda el canal en `driverOptions.claude` (`channel`, `project`, `region`, `workspaceId`, `resource`;
+  solo valores no secretos, validados al leer).
+- El fallback server-side ante rechazos solo se pide en canales operados por Anthropic (API y Google Cloud) y con el
+  host oficial; Vertex AI y Foundry no lo admiten. Vertex AI y Foundry no ofrecen API de modelos: se verifican con un
+  conteo de tokens (gratuito) y `verifyMode: 'lenient'` (404 si el modelo no está activado; 401/403 impiden conectar).
+- **Precios:** API de Anthropic y Foundry con las tarifas verificadas en platform.claude.com/docs/en/about-claude/pricing;
+  Google Cloud y Vertex AI se importan con `needsPricing`.
+- **Pendiente:** Amazon Bedrock (Mantle) y Claude Platform on AWS con rol de IAM y `ExternalId` (sin claves de larga
+  duración), Workload Identity Federation para la API de Anthropic y Entra ID para Foundry.
+
 ## Contrato de API
 
 Todas las cantidades monetarias son `number` en USD. Rutas bajo `/api`.

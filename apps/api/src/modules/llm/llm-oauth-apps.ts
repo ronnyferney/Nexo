@@ -52,8 +52,8 @@ export function oauthAppUnavailableReason(
   entry: ProviderCatalogEntry,
   spec: OAuthAppSpec,
 ): string | null {
-  const idVar = llmOAuthEnvName(entry.id, 'CLIENT_ID');
-  const secretVar = llmOAuthEnvName(entry.id, 'CLIENT_SECRET');
+  const idVar = llmOAuthEnvName(spec.appKey ?? entry.id, 'CLIENT_ID');
+  const secretVar = llmOAuthEnvName(spec.appKey ?? entry.id, 'CLIENT_SECRET');
   const hasId = !!str(config.get<string>(idVar)) || !!spec.builtinClientId;
   const hasSecret = !!str(config.get<string>(secretVar));
   if (hasId && (hasSecret || !spec.secretRequired)) return null;
@@ -77,7 +77,8 @@ export function resolveLlmOAuthApp(
 ): ResolvedLlmOAuthApp {
   const reason = oauthAppUnavailableReason(config, entry, spec);
   if (reason) throw new LlmOAuthAppError(reason);
-  const override = config.get<Record<string, OAuthEndpointOverride>>('llm.oauthEndpointOverrides')?.[entry.id] ?? {};
+  const overrides = config.get<Record<string, OAuthEndpointOverride>>('llm.oauthEndpointOverrides');
+  const override = overrides?.[entry.id] ?? (spec.appKey ? overrides?.[spec.appKey] : undefined) ?? {};
   const publicUrl = (config.get<string>('publicUrl') ?? 'http://localhost:3000').replace(/\/+$/, '');
   const url = (template: string | undefined) => {
     if (!template) return undefined;
@@ -85,11 +86,12 @@ export function resolveLlmOAuthApp(
     // Rutas relativas (simulador local): se sirven bajo PUBLIC_URL.
     return rendered.startsWith('/') ? `${publicUrl}${rendered}` : rendered;
   };
-  const secret = str(config.get<string>(llmOAuthEnvName(entry.id, 'CLIENT_SECRET')));
+  const secret = str(config.get<string>(llmOAuthEnvName(spec.appKey ?? entry.id, 'CLIENT_SECRET')));
   return {
     providerId: entry.id,
     idpName: spec.idpName,
-    clientId: str(config.get<string>(llmOAuthEnvName(entry.id, 'CLIENT_ID'))) || spec.builtinClientId || '',
+    clientId:
+      str(config.get<string>(llmOAuthEnvName(spec.appKey ?? entry.id, 'CLIENT_ID'))) || spec.builtinClientId || '',
     ...(secret ? { clientSecret: secret } : {}),
     authorizeUrl: url(override.authorizeUrl ?? spec.authorizeUrl)!,
     tokenUrl: url(override.tokenUrl ?? spec.tokenUrl)!,

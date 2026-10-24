@@ -7,6 +7,7 @@ import { CryptoService } from '../src/common/crypto/crypto.service';
 import { OAuthStateService } from '../src/modules/oauth/oauth-state.service';
 import { Api, createTestApp, prismaOf } from './utils/app';
 import { addMember, chat, createAgent, registerOwner, type Session } from './utils/fixtures';
+import { ClaudeMessagesMock } from './utils/mock-servers';
 
 interface Recorded {
   method: string;
@@ -779,6 +780,117 @@ describe('Mecanismos oficiales de conexión de proveedores IA (E2E)', () => {
       });
       const res = await callback('huggingface', { code, state }).expect(302);
       connectedId(res.headers.location, 'huggingface');
+    });
+  });
+
+  describe('Claude con «Iniciar sesión con Google» (Google Cloud operado por Anthropic y Vertex AI)', () => {
+    let claude: ClaudeMessagesMock;
+
+    beforeAll(async () => {
+      configureApps();
+      claude = await new ClaudeMessagesMock().start();
+      // Solo tokens vigentes emitidos por el IdP de Google simulado.
+      claude.authorize = (h) => {
+        const token = String(h.authorization ?? '').replace(/^Bearer /, '');
+        const exp = idp.accessTokens.get(token);
+        return !!exp && exp > Date.now();
+      };
+      config.set('llm.providerUrlOverrides', {
+        ...config.get<Record<string, string>>('llm.providerUrlOverrides'),
+        'claude-google-cloud': `${claude.origin}/gc`,
+        'claude-vertex': `${claude.origin}/vx`,
+      });
+    });
+
+    afterAll(async () => {
+      await claude?.stop();
+    });
+
+    /** Consentimiento con la misma app de Google de Nexo (OAUTH_LLM_VERTEX_*), callback y conexión creada. */
+    async function signInWithGoogle(provider: string, fields: Record<string, string>, models: string[]) {
+      const start = await owner.api
+        .post(`/admin/llm/providers/${provider}/oauth/start`, { fields, models })
+        .expect(200);
+      const { code, state } = idp.authorize((start.body as { authorizeUrl: string }).authorizeUrl, {
+        path: '/google/auth',
+        clientId: 'nexo-vertex.apps.googleusercontent.com',
+        scope: 'https://www.googleapis.com/auth/cloud-platform',
+        provider,
+      });
+      return connectedId((await callback(provider, { code, state }).expect(302)).headers.location as string, provider);
+    }
+
+    it('los canales de Claude se publican como una familia y comparten la app de Google', async () => {
+      const family = (await providers(owner)).filter(
+        (p) => (p as ProviderView & { family?: string }).family === 'CLAUDE',
+      );
+      expect(family.map((p) => p.id)).toEqual(['anthropic', 'claude-google-cloud', 'claude-vertex', 'claude-foundry']);
+      const gc = family.find((p) => p.id === 'claude-google-cloud')!;
+      expect(gc.mechanisms).toEqual([expect.objectContaining({ type: 'OAUTH', available: true })]);
+      expect(gc.suggestedModels.map((m) => m.id)).toEqual(
+        expect.arrayContaining(['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-fable-5-1']),
+      );
+    });
+
+    it('Claude en Google Cloud: inicia sesión, verifica con el token de Google y un agente conversa con Claude', async () => {
+      const id = await signInWithGoogle(
+        'claude-google-cloud',
+        { projectId: 'mi-proyecto-123', workspaceId: 'wrkspc_e2e0001' },
+        ['claude-opus-5-5'],
+      );
+      const row = await prismaOf(app).llmConnection.findUniqueOrThrow({ where: { id }, include: { models: true } });
+      expect(row).toMatchObject({
+        kind: 'ANTHROPIC',
+        credentialType: 'OAUTH',
+        providerId: 'claude-google-cloud',
+        driverOptions: {
+          claude: { channel: 'google-cloud', project: 'mi-proyecto-123', workspaceId: 'wrkspc_e2e0001' },
+        },
+      });
+      expect(row.models.map((m) => m.modelId)).toEqual(['claude-opus-5-5']);
+      // Google factura este canal con sus tarifas: el modelo queda pendiente de tarifa.
+      expect(row.models[0].needsPricing).toBe(true);
+
+      const agent = await createAgent(owner, { provider: id, model: 'claude-opus-5-5' });
+      expect((await chat(owner, agent.id, 'Hola Claude')).text).toBe('Hola desde Claude simulado');
+      const sent = claude.messageRequests().at(-1)!;
+      expect(sent.path).toBe('/gc/v1/messages');
+      expect(idp.accessTokens.has(String(sent.headers.authorization).replace(/^Bearer /, ''))).toBe(true);
+      expect(sent.headers['x-api-key']).toBeUndefined();
+      expect(sent.body).toMatchObject({ model: 'claude-opus-5-5', stream: true, thinking: { type: 'adaptive' } });
+      // Con un endpoint distinto del oficial no se pide el fallback server-side.
+      expect(sent.body).not.toHaveProperty('fallbacks');
+
+      // El token vence: Nexo lo renueva con el refresh token y la conversación sigue.
+      idp.expireAll();
+      await prismaOf(app).llmConnection.update({
+        where: { id },
+        data: { oauthExpiresAt: new Date(Date.now() - 1000) },
+      });
+      expect((await chat(owner, agent.id, 'Sigo aquí')).text).toBe('Hola desde Claude simulado');
+      await prismaOf(app).agent.delete({ where: { id: agent.id } });
+    });
+
+    it('Claude en Vertex AI: se verifica con un conteo de tokens y conversa por streamRawPredict', async () => {
+      const id = await signInWithGoogle('claude-vertex', { projectId: 'mi-proyecto-123', region: 'global' }, [
+        'claude-sonnet-5-5',
+      ]);
+      const verify = claude.requests.filter((r) => r.path.startsWith('/vx/')).at(0)!;
+      expect(verify.path).toMatch(
+        /\/projects\/mi-proyecto-123\/locations\/global\/publishers\/anthropic\/models\/count-tokens:rawPredict$/,
+      );
+      const agent = await createAgent(owner, { provider: id, model: 'claude-sonnet-5-5' });
+      expect((await chat(owner, agent.id, 'Hola Vertex')).text).toBe('Hola desde Claude simulado');
+      expect(claude.messageRequests().at(-1)!.path).toMatch(/\/models\/claude-sonnet-5-5:streamRawPredict$/);
+      await prismaOf(app).agent.delete({ where: { id: agent.id } });
+    });
+
+    it('rechaza campos con formato inválido antes de abrir el consentimiento', async () => {
+      await owner.api
+        .post('/admin/llm/providers/claude-google-cloud/oauth/start', {
+          fields: { projectId: 'mi-proyecto-123', workspaceId: 'otro-formato' },
+        })
+        .expect(400);
     });
   });
 

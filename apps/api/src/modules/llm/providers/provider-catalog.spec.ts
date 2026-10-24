@@ -138,8 +138,12 @@ describe('Catálogo de proveedores LLM', () => {
     expect(SYSTEM_ANTHROPIC_MODELS.find((m) => m.id === 'claude-sonnet-5-5')!.cacheReadUsdPerMTok).toBe(0.1);
   });
 
-  it('solo Anthropic trae precios: el resto queda pendiente de tarifa', () => {
-    for (const p of REAL_PROVIDERS.filter((x) => x.id !== 'anthropic')) {
+  it('solo los canales con tarifas de la API de Anthropic traen precios: el resto queda pendiente de tarifa', () => {
+    // Claude en Microsoft Foundry se factura con las tarifas de la API de Anthropic (Microsoft Marketplace).
+    const priced = new Set(['anthropic', 'claude-foundry']);
+    const anthropic = REAL_PROVIDERS.find((x) => x.id === 'anthropic')!;
+    expect(REAL_PROVIDERS.find((x) => x.id === 'claude-foundry')!.suggestedModels).toEqual(anthropic.suggestedModels);
+    for (const p of REAL_PROVIDERS.filter((x) => !priced.has(x.id))) {
       expect(p.suggestedModels.every((m) => m.inputUsdPerMTok === undefined)).toBe(true);
     }
   });

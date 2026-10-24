@@ -195,3 +195,115 @@ export class RestMock extends MockServer {
     return { status: 404, body: { message: 'No encontrado' } };
   }
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Messages API de Claude (con streaming SSE): imita la API de Anthropic y sus canales (Foundry, Google Cloud, Vertex)
+// ---------------------------------------------------------------------------------------------------------------
+
+/** Servidor que imita la Messages API de Claude bajo cualquier prefijo (`…/v1/messages`, `count_tokens`, `models`). */
+export class ClaudeMessagesMock {
+  private server?: Server;
+  port = 0;
+  readonly requests: RecordedRequest[] = [];
+  /** Decide si la credencial es válida (por defecto, cualquier credencial presente). */
+  authorize: (headers: IncomingMessage['headers']) => boolean = (h) =>
+    !!(h['x-api-key'] || h['api-key'] || h.authorization);
+  reply = 'Hola desde Claude simulado';
+
+  get origin(): string {
+    return `http://127.0.0.1:${this.port}`;
+  }
+
+  messageRequests(): RecordedRequest[] {
+    return this.requests.filter((r) => /\/v1\/messages$|:streamRawPredict$/.test(r.path));
+  }
+
+  async start(): Promise<this> {
+    this.server = createServer((req, res) => {
+      void (async () => {
+        const raw = await readBody(req);
+        const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+        const body = raw ? (JSON.parse(raw) as Record<string, unknown>) : undefined;
+        this.requests.push({
+          method: req.method ?? 'GET',
+          path: url.pathname,
+          query: url.searchParams,
+          headers: req.headers,
+          body,
+        });
+        if (!this.authorize(req.headers)) {
+          send(res, 401, { type: 'error', error: { type: 'authentication_error', message: 'invalid credentials' } });
+          return;
+        }
+        if (url.pathname.endsWith('/v1/models')) {
+          send(res, 200, {
+            data: [
+              {
+                type: 'model',
+                id: 'claude-opus-5-5',
+                display_name: 'Claude Opus 5.5',
+                created_at: '2026-09-01T00:00:00Z',
+              },
+            ],
+            has_more: false,
+            first_id: 'claude-opus-5-5',
+            last_id: 'claude-opus-5-5',
+          });
+          return;
+        }
+        // Vertex AI: …/publishers/anthropic/models/<modelo>:streamRawPredict (y count-tokens:rawPredict).
+        const vertex = /\/publishers\/anthropic\/models\/([^/:]+):(stream)?[rR]awPredict$/.exec(url.pathname);
+        if (url.pathname.endsWith('/v1/messages/count_tokens') || vertex?.[1] === 'count-tokens') {
+          send(res, 200, { input_tokens: 3 });
+          return;
+        }
+        if (!url.pathname.endsWith('/v1/messages') && !vertex) {
+          send(res, 404, { type: 'error', error: { type: 'not_found_error', message: 'not found' } });
+          return;
+        }
+        const model = vertex?.[1] ?? (typeof body?.model === 'string' ? body.model : 'claude-opus-5-5');
+        const message = {
+          id: 'msg_e2e',
+          type: 'message',
+          role: 'assistant',
+          model,
+          content: [] as unknown[],
+          stop_reason: null,
+          stop_sequence: null,
+          usage: { input_tokens: 12, output_tokens: 1 },
+        };
+        const events: [string, unknown][] = [
+          ['message_start', { type: 'message_start', message }],
+          ['content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }],
+          [
+            'content_block_delta',
+            { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: this.reply } },
+          ],
+          ['content_block_stop', { type: 'content_block_stop', index: 0 }],
+          [
+            'message_delta',
+            {
+              type: 'message_delta',
+              delta: { stop_reason: 'end_turn', stop_sequence: null },
+              usage: { output_tokens: 6 },
+            },
+          ],
+          ['message_stop', { type: 'message_stop' }],
+        ];
+        res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
+        for (const [event, data] of events) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+        res.end();
+      })().catch((err: Error) => send(res, 500, { type: 'error', error: { type: 'api_error', message: err.message } }));
+    });
+    const server = this.server;
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    this.port = (server.address() as AddressInfo).port;
+    return this;
+  }
+
+  async stop(): Promise<void> {
+    if (!this.server) return;
+    this.server.closeAllConnections();
+    await new Promise<void>((resolve) => this.server!.close(() => resolve()));
+  }
+}

@@ -6,7 +6,7 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import type { ConnectProviderDto } from './dto/llm-providers.dto';
 import { LlmGatewayService } from './llm-gateway.service';
 import { mechanismViews, type MechanismView } from './llm-oauth-apps';
-import { LlmHttpError, type AuthHeaderStyle, type LlmCredentials } from './llm-provider';
+import { LlmHttpError, type AuthHeaderStyle, type ClaudeChannelOptions, type LlmCredentials } from './llm-provider';
 import { serializeConnection, serializeModel } from './llm-serializers';
 import type { OAuthTokens } from './llm-token.service';
 import { SYSTEM_ANTHROPIC_MODELS } from './pricing';
@@ -79,6 +79,18 @@ export function publicModel(m: SuggestedModel): PublicSuggestedModel {
     ...m,
     specialties: m.specialties?.length ? m.specialties : ['GENERAL'],
     contextTokens: m.contextTokens ?? null,
+  };
+}
+
+/** Canal de Claude de la entrada con los campos no secretos que necesita su cliente oficial. */
+export function claudeOptions(entry: ProviderCatalogEntry, values: Record<string, string>): ClaudeChannelOptions {
+  const channel = entry.claudeChannel ?? 'anthropic';
+  return {
+    channel,
+    ...(values.projectId ? { project: values.projectId } : {}),
+    ...(values.region ? { region: values.region } : {}),
+    ...(values.workspaceId ? { workspaceId: values.workspaceId } : {}),
+    ...(values.resource ? { resource: values.resource } : {}),
   };
 }
 
@@ -212,7 +224,7 @@ export class LlmProvidersService {
 
   credentials(
     entry: ProviderCatalogEntry,
-    v: Pick<ValidatedFields, 'apiKey' | 'baseUrl'>,
+    v: Pick<ValidatedFields, 'apiKey' | 'baseUrl'> & { values?: Record<string, string> },
     authHeader: AuthHeaderStyle = entry.authHeader,
   ): LlmCredentials {
     return {
@@ -222,6 +234,7 @@ export class LlmProvidersService {
       ...(entry.headers ? { headers: entry.headers } : {}),
       ...(entry.verifyPath ? { verifyPath: entry.verifyPath } : {}),
       ...(entry.replayReasoning ? { replayReasoning: true } : {}),
+      ...(entry.claudeChannel ? { claude: claudeOptions(entry, v.values ?? {}) } : {}),
     };
   }
 
@@ -296,6 +309,9 @@ export class LlmProvidersService {
       authHeader: oauth ? 'bearer' : entry.authHeader,
       ...(entry.verifyPath ? { verifyPath: entry.verifyPath } : {}),
       ...(entry.replayReasoning ? { replayReasoning: true } : {}),
+      ...(entry.claudeChannel
+        ? { claude: claudeOptions(entry, validated.values) as unknown as Prisma.InputJsonObject }
+        : {}),
     };
     // Anthropic directo: sin baseUrl, el SDK usa su endpoint oficial (y el fallback server-side).
     const baseUrl = entry.kind === 'ANTHROPIC' && validated.baseUrl === entry.baseUrl ? null : validated.baseUrl;

@@ -3,7 +3,14 @@ import { ConfigService } from '@nestjs/config';
 import type { LlmConnection, LlmKind, LlmModel } from '@prisma/client';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
-import { LLM_DRIVERS, type AuthHeaderStyle, type LlmClient, type LlmCredentials, type LlmDriver } from './llm-provider';
+import {
+  LLM_DRIVERS,
+  type AuthHeaderStyle,
+  type ClaudeChannelOptions,
+  type LlmClient,
+  type LlmCredentials,
+  type LlmDriver,
+} from './llm-provider';
 import { LlmTokenService } from './llm-token.service';
 import { ConnectionUnavailableException } from './llm-errors';
 import { SYSTEM_ANTHROPIC_MODELS, SYSTEM_MOCK_MODELS, type CatalogModel, type ModelPricing } from './pricing';
@@ -48,6 +55,24 @@ export function connectionDriverOptions(
     ...(AUTH_STYLES.includes(o.authHeader as AuthHeaderStyle) ? { authHeader: o.authHeader as AuthHeaderStyle } : {}),
     ...(typeof o.verifyPath === 'string' && o.verifyPath.startsWith('/') ? { verifyPath: o.verifyPath } : {}),
     ...(o.replayReasoning === true ? { replayReasoning: true } : {}),
+    ...(parseClaudeOptions(o.claude) ? { claude: parseClaudeOptions(o.claude)! } : {}),
+  };
+}
+
+const CLAUDE_CHANNELS = ['anthropic', 'google-cloud', 'vertex', 'foundry'] as const;
+
+/** `driverOptions.claude` guardado al conectar un canal de Claude (solo valores no secretos). */
+export function parseClaudeOptions(raw: unknown): ClaudeChannelOptions | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  if (!CLAUDE_CHANNELS.includes(o.channel as ClaudeChannelOptions['channel'])) return null;
+  const s = (v: unknown) => (typeof v === 'string' && v.length <= 200 ? v : undefined);
+  return {
+    channel: o.channel as ClaudeChannelOptions['channel'],
+    ...(s(o.project) ? { project: s(o.project) } : {}),
+    ...(s(o.region) ? { region: s(o.region) } : {}),
+    ...(s(o.workspaceId) ? { workspaceId: s(o.workspaceId) } : {}),
+    ...(s(o.resource) ? { resource: s(o.resource) } : {}),
   };
 }
 

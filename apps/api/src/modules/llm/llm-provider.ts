@@ -93,6 +93,21 @@ export interface LlmCredentials {
   verifyPath?: string;
   /** Reenvía `reasoning_content` del asistente en turnos siguientes (p. ej. Kimi K3 lo exige). */
   replayReasoning?: boolean;
+  /** Canal de Claude y sus datos no secretos (proyecto, región, workspace o recurso). */
+  claude?: ClaudeChannelOptions;
+}
+
+/** Datos del canal por el que el driver Anthropic llega a Claude (ver `ClaudeChannel`). */
+export interface ClaudeChannelOptions {
+  channel: 'anthropic' | 'google-cloud' | 'vertex' | 'foundry';
+  /** Proyecto de Google Cloud (google-cloud, vertex). */
+  project?: string;
+  /** Región de Vertex AI (`global` recomendada). */
+  region?: string;
+  /** Workspace de Claude en Google Cloud (`wrkspc_...`). */
+  workspaceId?: string;
+  /** Recurso de Microsoft Foundry (`https://<recurso>.services.ai.azure.com`). */
+  resource?: string;
 }
 
 /** Error HTTP de un proveedor LLM (estado y mensaje del proveedor, nunca la clave). */
