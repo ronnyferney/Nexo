@@ -91,6 +91,8 @@ sync_env_ports() {
     let s = fs.readFileSync(process.env.FILE, "utf8");
     const url = `postgresql://nexo:nexo@localhost:${process.env.PG}/nexo?schema=public`;
     s = s.replace(/^DATABASE_URL=.*$/m, `DATABASE_URL=${url}`).replace(/^REDIS_PORT=.*$/m, `REDIS_PORT=${process.env.RD}`);
+    // Proveedor IA simulado (solo desarrollo): se agrega si falta; si el usuario lo definió, se respeta su valor.
+    if (!/^LLM_DEV_SIMULATOR=/m.test(s)) s = s.replace(/\n*$/, "\n\n# Proveedor IA simulado (solo desarrollo)\nLLM_DEV_SIMULATOR=true\n");
     fs.writeFileSync(process.env.FILE, s);
   '
 }
@@ -113,6 +115,7 @@ ensure_env() {
       s = set(s, "ENCRYPTION_KEY", process.env.ENC);
       // Desarrollo local: permite conectores hacia servicios de la red local (p. ej. un TMS de pruebas).
       s = set(s, "CONNECTOR_ALLOW_PRIVATE_NETWORKS", "true");
+      s = set(s, "LLM_DEV_SIMULATOR", "true");
       if (process.env.ADMIN) {
         s = set(s, "BOOTSTRAP_ADMIN_EMAIL", process.env.ADMIN);
         s = set(s, "BOOTSTRAP_ADMIN_PASSWORD", process.env.PASS);

@@ -38,6 +38,11 @@ export interface OAuthAppSpec {
   clientAuth: 'post' | 'basic';
   /** La app de Nexo debe tener client secret (app web confidencial). */
   secretRequired: boolean;
+  /**
+   * client_id fijo cuando no hay variable de entorno. Solo para el simulador local de Nexo (`LLM_DEV_SIMULATOR`):
+   * jamás un client_id de otro producto. Las URLs que empiezan por `/` son rutas de `PUBLIC_URL`.
+   */
+  builtinClientId?: string;
 }
 
 export interface ProviderMechanismSpec {
@@ -122,6 +127,8 @@ export interface ProviderCatalogEntry {
   verifyMode?: 'strict' | 'lenient';
   /** Valores derivados de los campos para renderizar la URL base (no se guardan). */
   deriveValues?: (values: Record<string, string>) => Record<string, string>;
+  /** Solo existe con `LLM_DEV_SIMULATOR=true` fuera de producción; su URL base es `PUBLIC_URL` + `baseUrl`. */
+  devOnly?: boolean;
 }
 
 /** Mecanismos efectivos de una entrada (los declarados o el valor por defecto de su categoría). */

@@ -5,6 +5,7 @@ import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { OPENROUTER_STATE_ID } from '../src/modules/llm/openrouter-oauth.service';
 import { OAuthStateService } from '../src/modules/oauth/oauth-state.service';
+import request from 'supertest';
 import { Api, createTestApp, prismaOf } from './utils/app';
 import { addMember, chat, createAgent, registerOwner, type Session } from './utils/fixtures';
 import { OpenAiMock } from './utils/mock-servers';
@@ -143,6 +144,13 @@ describe('Catálogo de proveedores IA "conectar en un clic" (E2E)', () => {
   });
 
   describe('GET /admin/llm/providers', () => {
+    it('sin LLM_DEV_SIMULATOR el proveedor simulado no existe (galería, inicio de sesión ni rutas)', async () => {
+      expect((await providers(owner)).some((p) => p.id === 'nexo-simulado')).toBe(false);
+      await owner.api.post('/admin/llm/providers/nexo-simulado/oauth/start', {}).expect(404);
+      await request(app.getHttpServer()).get('/api/dev/llm-sim/authorize').expect(404);
+      await request(app.getHttpServer()).post('/api/dev/llm-sim/token').send({}).expect(404);
+    });
+
     it('lista el catálogo sin detalles del driver y con la conexión de plataforma de Anthropic', async () => {
       const list = await providers(owner);
       expect(list.length).toBeGreaterThanOrEqual(18);

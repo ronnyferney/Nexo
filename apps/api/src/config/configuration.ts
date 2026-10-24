@@ -24,6 +24,11 @@ export interface AppConfig {
      * proxies de identidad corporativos y pruebas. Solo lo define el operador de la plataforma.
      */
     oauthEndpointOverrides: Record<string, OAuthEndpointOverride>;
+    /**
+     * Proveedor simulado con inicio de sesión OAuth y código de dispositivo servido por la propia API
+     * (`LLM_DEV_SIMULATOR=true`), para probar el flujo completo en local sin cuentas ni dominio. Nunca en producción.
+     */
+    devSimulator: boolean;
   };
   http: { timeoutMs: number; allowPrivateNetworks: boolean };
   executions: { retentionDays: number };
@@ -121,6 +126,7 @@ export default (): AppConfig => ({
     providerUrlOverrides: parseUrlOverrides(process.env.LLM_PROVIDER_URL_OVERRIDES),
     openrouterAuthUrl: process.env.OPENROUTER_AUTH_URL || 'https://openrouter.ai/auth',
     oauthEndpointOverrides: parseOAuthEndpointOverrides(process.env.LLM_OAUTH_ENDPOINT_OVERRIDES),
+    devSimulator: process.env.LLM_DEV_SIMULATOR === 'true' && process.env.NODE_ENV !== 'production',
   },
   http: {
     timeoutMs: parseInt(process.env.CONNECTOR_TIMEOUT_MS ?? '30000', 10),

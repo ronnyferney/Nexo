@@ -24,9 +24,12 @@ function sampleFields(entry: ProviderCatalogEntry): Record<string, string> {
 
 const azure = () => findProvider('azure-openai')!;
 
+/** Proveedores reales: el simulador de desarrollo (`devOnly`) tiene reglas propias (ver al final). */
+const REAL_PROVIDERS = PROVIDER_CATALOG.filter((p) => !p.devOnly);
+
 describe('Catálogo de proveedores LLM', () => {
   it('incluye los proveedores acordados con ids únicos y logo = id', () => {
-    const ids = PROVIDER_CATALOG.map((p) => p.id);
+    const ids = REAL_PROVIDERS.map((p) => p.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toEqual(
       expect.arrayContaining([
@@ -51,20 +54,20 @@ describe('Catálogo de proveedores LLM', () => {
         'vertex',
       ]),
     );
-    for (const p of PROVIDER_CATALOG) {
+    for (const p of REAL_PROVIDERS) {
       expect(p.logo).toBe(p.id);
       expect(p.id).toMatch(/^[a-z][a-z0-9-]*$/);
     }
   });
 
   it('no ofrece suscripciones personales (decisión de negocio, ADR 0002 D8)', () => {
-    const text = JSON.stringify(PROVIDER_CATALOG).toLowerCase();
+    const text = JSON.stringify(REAL_PROVIDERS).toLowerCase();
     for (const banned of ['claude.ai', 'claude pro', 'claude max', 'chatgpt plus', 'copilot']) {
       expect(text).not.toContain(banned);
     }
   });
 
-  it.each(PROVIDER_CATALOG.map((p) => [p.id, p] as const))('%s: metadatos coherentes', (_id, p) => {
+  it.each(REAL_PROVIDERS.map((p) => [p.id, p] as const))('%s: metadatos coherentes', (_id, p) => {
     expect(CATEGORIES).toContain(p.category);
     expect(BILLING).toContain(p.billing);
     expect(['ANTHROPIC', 'OPENAI_COMPATIBLE']).toContain(p.kind);
@@ -77,7 +80,7 @@ describe('Catálogo de proveedores LLM', () => {
     if (p.category === 'LOCAL') expect(p.billing).toBe('LOCAL');
   });
 
-  it.each(PROVIDER_CATALOG.map((p) => [p.id, p] as const))('%s: campos y autenticación', (_id, p) => {
+  it.each(REAL_PROVIDERS.map((p) => [p.id, p] as const))('%s: campos y autenticación', (_id, p) => {
     const keys = p.fields.map((f) => f.key);
     expect(new Set(keys).size).toBe(keys.length);
     const secrets = p.fields.filter((f) => f.secret);
@@ -101,7 +104,7 @@ describe('Catálogo de proveedores LLM', () => {
     }
   });
 
-  it.each(PROVIDER_CATALOG.map((p) => [p.id, p] as const))('%s: plantilla de URL base renderizable', (_id, p) => {
+  it.each(REAL_PROVIDERS.map((p) => [p.id, p] as const))('%s: plantilla de URL base renderizable', (_id, p) => {
     const vars = templateVariables(p.baseUrl);
     const sample = Object.fromEntries(p.fields.filter((f) => !f.secret).map((f) => [f.key, f.placeholder ?? 'x']));
     const plain = [...Object.keys(sample), ...Object.keys(p.deriveValues?.(sample) ?? {})];
@@ -112,7 +115,7 @@ describe('Catálogo de proveedores LLM', () => {
     expect(url.protocol).toBe(p.category === 'LOCAL' ? 'http:' : 'https:');
   });
 
-  it.each(PROVIDER_CATALOG.map((p) => [p.id, p] as const))('%s: modelos sugeridos válidos', (_id, p) => {
+  it.each(REAL_PROVIDERS.map((p) => [p.id, p] as const))('%s: modelos sugeridos válidos', (_id, p) => {
     const ids = p.suggestedModels.map((m) => m.id);
     expect(new Set(ids).size).toBe(ids.length);
     for (const m of p.suggestedModels) {
@@ -136,7 +139,7 @@ describe('Catálogo de proveedores LLM', () => {
   });
 
   it('solo Anthropic trae precios: el resto queda pendiente de tarifa', () => {
-    for (const p of PROVIDER_CATALOG.filter((x) => x.id !== 'anthropic')) {
+    for (const p of REAL_PROVIDERS.filter((x) => x.id !== 'anthropic')) {
       expect(p.suggestedModels.every((m) => m.inputUsdPerMTok === undefined)).toBe(true);
     }
   });
@@ -240,7 +243,7 @@ describe('parseUrlOverrides (LLM_PROVIDER_URL_OVERRIDES)', () => {
 
 describe('Mecanismos de conexión y metadatos de modelos (ADR 0002 D8)', () => {
   it('cada entrada tiene exactamente un mecanismo principal y tipos válidos', () => {
-    for (const p of PROVIDER_CATALOG) {
+    for (const p of REAL_PROVIDERS) {
       const mechanisms = entryMechanisms(p);
       expect(mechanisms.filter((m) => m.primary)).toHaveLength(1);
       for (const m of mechanisms) {
@@ -252,7 +255,7 @@ describe('Mecanismos de conexión y metadatos de modelos (ADR 0002 D8)', () => {
   });
 
   it('las apps OAuth son de Nexo: sin client_id embebido y solo endpoints https oficiales', () => {
-    for (const p of PROVIDER_CATALOG) {
+    for (const p of REAL_PROVIDERS) {
       for (const m of entryMechanisms(p)) {
         if (!m.oauth) continue;
         expect(m.oauth).not.toHaveProperty('clientId');
@@ -323,5 +326,23 @@ describe('Mecanismos de conexión y metadatos de modelos (ADR 0002 D8)', () => {
       true,
     );
     expect(publicEntry(findProvider('vertex')!)).not.toHaveProperty('deriveValues');
+  });
+});
+
+describe('Simulador de desarrollo (LLM_DEV_SIMULATOR)', () => {
+  const dev = PROVIDER_CATALOG.filter((p) => p.devOnly);
+
+  it('solo el simulador usa client_id incorporado y rutas relativas a PUBLIC_URL', () => {
+    expect(dev.map((p) => p.id)).toEqual(['nexo-simulado']);
+    for (const p of REAL_PROVIDERS) {
+      for (const m of p.mechanisms ?? []) expect(m.oauth?.builtinClientId).toBeUndefined();
+      expect(p.baseUrl.startsWith('/')).toBe(false);
+    }
+    for (const m of dev[0].mechanisms ?? []) {
+      expect(m.oauth?.builtinClientId).toBe('nexo-simulador-local');
+      for (const url of [m.oauth!.authorizeUrl, m.oauth!.tokenUrl, m.oauth!.deviceUrl, m.oauth!.revokeUrl]) {
+        expect(url).toMatch(/^\/api\/dev\/llm-sim\//);
+      }
+    }
   });
 });

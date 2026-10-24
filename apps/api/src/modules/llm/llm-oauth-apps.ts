@@ -54,7 +54,7 @@ export function oauthAppUnavailableReason(
 ): string | null {
   const idVar = llmOAuthEnvName(entry.id, 'CLIENT_ID');
   const secretVar = llmOAuthEnvName(entry.id, 'CLIENT_SECRET');
-  const hasId = !!str(config.get<string>(idVar));
+  const hasId = !!str(config.get<string>(idVar)) || !!spec.builtinClientId;
   const hasSecret = !!str(config.get<string>(secretVar));
   if (hasId && (hasSecret || !spec.secretRequired)) return null;
   const missing = spec.secretRequired ? `${idVar} y ${secretVar}` : idVar;
@@ -78,13 +78,18 @@ export function resolveLlmOAuthApp(
   const reason = oauthAppUnavailableReason(config, entry, spec);
   if (reason) throw new LlmOAuthAppError(reason);
   const override = config.get<Record<string, OAuthEndpointOverride>>('llm.oauthEndpointOverrides')?.[entry.id] ?? {};
-  const url = (template: string | undefined) =>
-    template ? String(render<unknown>(template, values) ?? '').replace(/\/+$/, '') : undefined;
+  const publicUrl = (config.get<string>('publicUrl') ?? 'http://localhost:3000').replace(/\/+$/, '');
+  const url = (template: string | undefined) => {
+    if (!template) return undefined;
+    const rendered = String(render<unknown>(template, values) ?? '').replace(/\/+$/, '');
+    // Rutas relativas (simulador local): se sirven bajo PUBLIC_URL.
+    return rendered.startsWith('/') ? `${publicUrl}${rendered}` : rendered;
+  };
   const secret = str(config.get<string>(llmOAuthEnvName(entry.id, 'CLIENT_SECRET')));
   return {
     providerId: entry.id,
     idpName: spec.idpName,
-    clientId: str(config.get<string>(llmOAuthEnvName(entry.id, 'CLIENT_ID'))),
+    clientId: str(config.get<string>(llmOAuthEnvName(entry.id, 'CLIENT_ID'))) || spec.builtinClientId || '',
     ...(secret ? { clientSecret: secret } : {}),
     authorizeUrl: url(override.authorizeUrl ?? spec.authorizeUrl)!,
     tokenUrl: url(override.tokenUrl ?? spec.tokenUrl)!,

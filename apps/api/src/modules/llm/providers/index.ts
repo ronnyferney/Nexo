@@ -1,4 +1,5 @@
 import { render } from '../../../common/template/template.engine';
+import { DEV_PROVIDERS } from './dev.providers';
 import { ENTERPRISE_PROVIDERS } from './enterprise.providers';
 import { FRONTIER_PROVIDERS } from './frontier.providers';
 import { LOCAL_PROVIDERS } from './local.providers';
@@ -8,13 +9,17 @@ import { ROUTER_PROVIDERS } from './router.providers';
 
 export * from './provider-catalog.types';
 
-/** Orden de la galería: fronteras, modelos abiertos, nube empresarial, enrutadores y locales. */
+/**
+ * Orden de la galería: fronteras, modelos abiertos, nube empresarial, enrutadores y locales. Al final, el simulador
+ * de desarrollo (`devOnly`), que `LlmProvidersService` oculta salvo con `LLM_DEV_SIMULATOR=true`.
+ */
 export const PROVIDER_CATALOG: readonly ProviderCatalogEntry[] = [
   ...FRONTIER_PROVIDERS,
   ...OPEN_MODEL_PROVIDERS,
   ...ENTERPRISE_PROVIDERS,
   ...ROUTER_PROVIDERS,
   ...LOCAL_PROVIDERS,
+  ...DEV_PROVIDERS,
 ];
 
 const BY_ID = new Map(PROVIDER_CATALOG.map((p) => [p.id, p]));

@@ -164,30 +164,43 @@ export class LlmProvidersService {
       select: { id: true, name: true, enabled: true, providerId: true, _count: { select: { models: true } } },
       orderBy: { name: 'asc' },
     });
-    const providers = PROVIDER_CATALOG.map((entry): ProviderView => ({
-      ...publicEntry(entry),
-      mechanisms: mechanismViews(this.config, entry),
-      connected: rows
-        .filter((r) => r.providerId === entry.id)
-        .map((r) => ({ connectionId: r.id, name: r.name, modelCount: r._count.models, enabled: r.enabled })),
-      modelCount: entry.suggestedModels.length,
-      platform:
-        entry.id === 'anthropic'
-          ? { configured: this.gateway.platformAnthropicConfigured, models: SYSTEM_ANTHROPIC_MODELS.length }
-          : null,
-    }));
+    const providers = PROVIDER_CATALOG.filter((entry) => !entry.devOnly || this.devSimulator).map(
+      (entry): ProviderView => ({
+        ...publicEntry(entry),
+        mechanisms: mechanismViews(this.config, entry),
+        connected: rows
+          .filter((r) => r.providerId === entry.id)
+          .map((r) => ({ connectionId: r.id, name: r.name, modelCount: r._count.models, enabled: r.enabled })),
+        modelCount: entry.suggestedModels.length,
+        platform:
+          entry.id === 'anthropic'
+            ? { configured: this.gateway.platformAnthropicConfigured, models: SYSTEM_ANTHROPIC_MODELS.length }
+            : null,
+      }),
+    );
     return { providers };
   }
 
   provider(id: string): ProviderCatalogEntry {
     const entry = findProvider(id);
-    if (!entry) throw new NotFoundException('Proveedor no encontrado en el catálogo');
+    if (!entry || (entry.devOnly && !this.devSimulator))
+      throw new NotFoundException('Proveedor no encontrado en el catálogo');
     return entry;
+  }
+
+  /** Simulador de desarrollo habilitado (`LLM_DEV_SIMULATOR=true`, nunca en producción). */
+  private get devSimulator(): boolean {
+    return this.config.get<boolean>('llm.devSimulator') ?? false;
   }
 
   /** Valida los campos y renderiza la URL base (con el override de configuración, si existe). */
   validate(entry: ProviderCatalogEntry, fields: Record<string, unknown>, mechanism?: MechanismType): ValidatedFields {
     try {
+      if (entry.devOnly) {
+        // El simulador no tiene campos: su URL base es una ruta de esta misma API.
+        const publicUrl = (this.config.get<string>('publicUrl') ?? 'http://localhost:3000').replace(/\/+$/, '');
+        return { values: {}, baseUrl: `${publicUrl}${entry.baseUrl}` };
+      }
       const validated = validateProviderFields(entry, fields ?? {}, mechanism);
       const override = this.config.get<Record<string, string>>('llm.providerUrlOverrides')?.[entry.id];
       return override ? { ...validated, baseUrl: override.replace(/\/+$/, '') } : validated;

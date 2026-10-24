@@ -1,4 +1,6 @@
 import { Global, Module } from '@nestjs/common';
+import { DevLlmSimulatorController } from './dev-simulator/dev-llm-simulator.controller';
+import { DevLlmSimulatorService } from './dev-simulator/dev-llm-simulator.service';
 import { AnthropicDriver } from './drivers/anthropic.driver';
 import { MockDriver } from './drivers/mock.driver';
 import { OpenAiCompatibleDriver } from './drivers/openai-compatible.driver';
@@ -19,7 +21,13 @@ const DRIVERS = [AnthropicDriver, OpenAiCompatibleDriver, MockDriver];
 @Global()
 @Module({
   imports: [OAuthModule],
-  controllers: [LlmCatalogController, LlmAdminController, LlmProvidersController, LlmOAuthCallbackController],
+  controllers: [
+    LlmCatalogController,
+    LlmAdminController,
+    LlmProvidersController,
+    LlmOAuthCallbackController,
+    DevLlmSimulatorController,
+  ],
   providers: [
     ...DRIVERS,
     LlmTokenService,
@@ -28,6 +36,7 @@ const DRIVERS = [AnthropicDriver, OpenAiCompatibleDriver, MockDriver];
     OpenRouterOAuthService,
     LlmAuthFlowsService,
     LlmUsageService,
+    DevLlmSimulatorService,
     { provide: LLM_DRIVERS, useFactory: (...d: unknown[]) => d, inject: DRIVERS },
   ],
   exports: [LlmGatewayService, LlmTokenService, LlmUsageService],

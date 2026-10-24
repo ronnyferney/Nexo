@@ -221,13 +221,13 @@ export class LlmAuthFlowsService {
     const deviceCode = typeof data.device_code === 'string' ? data.device_code : '';
     const userCode = typeof data.user_code === 'string' ? data.user_code : '';
     const verificationUri = typeof data.verification_uri === 'string' ? data.verification_uri : '';
-    if (!deviceCode || !userCode || !/^https:\/\//.test(verificationUri)) {
+    if (!deviceCode || !userCode || !isVerificationUrl(verificationUri)) {
       throw new BadRequestException(`${app.idpName} devolvió una respuesta de código de dispositivo inválida`);
     }
     const expiresIn = clampInt(data.expires_in, DEFAULT_DEVICE_TTL_S, 60, MAX_DEVICE_TTL_S);
     const interval = clampInt(data.interval, DEFAULT_INTERVAL_S, 1, 120);
     const complete =
-      typeof data.verification_uri_complete === 'string' && /^https:\/\//.test(data.verification_uri_complete)
+      typeof data.verification_uri_complete === 'string' && isVerificationUrl(data.verification_uri_complete)
         ? data.verification_uri_complete
         : undefined;
 
@@ -407,6 +407,18 @@ export class LlmAuthFlowsService {
   private redirect(providerId: string, reason: LlmOAuthErrorReason): string {
     const params = new URLSearchParams({ llm: 'error', provider: providerId, reason });
     return `${this.webUrl}/admin/providers?${params.toString()}`;
+  }
+}
+
+/** La página de verificación debe ser https; http solo en loopback (simulador local de desarrollo). */
+function isVerificationUrl(raw: string): boolean {
+  try {
+    const u = new URL(raw);
+    return (
+      u.protocol === 'https:' || (u.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname))
+    );
+  } catch {
+    return false;
   }
 }
 
