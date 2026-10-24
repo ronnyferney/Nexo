@@ -98,7 +98,18 @@ jobs:
           cache-dependency-path: infra/package-lock.json
       - run: npm ci
       - run: npm run build
-      - run: npx cdk synth --quiet -c imageTag=0.0.0-ci
+      # M7: el piloto solo se sintetiza con dominio y certificado (aquí, una zona ficticia: synth no consulta AWS).
+      - run: >-
+          npx cdk synth --quiet -c imageTag=0.0.0-ci -c domainName=nexo.example.com
+          -c hostedZoneId=Z0000000000000000000 -c hostedZoneName=example.com
+      - name: Sin dominio ni modo de pruebas, la síntesis del piloto debe fallar
+        run: |
+          if npx cdk synth NexoPilot --quiet -c imageTag=0.0.0-ci -o "$RUNNER_TEMP/cdk-sin-tls" > "$RUNNER_TEMP/sin-tls.log" 2>&1; then
+            cat "$RUNNER_TEMP/sin-tls.log"; echo "::error::El piloto se sintetizó por HTTP sin allowInsecureHttp"; exit 1
+          fi
+          grep -q "no se publica por HTTP en claro" "$RUNNER_TEMP/sin-tls.log"
+          # Los otros stacks no dependen del dominio (cdk deploy NexoRegistry/NexoGithubOidc en el paso 1 de la guía).
+          npx cdk synth NexoRegistry --quiet -o "$RUNNER_TEMP/cdk-registry"
 
   edge:
     runs-on: ubuntu-latest
@@ -137,3 +148,21 @@ jobs:
           cache-dependency-path: apps/web/package-lock.json
       - run: npm ci
       - run: npm run build
+
+  # P5: pruebas unitarias de la web (Karma + Jasmine en Chrome sin interfaz; el runner trae Chrome instalado).
+  web-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - run: npm run test:ci

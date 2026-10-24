@@ -16,10 +16,23 @@ import type { Construct } from 'constructs';
 import { ECR_REPOSITORIES } from './registry-stack';
 
 export interface NexoPilotStackProps extends cdk.StackProps {
-  /** Dominio público (opcional). Sin dominio se publica por HTTP en el DNS del balanceador. */
+  /**
+   * Dominio público del piloto (obligatorio salvo `allowInsecureHttp`). Requiere `hostedZoneId` + `hostedZoneName`
+   * (certificado ACM validado por DNS y registro alias automáticos) o `certificateArn` (certificado ACM existente; el
+   * registro DNS hacia el balanceador se crea fuera de AWS).
+   */
   domainName?: string;
   hostedZoneId?: string;
   hostedZoneName?: string;
+  /** ARN de un certificado ACM ya emitido para `domainName` (alternativa a la zona de Route 53). */
+  certificateArn?: string;
+  /**
+   * Modo explícito de SOLO PRUEBAS: publica por HTTP en claro en el DNS del balanceador (contraseñas, JWT y tokens
+   * viajan sin cifrar). Nunca con datos ni usuarios reales. Sin dominio y sin este modo, el despliegue falla.
+   */
+  allowInsecureHttp?: boolean;
+  /** ECS Exec (`aws ecs execute-command`) en la API y los workers. Desactivado por defecto; activar solo bajo demanda. */
+  enableExecuteCommand?: boolean;
   /**
    * Versión publicada a desplegar (p. ej. 1.4.0): usa las imágenes inmutables de ECR con esa etiqueta.
    * Sin versión se construyen las imágenes desde el código local (solo para pruebas).
@@ -37,6 +50,12 @@ export interface NexoPilotStackProps extends cdk.StackProps {
 const ROOT = path.join(__dirname, '..', '..');
 /** Caracteres excluidos de la contraseña de la BD para poder usarla en una URL de conexión sin codificar. */
 const URL_UNSAFE = ' %+~`#$&*()|[]{}:;<>?!\'/@"\\=,^';
+/**
+ * HSTS que el balanceador fija en todas las respuestas HTTPS (también las de la API y los errores del propio ALB):
+ * 1 año, igual que nginx (apps/web/nginx.conf). Sin `includeSubDomains` ni `preload`: no debe afectar a otros
+ * subdominios del cliente y debe poder retirarse.
+ */
+const HSTS_HEADER = 'max-age=31536000';
 /** Para que ENCRYPTION_KEY sea hexadecimal (64 caracteres = 32 bytes), se excluye todo lo que no sea [0-9a-fA-F]. */
 const NON_HEX_LETTERS = 'ghijklmnopqrstuvwxyzGHIJKLMNOPQRSTUVWXYZ';
 /**
@@ -61,15 +80,29 @@ const OAUTH_PLATFORM_KEYS = [
  * Piloto de Nexo optimizado en costo, con prácticas de producción:
  * - Red: VPC en 2 zonas sin NAT (tareas Fargate en subredes públicas con IP pública, protegidas por security groups;
  *   base de datos y Redis en subredes aisladas sin salida a internet).
- * - Datos: RDS PostgreSQL 16 cifrado con backups de 7 días y snapshot al eliminar; ElastiCache Redis 7 con `noeviction`
- *   (requisito de BullMQ).
+ * - Datos: RDS PostgreSQL 16 cifrado, con protección contra borrado, backups de 7 días y snapshot al eliminar;
+ *   ElastiCache Redis 7 con `noeviction` (requisito de BullMQ), AUTH (token en Secrets Manager) y TLS en tránsito.
  * - Cómputo: ECS Fargate con tres servicios (API, workers y web) y Service Connect (la web llega a la API como `api:3000`).
  * - Secretos en Secrets Manager inyectados como variables de entorno (nunca en la imagen ni en el código).
- * - Balanceador con timeout de 600 s (streaming SSE del chat y WebSocket de Nexo Edge) y HTTPS si hay dominio.
+ * - Balanceador con timeout de 600 s (streaming SSE del chat y WebSocket de Nexo Edge), solo HTTPS (80 redirige a
+ *   443) con HSTS. HTTP en claro únicamente con el modo explícito de pruebas `allowInsecureHttp`.
  */
 export class NexoPilotStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: NexoPilotStackProps) {
     super(scope, id, props);
+    const resolved = resolveTlsMode(props);
+    // Error de anotación, no excepción: `cdk deploy NexoRegistry`/`NexoGithubOidc` sintetizan toda la app y no deben
+    // fallar por el piloto; el CLI solo bloquea la síntesis o el despliegue que incluye este stack.
+    if ('error' in resolved) cdk.Annotations.of(this).addError(resolved.error);
+    const tls: TlsMode = 'error' in resolved ? { mode: 'insecure' } : resolved;
+    if (tls.mode === 'insecure' && !('error' in resolved)) {
+      const warning =
+        'MODO SOLO PRUEBAS (allowInsecureHttp): el piloto se publica por HTTP EN CLARO. Contraseñas, JWT y tokens ' +
+        'viajan sin cifrar. No use datos ni usuarios reales; configure domainName para HTTPS.';
+      cdk.Annotations.of(this).addWarning(warning);
+      console.warn(`\n${'!'.repeat(100)}\n!! ${warning}\n${'!'.repeat(100)}\n`);
+    }
+    const execEnabled = props.enableExecuteCommand ?? false;
 
     // ---------- Red ----------
     const vpc = new ec2.Vpc(this, 'Vpc', {
@@ -82,8 +115,8 @@ export class NexoPilotStack extends cdk.Stack {
     });
 
     const albSg = new ec2.SecurityGroup(this, 'AlbSg', { vpc, description: 'Nexo - balanceador publico' });
-    albSg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(80), 'HTTP');
-    albSg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443), 'HTTPS');
+    albSg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(80), tls.mode === 'insecure' ? 'HTTP' : 'HTTP (redirige a HTTPS)');
+    if (tls.mode !== 'insecure') albSg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(443), 'HTTPS');
     const webSg = new ec2.SecurityGroup(this, 'WebSg', { vpc, description: 'Nexo - web nginx' });
     webSg.addIngressRule(albSg, ec2.Port.tcp(80), 'Desde el balanceador');
     const apiSg = new ec2.SecurityGroup(this, 'ApiSg', { vpc, description: 'Nexo - API' });
@@ -113,7 +146,8 @@ export class NexoPilotStack extends cdk.Stack {
       backupRetention: cdk.Duration.days(7),
       multiAz: false,
       publiclyAccessible: false,
-      deletionProtection: false,
+      // B8: CloudFormation no puede borrar la base por error (cdk destroy, reemplazo); al eliminarla deja un snapshot.
+      deletionProtection: true,
       removalPolicy: cdk.RemovalPolicy.SNAPSHOT,
       cloudwatchLogsExports: ['postgresql'],
       cloudwatchLogsRetention: logs.RetentionDays.ONE_MONTH,
@@ -128,14 +162,27 @@ export class NexoPilotStack extends cdk.Stack {
       description: 'BullMQ requiere maxmemory-policy noeviction',
       properties: { 'maxmemory-policy': 'noeviction' },
     });
-    const redis = new elasticache.CfnCacheCluster(this, 'Redis', {
+    // B8: AUTH y TLS en tránsito exigen un grupo de replicación (CfnCacheCluster no admite token AUTH). El token vive
+    // en Secrets Manager: 64 caracteres alfanuméricos (ElastiCache no admite `@`, `"` ni `/`).
+    const redisAuthSecret = new secretsmanager.Secret(this, 'RedisAuthToken', {
+      description: 'Nexo: token AUTH de ElastiCache Redis (REDIS_PASSWORD de la API y los workers)',
+      generateSecretString: { passwordLength: 64, excludePunctuation: true, includeSpace: false },
+    });
+    const redis = new elasticache.CfnReplicationGroup(this, 'RedisGroup', {
+      replicationGroupDescription: 'Nexo - colas BullMQ y limitador (TLS + AUTH)',
       engine: 'redis',
       engineVersion: '7.1',
       cacheNodeType: 'cache.t4g.micro',
-      numCacheNodes: 1,
+      numCacheClusters: 1,
+      automaticFailoverEnabled: false,
       cacheSubnetGroupName: redisSubnets.ref,
       cacheParameterGroupName: redisParams.ref,
-      vpcSecurityGroupIds: [redisSg.securityGroupId],
+      securityGroupIds: [redisSg.securityGroupId],
+      transitEncryptionEnabled: true,
+      transitEncryptionMode: 'required',
+      atRestEncryptionEnabled: true,
+      // Referencia dinámica de CloudFormation: el token no queda en la plantilla sintetizada.
+      authToken: redisAuthSecret.secretValue.unsafeUnwrap(),
     });
 
     // ---------- Secretos ----------
@@ -177,14 +224,13 @@ export class NexoPilotStack extends cdk.Stack {
     const cluster = new ecs.Cluster(this, 'Cluster', { vpc, containerInsightsV2: ecs.ContainerInsights.ENABLED });
     cluster.addDefaultCloudMapNamespace({ name: 'nexo.local', useForServiceConnect: true });
 
-    const scheme = props.domainName ? 'https' : 'http';
     const alb = new elbv2.ApplicationLoadBalancer(this, 'Alb', {
       vpc,
       internetFacing: true,
       securityGroup: albSg,
       idleTimeout: cdk.Duration.seconds(600),
     });
-    const publicUrl = props.domainName ? `https://${props.domainName}` : `http://${alb.loadBalancerDnsName}`;
+    const publicUrl = tls.mode === 'insecure' ? `http://${alb.loadBalancerDnsName}` : `https://${tls.domainName}`;
 
     const image = (app: keyof typeof ECR_REPOSITORIES) =>
       props.imageTag
@@ -206,8 +252,9 @@ export class NexoPilotStack extends cdk.Stack {
       DB_NAME: 'nexo',
       DB_SSLMODE: 'require',
       DB_SSLCERT: '/app/certs/rds-global-bundle.pem',
-      REDIS_HOST: redis.attrRedisEndpointAddress,
-      REDIS_PORT: redis.attrRedisEndpointPort,
+      REDIS_HOST: redis.attrPrimaryEndPointAddress,
+      REDIS_PORT: redis.attrPrimaryEndPointPort,
+      REDIS_TLS: 'true',
       PUBLIC_URL: publicUrl,
       WEB_URL: publicUrl,
       CORS_ORIGINS: publicUrl,
@@ -226,6 +273,7 @@ export class NexoPilotStack extends cdk.Stack {
       JWT_SECRET: ecs.Secret.fromSecretsManager(appSecret, 'JWT_SECRET'),
       ANTHROPIC_API_KEY: ecs.Secret.fromSecretsManager(appSecret, 'ANTHROPIC_API_KEY'),
       ENCRYPTION_KEY: ecs.Secret.fromSecretsManager(encryptionSecret),
+      REDIS_PASSWORD: ecs.Secret.fromSecretsManager(redisAuthSecret),
       ...Object.fromEntries(OAUTH_PLATFORM_KEYS.map((k) => [k, ecs.Secret.fromSecretsManager(appSecret, k)])),
     };
     // Solo la API crea el usuario maestro (el worker no recibe la contraseña).
@@ -263,7 +311,7 @@ export class NexoPilotStack extends cdk.Stack {
       securityGroups: [apiSg],
       circuitBreaker: { rollback: true },
       minHealthyPercent: 100,
-      enableExecuteCommand: true,
+      enableExecuteCommand: execEnabled,
       serviceConnectConfiguration: { services: [{ portMappingName: 'api', dnsName: 'api', port: 3000 }] },
     });
 
@@ -284,7 +332,7 @@ export class NexoPilotStack extends cdk.Stack {
       securityGroups: [workerSg],
       circuitBreaker: { rollback: true },
       minHealthyPercent: 100,
-      enableExecuteCommand: true,
+      enableExecuteCommand: execEnabled,
     });
     workerService.node.addDependency(apiService); // las migraciones corren primero en la API
 
@@ -325,25 +373,49 @@ export class NexoPilotStack extends cdk.Stack {
       healthCheck: { path: '/', healthyHttpCodes: '200', interval: cdk.Duration.seconds(30) },
       deregistrationDelay: cdk.Duration.seconds(30),
     };
-    if (props.domainName && props.hostedZoneId && props.hostedZoneName) {
-      const zone = route53.HostedZone.fromHostedZoneAttributes(this, 'Zone', {
-        hostedZoneId: props.hostedZoneId,
-        zoneName: props.hostedZoneName,
-      });
-      const certificate = new acm.Certificate(this, 'Certificate', {
-        domainName: props.domainName,
-        validation: acm.CertificateValidation.fromDns(zone),
-      });
-      alb.addListener('Https', { port: 443, certificates: [certificate], sslPolicy: elbv2.SslPolicy.RECOMMENDED_TLS })
-        .addTargets('Web', targetProps);
-      alb.addRedirect({ sourcePort: 80, targetPort: 443 });
-      new route53.ARecord(this, 'Alias', {
-        zone,
-        recordName: props.domainName,
-        target: route53.RecordTarget.fromAlias(new targets.LoadBalancerTarget(alb)),
-      });
-    } else {
+    if (tls.mode === 'insecure') {
       alb.addListener('Http', { port: 80 }).addTargets('Web', targetProps);
+    } else {
+      const zone =
+        tls.mode === 'route53'
+          ? route53.HostedZone.fromHostedZoneAttributes(this, 'Zone', {
+              hostedZoneId: tls.hostedZoneId,
+              zoneName: tls.hostedZoneName,
+            })
+          : undefined;
+      const certificate =
+        tls.mode === 'certificate'
+          ? acm.Certificate.fromCertificateArn(this, 'Certificate', tls.certificateArn)
+          : new acm.Certificate(this, 'Certificate', {
+              domainName: tls.domainName,
+              validation: acm.CertificateValidation.fromDns(zone),
+            });
+      const https = alb.addListener('Https', {
+        port: 443,
+        certificates: [certificate],
+        sslPolicy: elbv2.SslPolicy.RECOMMENDED_TLS,
+      });
+      https.addTargets('Web', targetProps);
+      // HSTS en el balanceador: el navegador no vuelve a intentar HTTP tras la primera visita.
+      https.setAttribute('routing.http.response.strict_transport_security.header_value', HSTS_HEADER);
+      // 80 → 443 (301). Mismo id lógico que el oyente HTTP del modo de pruebas: al pasar de HTTP a HTTPS,
+      // CloudFormation actualiza el oyente del puerto 80 en lugar de crear otro (chocaría por el puerto).
+      alb.addListener('Http', {
+        port: 80,
+        defaultAction: elbv2.ListenerAction.redirect({ protocol: 'HTTPS', port: '443', permanent: true }),
+      });
+      if (zone) {
+        new route53.ARecord(this, 'Alias', {
+          zone,
+          recordName: tls.domainName,
+          target: route53.RecordTarget.fromAlias(new targets.LoadBalancerTarget(alb)),
+        });
+      } else {
+        new cdk.CfnOutput(this, 'DnsTarget', {
+          value: alb.loadBalancerDnsName,
+          description: `Cree un CNAME de ${tls.domainName} hacia este nombre (el DNS no está en Route 53)`,
+        });
+      }
     }
 
     // ---------- Salidas ----------
@@ -358,6 +430,39 @@ export class NexoPilotStack extends cdk.Stack {
       description: 'Complete ANTHROPIC_API_KEY en este secreto y reinicie los servicios api y worker',
     });
     new cdk.CfnOutput(this, 'DatabaseEndpoint', { value: db.dbInstanceEndpointAddress });
+    new cdk.CfnOutput(this, 'RedisAuthSecretArn', {
+      value: redisAuthSecret.secretArn,
+      description: 'Token AUTH de Redis (inyectado como REDIS_PASSWORD; rotarlo exige actualizar ElastiCache)',
+    });
     new cdk.CfnOutput(this, 'ClusterName', { value: cluster.clusterName });
   }
+}
+
+export type TlsMode =
+  | { mode: 'route53'; domainName: string; hostedZoneId: string; hostedZoneName: string }
+  | { mode: 'certificate'; domainName: string; certificateArn: string }
+  | { mode: 'insecure' };
+
+/**
+ * M7: decide cómo se publica el piloto. Con dominio exige certificado (zona de Route 53 o ARN de ACM); sin dominio solo
+ * se permite HTTP con el modo explícito de pruebas. Cualquier otra combinación devuelve un error que bloquea el stack.
+ */
+export function resolveTlsMode(props: NexoPilotStackProps): TlsMode | { error: string } {
+  const domainName = props.domainName?.trim();
+  const hostedZoneId = props.hostedZoneId?.trim();
+  const hostedZoneName = props.hostedZoneName?.trim();
+  const certificateArn = props.certificateArn?.trim();
+  if (domainName) {
+    if (certificateArn) return { mode: 'certificate', domainName, certificateArn };
+    if (hostedZoneId && hostedZoneName) return { mode: 'route53', domainName, hostedZoneId, hostedZoneName };
+    return {
+      error: `domainName=${domainName} requiere hostedZoneId y hostedZoneName (Route 53) o certificateArn (ACM) para HTTPS.`,
+    };
+  }
+  if (props.allowInsecureHttp) return { mode: 'insecure' };
+  return {
+    error:
+      'El piloto no se publica por HTTP en claro: defina domainName con hostedZoneId/hostedZoneName o certificateArn. ' +
+      'Solo para pruebas sin datos reales: -c allowInsecureHttp=true.',
+  };
 }
