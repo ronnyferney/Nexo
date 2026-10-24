@@ -164,8 +164,13 @@ describe('Recuperación de contraseña por correo (C1, E2E)', () => {
     it('como mucho 3 enlaces vigentes por cuenta: más solicitudes no envían correo', async () => {
       const s = await registerOwner(app, 'pwr-limite');
       for (let i = 0; i < 5; i++) await forgot(s.email);
+      // El envío es asíncrono: se esperan los 3 correos (hasta 10 s) y luego un margen para un 4.º que no debe llegar.
+      const sent = () => smtp.messages.filter((m) => m.to === s.email).length;
+      for (const deadline = Date.now() + 10_000; sent() < 3 && Date.now() < deadline;) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
       await new Promise((r) => setTimeout(r, 800));
-      expect(smtp.messages.filter((m) => m.to === s.email)).toHaveLength(3);
+      expect(sent()).toBe(3);
       expect(await prismaOf(app).passwordResetToken.count({ where: { userId: s.userId } })).toBe(3);
     });
 

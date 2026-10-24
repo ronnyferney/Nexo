@@ -19,6 +19,9 @@ const ENVELOPE_NS = {
   '1.2': 'http://www.w3.org/2003/05/soap-envelope',
 };
 
+/** Nodo de un documento XML convertido por `fast-xml-parser` (atributos con prefijo `@_`). */
+type XmlNode = Record<string, unknown>;
+
 const parser = new XMLParser({ ignoreAttributes: false, removeNSPrefix: true, parseTagValue: true });
 
 /** Web services SOAP 1.1 / 1.2 con importación de operaciones desde WSDL. */
@@ -56,8 +59,8 @@ export class SoapAdapter implements ConnectorAdapter {
     }
 
     const res = await this.http.request({ url: config.endpoint, method: 'POST', headers, body: envelope });
-    const parsed = parser.parse(res.rawBody || '<empty/>');
-    const body = parsed?.Envelope?.Body ?? parsed;
+    const parsed = parser.parse(res.rawBody || '<empty/>') as XmlNode | undefined;
+    const body = ((parsed?.Envelope as XmlNode | undefined)?.Body as XmlNode | undefined) ?? parsed;
     const fault = body?.Fault;
     return {
       ok: res.ok && !fault,
@@ -86,13 +89,13 @@ const asArray = <T>(v: T | T[] | undefined): T[] => (v === undefined ? [] : Arra
 
 /** Extrae operaciones y soapAction de los bindings de un WSDL 1.1. */
 export function wsdlToOperations(wsdlXml: string): DiscoveredOperation[] {
-  const doc = parser.parse(wsdlXml);
-  const defs = doc?.definitions;
+  const doc = parser.parse(wsdlXml) as XmlNode | undefined;
+  const defs = doc?.definitions as XmlNode | undefined;
   if (!defs) throw new Error('WSDL inválido: no se encontró <definitions>');
-  const ns: string = defs['@_targetNamespace'] ?? '';
+  const ns = (defs['@_targetNamespace'] as string | undefined) ?? '';
   const seen = new Set<string>();
   const ops: DiscoveredOperation[] = [];
-  for (const binding of asArray<Record<string, unknown>>(defs.binding)) {
+  for (const binding of asArray(defs.binding as XmlNode | XmlNode[] | undefined)) {
     for (const op of asArray<Record<string, unknown>>(binding.operation as never)) {
       const name = String(op['@_name']);
       if (seen.has(name)) continue;

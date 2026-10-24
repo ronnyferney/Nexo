@@ -12,5 +12,5 @@ export interface AuthContext {
 
 /** Inyecta el contexto autenticado (usuario + workspace activo). */
 export const CurrentAuth = createParamDecorator((_: unknown, ctx: ExecutionContext): AuthContext => {
-  return ctx.switchToHttp().getRequest().user as AuthContext;
+  return ctx.switchToHttp().getRequest<{ user: AuthContext }>().user;
 });

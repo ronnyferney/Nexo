@@ -12,7 +12,7 @@ const env = (over: Record<string, unknown> = {}) => ({
 });
 
 describe('validateEnv · secretos débiles (M9)', () => {
-  let warn: jest.SpyInstance;
+  let warn: jest.SpiedFunction<Logger['warn']>;
   beforeEach(() => {
     warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
   });
@@ -107,7 +107,7 @@ describe('validateEnv · secretos débiles (M9)', () => {
 describe('validateEnv · anillo de claves de cifrado (B7)', () => {
   const K1 = '9c2e4b6a8d0f1e3c5a7b9d2f4e6c8a0b1d3f5e7c9a2b4d6f8e0c1a3b5d7f9e2c';
   const K2 = '41d7a9c3e5f7b1d3a5c7e9f2b4d6a8c0e1f3b5d7a9c2e4f6b8d0a1c3e5f7b9d2';
-  let warn: jest.SpyInstance;
+  let warn: jest.SpiedFunction<Logger['warn']>;
   beforeEach(() => {
     warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
   });

@@ -6,6 +6,7 @@ import {
   disallowedSecretRefs,
   SecretNotAllowedException,
 } from './secret-refs';
+import type { ConnectorRuntime, InvocationResult } from './connector.types';
 
 describe('collectSecretRefs', () => {
   it('extrae nombres de cadenas, arreglos y objetos anidados, sin duplicados', () => {
@@ -74,12 +75,19 @@ describe('ConnectorsService: secretos permitidos por conector (A4)', () => {
       operations: [],
       ...connectorOverrides,
     };
-    const adapter = { type: 'REST', invoke: jest.fn().mockResolvedValue({ ok: true, data: {}, durationMs: 1 }) };
+    const adapter = {
+      type: 'REST',
+      invoke: jest
+        .fn<Promise<InvocationResult>, [ConnectorRuntime, unknown, unknown]>()
+        .mockResolvedValue({ ok: true, data: {}, durationMs: 1 }),
+    };
     const prisma = {
       connector: {
         findFirst: jest.fn().mockResolvedValue(connector),
         create: jest.fn(({ data }: { data: Record<string, unknown> }) => Promise.resolve({ id: 'c2', ...data })),
-        update: jest.fn().mockResolvedValue(connector),
+        update: jest
+          .fn<Promise<typeof connector>, [{ where: unknown; data: Record<string, unknown> }]>()
+          .mockResolvedValue(connector),
       },
       connectorOperation: { create: jest.fn().mockResolvedValue({}) },
     };
@@ -207,10 +215,9 @@ describe('ConnectorsService: secretos permitidos por conector (A4)', () => {
 
   it('probar un conector con un secreto bloqueado responde ok:false con el motivo', async () => {
     const { service } = build({ allowedSecrets: [] });
-    await expect(service.test('w1', 'c1')).resolves.toMatchObject({
-      ok: false,
-      message: expect.stringMatching(/no permitidos: CRM_TOKEN/),
-    });
+    const result = await service.test('w1', 'c1');
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/no permitidos: CRM_TOKEN/);
   });
 });
 

@@ -25,15 +25,16 @@ describe('BootstrapAdminService', () => {
   });
 
   it('advierte por cada correo de PLATFORM_ADMIN_EMAILS sin cuenta verificada (A7)', async () => {
-    const findMany = jest.fn().mockResolvedValue([{ email: 'ok@nexo.co' }]);
+    const findMany = jest
+      .fn<Promise<{ email: string }[]>, [{ where: Record<string, unknown> }]>()
+      .mockResolvedValue([{ email: 'ok@nexo.co' }]);
     const service = make(jest.fn(), { user: { findMany } });
     const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     await expect(
       service.warnUnverifiedPlatformAdmins(['ok@nexo.co', 'falta@nexo.co', 'sinverificar@nexo.co']),
     ).resolves.toEqual(['falta@nexo.co', 'sinverificar@nexo.co']);
-    expect(findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ emailVerifiedAt: { not: null } }) }),
-    );
+    expect(findMany).toHaveBeenCalledTimes(1);
+    expect(findMany.mock.calls[0][0].where).toMatchObject({ emailVerifiedAt: { not: null } });
     expect(warn).toHaveBeenCalledTimes(2);
     expect(warn.mock.calls[0][0]).toContain('f***@nexo.co');
     warn.mockRestore();

@@ -64,7 +64,9 @@ describe('A2 · las credenciales no se redirigen a otro destino', () => {
 
 describe('A6 · cupo mensual de la conexión de plataforma', () => {
   function gateway(used: number, cfg: Record<string, unknown>) {
-    const aggregate = jest.fn().mockResolvedValue({ _sum: { costUsd: used } });
+    const aggregate = jest
+      .fn<Promise<{ _sum: { costUsd: number } }>, [{ where: Record<string, unknown> }]>()
+      .mockResolvedValue({ _sum: { costUsd: used } });
     const prisma = {
       usageRecord: { aggregate },
       llmConnection: { findMany: jest.fn().mockResolvedValue([]) },
