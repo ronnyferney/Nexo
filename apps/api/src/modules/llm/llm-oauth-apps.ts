@@ -1,0 +1,123 @@
+import type { ConfigService } from '@nestjs/config';
+import { render } from '../../common/template/template.engine';
+import type { OAuthEndpointOverride } from '../../config/configuration';
+import {
+  entryMechanisms,
+  type MechanismType,
+  type OAuthAppSpec,
+  type ProviderCatalogEntry,
+  type ProviderMechanismSpec,
+} from './providers';
+
+/** Mecanismo de conexión tal como lo ve la web (`ProviderView.mechanisms`). */
+export interface MechanismView {
+  type: MechanismType;
+  label: string;
+  available: boolean;
+  unavailableReason?: string;
+  primary: boolean;
+}
+
+/** App OAuth de Nexo lista para usar: credenciales del entorno y endpoints ya renderizados. */
+export interface ResolvedLlmOAuthApp {
+  providerId: string;
+  idpName: string;
+  clientId: string;
+  clientSecret?: string;
+  authorizeUrl: string;
+  tokenUrl: string;
+  deviceUrl?: string;
+  revokeUrl?: string;
+  scopes: string[];
+  authorizeParams: Record<string, string>;
+  scopeOnTokenRequest: boolean;
+  clientAuth: 'post' | 'basic';
+}
+
+export class LlmOAuthAppError extends Error {}
+
+/**
+ * Variables de la app OAuth de Nexo para un proveedor del catálogo: `OAUTH_LLM_<PROVEEDOR>_CLIENT_ID/SECRET`
+ * (p. ej. `OAUTH_LLM_AZURE_OPENAI_CLIENT_ID`). Son credenciales **de Nexo**, nunca de otro producto.
+ */
+export function llmOAuthEnvName(providerId: string, kind: 'CLIENT_ID' | 'CLIENT_SECRET'): string {
+  return `OAUTH_LLM_${providerId.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_${kind}`;
+}
+
+const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
+
+/** Motivo por el que la app de Nexo no está configurada (o null si lo está). */
+export function oauthAppUnavailableReason(
+  config: ConfigService,
+  entry: ProviderCatalogEntry,
+  spec: OAuthAppSpec,
+): string | null {
+  const idVar = llmOAuthEnvName(entry.id, 'CLIENT_ID');
+  const secretVar = llmOAuthEnvName(entry.id, 'CLIENT_SECRET');
+  const hasId = !!str(config.get<string>(idVar));
+  const hasSecret = !!str(config.get<string>(secretVar));
+  if (hasId && (hasSecret || !spec.secretRequired)) return null;
+  const missing = spec.secretRequired ? `${idVar} y ${secretVar}` : idVar;
+  return (
+    `La app de Nexo para iniciar sesión con ${spec.idpName} no está configurada en esta instalación ` +
+    `(el administrador de la plataforma debe definir ${missing}).`
+  );
+}
+
+/**
+ * Credenciales y endpoints de la app OAuth de Nexo para un proveedor. Las URLs se renderizan con los campos no secretos
+ * del formulario (p. ej. `tenantId`) y admiten `LLM_OAUTH_ENDPOINT_OVERRIDES`. Lanza `LlmOAuthAppError` si falta la
+ * configuración.
+ */
+export function resolveLlmOAuthApp(
+  config: ConfigService,
+  entry: ProviderCatalogEntry,
+  spec: OAuthAppSpec,
+  values: Record<string, string>,
+): ResolvedLlmOAuthApp {
+  const reason = oauthAppUnavailableReason(config, entry, spec);
+  if (reason) throw new LlmOAuthAppError(reason);
+  const override = config.get<Record<string, OAuthEndpointOverride>>('llm.oauthEndpointOverrides')?.[entry.id] ?? {};
+  const url = (template: string | undefined) =>
+    template ? String(render<unknown>(template, values) ?? '').replace(/\/+$/, '') : undefined;
+  const secret = str(config.get<string>(llmOAuthEnvName(entry.id, 'CLIENT_SECRET')));
+  return {
+    providerId: entry.id,
+    idpName: spec.idpName,
+    clientId: str(config.get<string>(llmOAuthEnvName(entry.id, 'CLIENT_ID'))),
+    ...(secret ? { clientSecret: secret } : {}),
+    authorizeUrl: url(override.authorizeUrl ?? spec.authorizeUrl)!,
+    tokenUrl: url(override.tokenUrl ?? spec.tokenUrl)!,
+    deviceUrl: url(override.deviceUrl ?? spec.deviceUrl),
+    revokeUrl: url(override.revokeUrl ?? spec.revokeUrl),
+    scopes: spec.scopes,
+    authorizeParams: spec.authorizeParams ?? {},
+    scopeOnTokenRequest: !!spec.scopeOnTokenRequest,
+    clientAuth: spec.clientAuth,
+  };
+}
+
+const LOCAL_SSRF_REASON =
+  'La protección SSRF de Nexo bloquea redes privadas: la detección local requiere Nexo Edge o una instalación ' +
+  'on-premise con CONNECTOR_ALLOW_PRIVATE_NETWORKS=true. Puede ingresar una URL pública alcanzable.';
+
+/** Disponibilidad de cada mecanismo de una entrada para la configuración actual. */
+export function mechanismViews(config: ConfigService, entry: ProviderCatalogEntry): MechanismView[] {
+  return entryMechanisms(entry).map((m: ProviderMechanismSpec): MechanismView => {
+    let reason: string | null = null;
+    if ((m.type === 'OAUTH' || m.type === 'DEVICE_CODE') && m.oauth) {
+      reason = oauthAppUnavailableReason(config, entry, m.oauth);
+      if (!reason && m.type === 'DEVICE_CODE' && !m.oauth.deviceUrl) {
+        reason = `${m.oauth.idpName} no documenta el flujo de código de dispositivo.`;
+      }
+    }
+    if (m.type === 'LOCAL_DETECT' && !config.get<boolean>('http.allowPrivateNetworks')) reason = LOCAL_SSRF_REASON;
+    return {
+      type: m.type,
+      label: m.label,
+      available: !reason,
+      ...(reason ? { unavailableReason: reason } : {}),
+      primary: m.primary,
+    };
+  });
+}

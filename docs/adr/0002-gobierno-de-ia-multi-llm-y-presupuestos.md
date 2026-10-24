@@ -69,6 +69,18 @@ se puede medir para los presupuestos de D4/D5. Solo se admiten conexiones oficia
 - **Modelos locales** (Ollama, LM Studio): desde la nube requieren Nexo Edge o una red alcanzable; la protección SSRF
   bloquea redes privadas salvo `CONNECTOR_ALLOW_PRIVATE_NETWORKS=true` (solo on-premise).
 - **OpenRouter** para modelos de terceros, con su **OAuth PKCE oficial** (o clave de API).
+- **Inicio de sesión oficial del proveedor** (addendum 2026-10-23, segunda parte): Google Vertex AI («Iniciar sesión con
+  Google»), Azure OpenAI con Microsoft Entra ID («Iniciar sesión con Microsoft») y Hugging Face (OAuth web y código de
+  dispositivo), además de la detección de servidores locales.
+
+**Regla no negociable sobre identidades OAuth:** Nexo **nunca** usa identificadores de cliente OAuth de otros productos
+(p. ej. el `client_id` de Claude Code, de Codex/ChatGPT, de GitHub Copilot o de una CLI de terceros) ni flujos pensados
+para suscripciones personales: eso suplanta a otro producto y viola sus términos. Solo se admiten los mecanismos que el
+proveedor documenta para **aplicaciones de terceros con su propia app registrada**. Las credenciales de la app de Nexo
+viven en variables de entorno `OAUTH_LLM_<PROVEEDOR>_CLIENT_ID/SECRET` (nunca en el código ni en el catálogo; una
+prueba unitaria lo verifica). Si no están configuradas, el proveedor se muestra con `mechanisms[].available=false` y
+`unavailableReason`, y los endpoints de inicio responden 400. El redirect URI que se registra en cada proveedor es
+`${PUBLIC_URL}/api/llm/oauth/<proveedor>/callback`.
 
 Diseño:
 - El catálogo vive en código (`apps/api/src/modules/llm/providers/*.providers.ts`, un archivo por familia). Cada entrada
@@ -96,6 +108,35 @@ Diseño:
   query del `callback_url`. El callback canjea el código en `POST https://openrouter.ai/api/v1/auth/keys`
   (`{ code, code_verifier, code_challenge_method: 'S256' }` → `{ key }`), exige que quien inició siga siendo ADMIN+ y
   redirige siempre a `${WEB_URL}/admin/providers`.
+- **Mecanismos por proveedor** (`ProviderCatalogEntry.mechanisms`, por defecto `API_KEY` o `LOCAL_DETECT` en los locales;
+  un único `primary`; si no está disponible la interfaz usa el siguiente):
+  | Proveedor | Mecanismos | Detalle verificado (fuente) |
+  |---|---|---|
+  | Vertex AI (`vertex`) | `OAUTH` | Google OAuth 2.0 web + PKCE, scope `https://www.googleapis.com/auth/cloud-platform`, `access_type=offline` y `prompt=consent` (refresh token), revocación en `oauth2.googleapis.com/revoke` (google-auth-library-nodejs). Endpoint compatible con OpenAI `https://{host}/v1/projects/{proyecto}/locations/{región}/endpoints/openapi`, host `aiplatform.googleapis.com` en `global` o `{región}-aiplatform.googleapis.com` (GoogleCloudPlatform/generative-ai). |
+  | Azure OpenAI (`azure-openai`) | `OAUTH` (principal), `API_KEY` | Entra ID v2 `login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize|token`, PKCE S256, `scope` también en el canje y la renovación, refresh token con `offline_access`, refresh rotado se reemplaza (MicrosoftDocs/entra-docs). Scope `https://cognitiveservices.azure.com/.default` (SDK de Azure). Token como Bearer en la API v1 (openai-node). Entra ID no documenta revocación: se borran los tokens de Nexo. |
+  | Hugging Face (`huggingface`) | `OAUTH` (principal), `DEVICE_CODE`, `API_KEY` | `huggingface.co/oauth/authorize|token|device`, scope `inference-api`, PKCE, app pública sin secreto o `Authorization: Basic` con secreto (huggingface/hub-docs). El token expira (`expires_in`) y no se documenta refresh token: al expirar se pide volver a iniciar sesión. |
+  | OpenRouter | `OAUTH` (principal, sin app registrada), `API_KEY` | Ver arriba. |
+  | Ollama, LM Studio | `LOCAL_DETECT` | `POST …/detect` prueba la URL indicada o la local por defecto y lista modelos sin guardar. |
+  | Resto | `API_KEY` | — |
+- **GitHub Models no se incluye:** la documentación oficial (github/docs, `content/github-models/index.md`) indica que
+  el servicio se retiró por completo el 30-07-2026 (catálogo, API de inferencia y BYOK). El flujo de código de dispositivo
+  quedó genérico (RFC 8628) y hoy lo usa Hugging Face.
+- **Tokens OAuth de la conexión:** `LlmConnection.credentialType = OAUTH`; `apiKeyCipher` guarda el access token vigente,
+  `oauthRefreshCipher` el refresh token (AES-256-GCM), `oauthExpiresAt` y `oauthScope`. El driver pide el token en cada
+  llamada (`LlmCredentials.getAccessToken`), y `LlmTokenService` lo renueva 60 s antes de expirar con una sola solicitud
+  por conexión aunque haya llamadas concurrentes. Los tokens OAuth viajan siempre como `Authorization: Bearer`.
+- **Flujos en curso:** tabla `LlmAuthFlow` (vida ≤ 15 min) con los campos no secretos del formulario, nombre y modelos
+  pedidos, y el `device_code` cifrado (nunca viaja al navegador). El `state` firmado lleva
+  `connectorId = 'llm-provider:<proveedor>:<flujo>'`; flujo y `state` son de un solo uso. El sondeo de dispositivo
+  respeta el `interval` del proveedor (si la web sondea antes responde `pending` sin llamarlo) y reclama el turno de forma
+  atómica.
+- **Verificación tolerante** (`verifyMode: 'lenient'`, Vertex y Azure): la API v1 de Azure y el endpoint de Vertex no
+  documentan `/models`; un 404/405 ahí no impide conectar, un 401/403 sí (falta de rol sobre el recurso o proyecto).
+- **Metadatos de modelos:** `suggestedModels[]` y `LlmModel` llevan `specialties` (`CODE|REASONING|VISION|FAST|GENERAL`)
+  y `contextTokens`, además de `tier`. Solo valores verificados en la fuente oficial (hoy Anthropic y DeepSeek R1);
+  si no, `['GENERAL']` y contexto `null`.
+- `LLM_OAUTH_ENDPOINT_OVERRIDES` (JSON `{ "<proveedor>": { authorizeUrl?, tokenUrl?, deviceUrl?, revokeUrl? } }`)
+  sustituye los endpoints OAuth (proxies de identidad corporativos y pruebas); solo lo define el operador.
 
 ## Contrato de API
 
@@ -170,12 +211,33 @@ Solo incluye conexiones y modelos habilitados.
   no son válidos o la prueba falla (clave rechazada, URL 404, inalcanzable, SSRF); 404 si el proveedor no existe.
   Sin `models` se importan los sugeridos que el proveedor expone (Azure agrega su `deployment`).
 - `GET /admin/llm/providers/:id/discover?connectionId=` → `{ connectionId; models: string[]; discoveredModels: string[]; importedModels: string[] }` (`models` = `discoveredModels`).
-- `POST /admin/llm/providers/openrouter/oauth/start` `{ limit? }` → `{ authorizeUrl }`.
-- `GET /llm/oauth/openrouter/callback?code&state` (público, 30/min) → 302 a
-  `${WEB_URL}/admin/providers?llm=connected&provider=openrouter&connectionId=…` o
-  `?llm=error&provider=openrouter&reason=invalid_state|access_denied|missing_code|forbidden|exchange_failed`.
-- `LlmConnection` agrega `providerId: string|null` y `providerFields: Record<string,string>`; `LlmModel` agrega
-  `needsPricing: boolean`.
+- `ProviderView` agrega `mechanisms: { type: 'API_KEY'|'OAUTH'|'DEVICE_CODE'|'LOCAL_DETECT'; label: string;
+  available: boolean; unavailableReason?: string; primary: boolean }[]`; `fields[]` agrega `mechanisms?: string[]`
+  (ausente = el campo aplica a todos; p. ej. `apiKey` solo en `API_KEY`, `tenantId` de Azure solo en `OAUTH`);
+  `suggestedModels[]` siempre trae `specialties: string[]` y `contextTokens: number|null`. `POST …/connect` es el
+  mecanismo `API_KEY` (o la URL manual de los locales): en un proveedor sin `API_KEY` (Vertex) responde 400.
+- `POST /admin/llm/providers/:id/oauth/start` `{ name?, fields?, models?, limit? }` → 200 `{ authorizeUrl }` (sirve para
+  `openrouter`, `vertex`, `azure-openai`, `huggingface`; `limit` solo en OpenRouter; `fields` = campos no secretos del
+  mecanismo `OAUTH`, p. ej. Vertex `{ projectId, region? }`, Azure `{ resource, deployment, tenantId? }`). 400 si el
+  proveedor no tiene el mecanismo, la app de Nexo no está configurada o los campos no son válidos; 404 si no existe.
+- `GET /llm/oauth/:provider/callback?code&state` (público, 30/min) → 302 a
+  `${WEB_URL}/admin/providers?llm=connected&provider=…&connectionId=…` o
+  `?llm=error&provider=…&reason=invalid_state|access_denied|missing_code|forbidden|not_configured|exchange_failed|verification_failed`
+  (`verification_failed`: el token no pudo usar el endpoint, p. ej. sin rol sobre el proyecto o recurso).
+- `POST /admin/llm/providers/:id/device/start` `{ name?, fields?, models? }` → 200 `{ flowId; userCode; verificationUri;
+  verificationUriComplete?; expiresIn; interval }` (hoy `huggingface`).
+- `POST /admin/llm/providers/:id/device/poll` `{ flowId }` → 200 `{ status: 'pending'|'slow_down'|'connected'|'expired'|
+  'denied'; interval?; message?; connection? }` (`connection` = `LlmConnection` con `models`; 404 si el flujo no es del
+  workspace). Sondear cada `interval` segundos; tras `slow_down` usar el nuevo `interval`.
+- `POST /admin/llm/providers/:id/detect` `{ baseUrl? }` → 200 `{ providerId; baseUrl; reachable: boolean;
+  models: { id; label; tier; specialties; contextTokens }[]; message? }` (solo `ollama`/`lmstudio`; no guarda nada;
+  respeta SSRF). Para guardar, `POST …/connect` `{ fields: { baseUrl }, models }`.
+- `DELETE /admin/llm/connections/:id` → 200 `{ deleted: true; revoked: boolean }`: si la conexión es OAuth y el proveedor
+  documenta revocación (Google) revoca el grant antes de borrar.
+- `GET /admin/llm/connections/:id/models` → `LlmModel[]`.
+- `LlmConnection` agrega `providerId: string|null`, `providerFields: Record<string,string>`,
+  `credentialType: 'API_KEY'|'OAUTH'`, `oauthExpiresAt: string|null` y `oauthRenewable: boolean|null`; `LlmModel` agrega
+  `needsPricing: boolean`, `specialties: string[]` (GENERAL si no hay datos) y `contextTokens: number|null`.
 
 ### Cambios en contratos existentes
 - `Agent` incluye `costCenterId: string | null` (crear/actualizar).

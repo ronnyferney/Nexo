@@ -1,11 +1,26 @@
-import { API_KEY_FIELD, type ProviderCatalogEntry } from './provider-catalog.types';
+import { API_KEY_FIELD, type OAuthAppSpec, type ProviderCatalogEntry } from './provider-catalog.types';
 
 /**
  * Plataformas de inferencia de modelos abiertos. Fuentes verificadas el 2026-10-23: SDK `groq-sdk` 1.6.0 y
  * groq/groq-api-cookbook; `@cerebras/cerebras_cloud_sdk` 1.91.0; `fireworks-ai` 1.2.30 (PyPI); `together-ai` 1.0.0 y
  * togethercomputer/together-cookbook; `langchain-nvidia-ai-endpoints` (repo langchain-ai/langchain-nvidia, mantenido por
- * NVIDIA); huggingface/hub-docs (inference-providers, security-tokens, pricing).
+ * NVIDIA); huggingface/hub-docs (inference-providers, security-tokens, pricing, `docs/hub/oauth.md`: «Sign in with
+ * HF», `huggingface.co/oauth/authorize|token|device`, scope `inference-api`, PKCE, apps públicas sin secreto o
+ * `Authorization: Basic` con secreto, código de dispositivo) y huggingface/huggingface.js (`oauth-login-url.ts`,
+ * `oauth-handle-redirect.ts`: el token trae `expires_in` y no documenta refresh token); deepseek-ai/DeepSeek-R1
+ * (modelo de razonamiento).
  */
+
+/** App OAuth de Nexo en Hugging Face (`OAUTH_LLM_HUGGINGFACE_CLIENT_ID/SECRET`; el secreto es opcional). */
+const HUGGING_FACE_OAUTH: OAuthAppSpec = {
+  idpName: 'Hugging Face',
+  authorizeUrl: 'https://huggingface.co/oauth/authorize',
+  tokenUrl: 'https://huggingface.co/oauth/token',
+  deviceUrl: 'https://huggingface.co/oauth/device',
+  scopes: ['openid', 'profile', 'inference-api'],
+  clientAuth: 'basic',
+  secretRequired: false,
+};
 export const OPEN_MODEL_PROVIDERS: ProviderCatalogEntry[] = [
   {
     id: 'groq',
@@ -122,7 +137,7 @@ export const OPEN_MODEL_PROVIDERS: ProviderCatalogEntry[] = [
     kind: 'OPENAI_COMPATIBLE',
     baseUrl: 'https://router.huggingface.co/v1',
     auth: 'API_KEY',
-    fields: [API_KEY_FIELD({ label: 'Token de acceso', placeholder: 'hf_...' })],
+    fields: [API_KEY_FIELD({ label: 'Token de acceso', placeholder: 'hf_...', mechanisms: ['API_KEY'] })],
     docsUrl: 'https://huggingface.co/docs/inference-providers',
     keyUrl:
       'https://huggingface.co/settings/tokens/new?ownUserPermissions=inference.serverless.write&tokenType=fineGrained',
@@ -134,11 +149,21 @@ export const OPEN_MODEL_PROVIDERS: ProviderCatalogEntry[] = [
     keyPrefix: 'hf_',
     suggestedModels: [
       { id: 'openai/gpt-oss-120b:fastest', label: 'GPT-OSS 120B (proveedor más rápido)', tier: 'STANDARD' },
-      { id: 'deepseek-ai/DeepSeek-R1', label: 'DeepSeek R1', tier: 'PREMIUM' },
+      { id: 'deepseek-ai/DeepSeek-R1', label: 'DeepSeek R1', tier: 'PREMIUM', specialties: ['REASONING'] },
     ],
     notes:
-      'Los usuarios gratuitos deben comprar créditos; PRO/Team/Enterprise incluyen créditos mensuales. El sufijo :fastest elige el proveedor.',
-    pendingVerification: ['precios por modelo (dependen del proveedor elegido)'],
+      'Los usuarios gratuitos deben comprar créditos; PRO/Team/Enterprise incluyen créditos mensuales. El sufijo :fastest ' +
+      'elige el proveedor. Con «Iniciar sesión con Hugging Face» el token caduca y Hugging Face no documenta refresh ' +
+      'token: al expirar, Nexo pide volver a iniciar sesión (para uso continuo prefiera un token «hf_»).',
+    pendingVerification: [
+      'precios por modelo (dependen del proveedor elegido)',
+      'refresh token y endpoint de revocación en el OAuth de Hugging Face',
+    ],
     authHeader: 'bearer',
+    mechanisms: [
+      { type: 'OAUTH', label: 'Iniciar sesión con Hugging Face', primary: true, oauth: HUGGING_FACE_OAUTH },
+      { type: 'DEVICE_CODE', label: 'Conectar con un código', primary: false, oauth: HUGGING_FACE_OAUTH },
+      { type: 'API_KEY', label: 'Token de acceso (hf_)', primary: false },
+    ],
   },
 ];

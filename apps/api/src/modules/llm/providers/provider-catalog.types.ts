@@ -3,12 +3,52 @@ import type { AuthHeaderStyle } from '../llm-provider';
 
 /**
  * Catálogo de proveedores "conectar en un clic" (ADR 0002, D8). Solo conexiones oficiales: clave de API de pago por
- * uso, nube empresarial, modelos locales y OpenRouter con su OAuth PKCE. Nunca suscripciones personales.
+ * uso, nube empresarial, modelos locales y los inicios de sesión que cada proveedor documenta para aplicaciones de
+ * terceros con **la app registrada de Nexo**. Nunca suscripciones personales ni client_id de otros productos.
  */
 export type ProviderCategory = 'FRONTIER' | 'OPEN_MODELS' | 'ENTERPRISE_CLOUD' | 'LOCAL' | 'ROUTER';
 export type ProviderBilling = 'PAY_AS_YOU_GO' | 'FREE_TIER' | 'ENTERPRISE' | 'LOCAL';
 export type ProviderKind = 'ANTHROPIC' | 'OPENAI_COMPATIBLE';
 export type ProviderAuth = 'API_KEY' | 'OAUTH' | 'NONE';
+/** Especialidades de un modelo para los filtros de la consola (solo valores verificados; si no, `GENERAL`). */
+export type ModelSpecialty = 'CODE' | 'REASONING' | 'VISION' | 'FAST' | 'GENERAL';
+export const MODEL_SPECIALTIES: readonly ModelSpecialty[] = ['CODE', 'REASONING', 'VISION', 'FAST', 'GENERAL'];
+/** Mecanismo de conexión que ofrece la galería. */
+export type MechanismType = 'API_KEY' | 'OAUTH' | 'DEVICE_CODE' | 'LOCAL_DETECT';
+
+/**
+ * App OAuth **de Nexo** registrada en el proveedor (credenciales en `OAUTH_LLM_<PROVEEDOR>_CLIENT_ID/SECRET`). Las URLs
+ * son plantillas con los campos no secretos del formulario (p. ej. `{{ tenantId }}` de Entra ID).
+ */
+export interface OAuthAppSpec {
+  /** Nombre del proveedor de identidad para mensajes (Google, Microsoft, Hugging Face). */
+  idpName: string;
+  authorizeUrl: string;
+  tokenUrl: string;
+  /** Endpoint de autorización de dispositivo (RFC 8628), si el proveedor lo documenta. */
+  deviceUrl?: string;
+  /** Endpoint de revocación documentado (RFC 7009); sin él, desconectar solo borra los tokens de Nexo. */
+  revokeUrl?: string;
+  scopes: string[];
+  /** Parámetros fijos adicionales de la URL de autorización (p. ej. `access_type=offline` de Google). */
+  authorizeParams?: Record<string, string>;
+  /** Envía `scope` también al canjear y renovar (extensión documentada de Microsoft Entra ID). */
+  scopeOnTokenRequest?: boolean;
+  /** Autenticación del cliente en el endpoint de token: `post` (client_secret en el cuerpo) o `basic`. */
+  clientAuth: 'post' | 'basic';
+  /** La app de Nexo debe tener client secret (app web confidencial). */
+  secretRequired: boolean;
+}
+
+export interface ProviderMechanismSpec {
+  type: MechanismType;
+  /** Texto del botón en español (p. ej. «Iniciar sesión con Google»). */
+  label: string;
+  /** Mecanismo recomendado; si no está disponible la interfaz usa el siguiente disponible. */
+  primary: boolean;
+  /** App OAuth de Nexo (OAUTH/DEVICE_CODE). OpenRouter no la necesita: su PKCE no exige registrar la app. */
+  oauth?: OAuthAppSpec;
+}
 
 export interface ProviderField {
   /** `apiKey` es el único campo secreto: se guarda cifrado en `LlmConnection.apiKeyCipher`. */
@@ -22,6 +62,8 @@ export interface ProviderField {
   pattern?: string;
   /** Valor por defecto si el usuario no envía el campo (p. ej. URL local de Ollama). */
   default?: string;
+  /** Mecanismos en los que aplica el campo (ausente = todos); p. ej. la clave solo con API_KEY. */
+  mechanisms?: MechanismType[];
 }
 
 export interface SuggestedModel {
@@ -32,7 +74,10 @@ export interface SuggestedModel {
   inputUsdPerMTok?: number;
   outputUsdPerMTok?: number;
   cacheReadUsdPerMTok?: number;
+  /** Ventana de contexto verificada en la fuente oficial. */
   contextTokens?: number;
+  /** Especialidades verificadas en la fuente oficial (por defecto `['GENERAL']`). */
+  specialties?: ModelSpecialty[];
 }
 
 export interface ProviderCatalogEntry {
@@ -60,6 +105,8 @@ export interface ProviderCatalogEntry {
   notes?: string;
   /** Aspectos aún no verificados en la documentación oficial (transparencia para la consola y QA). */
   pendingVerification: string[];
+  /** Mecanismos de conexión; por defecto `API_KEY` (o `LOCAL_DETECT` en la categoría LOCAL). */
+  mechanisms?: ProviderMechanismSpec[];
   // --- Comportamiento del driver (no lo necesita la web, pero no es secreto) ---
   authHeader: AuthHeaderStyle;
   /** Ruta para validar la clave antes de guardar (por defecto `/models`). */
@@ -68,6 +115,28 @@ export interface ProviderCatalogEntry {
   headers?: Record<string, string>;
   /** Reenviar `reasoning_content` del asistente (requerido por algunos modelos de razonamiento). */
   replayReasoning?: boolean;
+  /**
+   * `lenient`: un 404/405 en la ruta de verificación no impide conectar (el endpoint no documenta `/models`); un
+   * 401/403 sí lo impide. Por defecto `strict`.
+   */
+  verifyMode?: 'strict' | 'lenient';
+  /** Valores derivados de los campos para renderizar la URL base (no se guardan). */
+  deriveValues?: (values: Record<string, string>) => Record<string, string>;
+}
+
+/** Mecanismos efectivos de una entrada (los declarados o el valor por defecto de su categoría). */
+export function entryMechanisms(entry: Pick<ProviderCatalogEntry, 'mechanisms' | 'category'>): ProviderMechanismSpec[] {
+  if (entry.mechanisms?.length) return entry.mechanisms;
+  return entry.category === 'LOCAL'
+    ? [{ type: 'LOCAL_DETECT', label: 'Detectar servidor local', primary: true }]
+    : [{ type: 'API_KEY', label: 'Clave de API', primary: true }];
+}
+
+export function findMechanism(
+  entry: Pick<ProviderCatalogEntry, 'mechanisms' | 'category'>,
+  type: MechanismType,
+): ProviderMechanismSpec | undefined {
+  return entryMechanisms(entry).find((m) => m.type === type);
 }
 
 /** Fecha de la última revisión del catálogo contra las fuentes oficiales. */

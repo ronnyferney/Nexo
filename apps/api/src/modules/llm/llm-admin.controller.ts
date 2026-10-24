@@ -23,6 +23,7 @@ import {
 } from './dto/llm-admin.dto';
 import { LlmGatewayService } from './llm-gateway.service';
 import { serializeConnection, serializeModel } from './llm-serializers';
+import { LlmTokenService } from './llm-token.service';
 
 /** Catálogo visible para todos los roles (selectores de modelo). */
 @ApiTags('llm')
@@ -47,6 +48,7 @@ export class LlmAdminController {
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
     private readonly gateway: LlmGatewayService,
+    private readonly tokens: LlmTokenService,
   ) {}
 
   @Get('connections')
@@ -81,12 +83,23 @@ export class LlmAdminController {
     return serializeConnection(row);
   }
 
+  /** Borra la conexión; si es OAuth y el proveedor documenta revocación (Google), revoca antes el grant. */
   @Delete('connections/:id')
   async remove(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
-    await this.connection(a.workspaceId, id);
+    const c = await this.connection(a.workspaceId, id);
     const inUse = await this.prisma.agent.count({ where: { workspaceId: a.workspaceId, provider: id } });
     if (inUse) throw new ConflictException(`La conexión está en uso por ${inUse} agente(s); reasígnelos primero`);
+    const revoked = await this.tokens.revoke(c);
     await this.prisma.llmConnection.delete({ where: { id } });
+    return { deleted: true, revoked };
+  }
+
+  /** Modelos de la conexión con nivel, especialidades, contexto y tarifas (filtros de la consola). */
+  @Get('connections/:id/models')
+  async models(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
+    await this.connection(a.workspaceId, id);
+    const rows = await this.prisma.llmModel.findMany({ where: { connectionId: id }, orderBy: { label: 'asc' } });
+    return rows.map(serializeModel);
   }
 
   @HttpCode(200)

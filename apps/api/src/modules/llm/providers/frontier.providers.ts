@@ -1,16 +1,28 @@
 import { SYSTEM_ANTHROPIC_MODELS } from '../pricing';
-import { API_KEY_FIELD, type ProviderCatalogEntry } from './provider-catalog.types';
+import { API_KEY_FIELD, type ModelSpecialty, type ProviderCatalogEntry } from './provider-catalog.types';
 
 /**
  * Laboratorios con API propia. Fuentes verificadas el 2026-10-23 (los dominios de documentación de terceros estaban
  * bloqueados por el proxy, por lo que se usaron los SDK oficiales publicados en npm/PyPI y los repos oficiales):
- * - Anthropic: platform.claude.com/docs (precios, modelos, get-api-key).
+ * - Anthropic: platform.claude.com/docs (precios, modelos y especialidades, ventana de 1M, get-api-key).
  * - OpenAI: SDK `openai` 7.43.0 (URL base, tipos `ChatModel`).
  * - Gemini: google-gemini/cookbook (Get_started_OpenAI_Compatibility, Authentication).
  * - Mistral: SDK `@mistralai/mistralai` 3.1.0. xAI: SDK `@xai-official/sdk` 0.2.4 y xai-org/xai-cookbook.
  * - Moonshot: `kimi-cli` 1.52.0 (plataformas) y MoonshotAI/Kimi-K3 (README).
  * - DeepSeek: deepseek-ai/DeepSeek-R1 (README: API compatible con OpenAI en platform.deepseek.com).
  */
+/**
+ * Especialidades según platform.claude.com/docs/en/models/overview: todos los modelos actuales admiten visión; Fable
+ * «para razonamiento exigente», Opus «para agentes de código y trabajo de conocimiento de larga duración», Sonnet
+ * «la mejor combinación de velocidad e inteligencia» (latencia «Fast») y Haiku el más rápido.
+ */
+const ANTHROPIC_SPECIALTIES: Record<string, ModelSpecialty[]> = {
+  'claude-fable-5-1': ['REASONING', 'VISION'],
+  'claude-opus-5-5': ['CODE', 'GENERAL', 'VISION'],
+  'claude-sonnet-5-5': ['GENERAL', 'FAST', 'VISION'],
+  'claude-haiku-5-5': ['FAST', 'VISION'],
+};
+
 export const FRONTIER_PROVIDERS: ProviderCatalogEntry[] = [
   {
     id: 'anthropic',
@@ -40,6 +52,7 @@ export const FRONTIER_PROVIDERS: ProviderCatalogEntry[] = [
       outputUsdPerMTok: m.outputUsdPerMTok,
       ...(m.cacheReadUsdPerMTok !== null ? { cacheReadUsdPerMTok: m.cacheReadUsdPerMTok } : {}),
       contextTokens: 1_000_000,
+      specialties: ANTHROPIC_SPECIALTIES[m.id] ?? ['GENERAL', 'VISION'],
     })),
     notes:
       'Claude Haiku 5.5 cobra 0,50/2,50 USD por MTok en prompts de más de 100.000 tokens; Nexo aplica la tarifa base.',

@@ -72,13 +72,13 @@ class OpenAiCompatibleClient implements LlmClient {
     this.baseUrl = (credentials.baseUrl ?? 'https://api.openai.com/v1').replace(/\/+$/, '');
   }
 
-  private headers(): Record<string, string> {
+  private async headers(): Promise<Record<string, string>> {
     const h: Record<string, string> = {
       ...(this.credentials.headers ?? {}),
       'content-type': 'application/json',
       accept: 'application/json',
     };
-    const key = this.credentials.apiKey;
+    const key = this.credentials.getAccessToken ? await this.credentials.getAccessToken() : this.credentials.apiKey;
     const style = this.credentials.authHeader ?? 'both';
     if (key && (style === 'bearer' || style === 'both')) h.authorization = `Bearer ${key}`;
     if (key && (style === 'api-key' || style === 'both')) h['api-key'] = key; // Azure OpenAI
@@ -88,7 +88,7 @@ class OpenAiCompatibleClient implements LlmClient {
   private async get(path: string) {
     const res = await this.http.request({
       url: `${this.baseUrl}${path}`,
-      headers: this.headers(),
+      headers: await this.headers(),
       timeoutMs: PROBE_TIMEOUT_MS,
     });
     if (!res.ok) throw new LlmHttpError(res.status, providerErrorMessage(res.body, res.rawBody));
@@ -143,7 +143,7 @@ class OpenAiCompatibleClient implements LlmClient {
       const res = await this.http.request({
         url: `${this.baseUrl}/chat/completions`,
         method: 'POST',
-        headers: this.headers(),
+        headers: await this.headers(),
         body: JSON.stringify({ model: req.model, messages, ...(tools.length ? { tools } : {}) }),
         timeoutMs: LLM_TIMEOUT_MS,
       });

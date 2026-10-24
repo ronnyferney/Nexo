@@ -3,6 +3,8 @@ import { LlmHttpError } from '../llm-provider';
 import { describeProbeError, publicEntry } from '../llm-providers.service';
 import { SYSTEM_ANTHROPIC_MODELS } from '../pricing';
 import {
+  entryMechanisms,
+  findMechanism,
   findProvider,
   PROVIDER_CATALOG,
   ProviderFieldsError,
@@ -46,6 +48,7 @@ describe('Catálogo de proveedores LLM', () => {
         'bedrock',
         'ollama',
         'lmstudio',
+        'vertex',
       ]),
     );
     for (const p of PROVIDER_CATALOG) {
@@ -80,7 +83,8 @@ describe('Catálogo de proveedores LLM', () => {
     const secrets = p.fields.filter((f) => f.secret);
     // El único secreto es la clave de API (se cifra en apiKeyCipher).
     expect(secrets.every((f) => f.key === 'apiKey')).toBe(true);
-    if (p.auth === 'NONE') expect(secrets).toHaveLength(0);
+    // Sin mecanismo API_KEY (p. ej. Vertex AI, solo OAuth) no hay secreto en el formulario.
+    if (p.auth === 'NONE' || !findMechanism(p, 'API_KEY')) expect(secrets).toHaveLength(0);
     else expect(secrets).toHaveLength(1);
     if (p.auth === 'API_KEY') expect(secrets[0].required).toBe(true);
     for (const f of p.fields) {
@@ -99,7 +103,8 @@ describe('Catálogo de proveedores LLM', () => {
 
   it.each(PROVIDER_CATALOG.map((p) => [p.id, p] as const))('%s: plantilla de URL base renderizable', (_id, p) => {
     const vars = templateVariables(p.baseUrl);
-    const plain = p.fields.filter((f) => !f.secret).map((f) => f.key);
+    const sample = Object.fromEntries(p.fields.filter((f) => !f.secret).map((f) => [f.key, f.placeholder ?? 'x']));
+    const plain = [...Object.keys(sample), ...Object.keys(p.deriveValues?.(sample) ?? {})];
     for (const v of vars) expect(plain).toContain(v);
     const { baseUrl } = validateProviderFields(p, sampleFields(p));
     const url = new URL(baseUrl);
@@ -153,7 +158,11 @@ describe('Catálogo de proveedores LLM', () => {
 
 describe('validateProviderFields', () => {
   it('renderiza la URL de Azure y separa el secreto de los valores', () => {
-    const v = validateProviderFields(azure(), { resource: 'contoso-ia', apiKey: ' k-123 ', deployment: 'gpt-prod' });
+    const v = validateProviderFields(
+      azure(),
+      { resource: 'contoso-ia', apiKey: ' k-123 ', deployment: 'gpt-prod' },
+      'API_KEY',
+    );
     expect(v).toEqual({
       apiKey: 'k-123',
       values: { resource: 'contoso-ia', deployment: 'gpt-prod' },
@@ -226,5 +235,93 @@ describe('parseUrlOverrides (LLM_PROVIDER_URL_OVERRIDES)', () => {
     expect(parseUrlOverrides('no-json')).toEqual({});
     expect(parseUrlOverrides('["https://a"]')).toEqual({});
     expect(parseUrlOverrides(undefined)).toEqual({});
+  });
+});
+
+describe('Mecanismos de conexión y metadatos de modelos (ADR 0002 D8)', () => {
+  it('cada entrada tiene exactamente un mecanismo principal y tipos válidos', () => {
+    for (const p of PROVIDER_CATALOG) {
+      const mechanisms = entryMechanisms(p);
+      expect(mechanisms.filter((m) => m.primary)).toHaveLength(1);
+      for (const m of mechanisms) {
+        expect(['API_KEY', 'OAUTH', 'DEVICE_CODE', 'LOCAL_DETECT']).toContain(m.type);
+        expect(m.label.length).toBeGreaterThan(0);
+      }
+      if (p.category === 'LOCAL') expect(mechanisms.map((m) => m.type)).toEqual(['LOCAL_DETECT']);
+    }
+  });
+
+  it('las apps OAuth son de Nexo: sin client_id embebido y solo endpoints https oficiales', () => {
+    for (const p of PROVIDER_CATALOG) {
+      for (const m of entryMechanisms(p)) {
+        if (!m.oauth) continue;
+        expect(m.oauth).not.toHaveProperty('clientId');
+        expect(JSON.stringify(m.oauth)).not.toMatch(/client_id/i);
+        for (const url of [m.oauth.authorizeUrl, m.oauth.tokenUrl, m.oauth.deviceUrl, m.oauth.revokeUrl]) {
+          if (url)
+            expect(url).toMatch(
+              /^https:\/\/(accounts\.google\.com|oauth2\.googleapis\.com|login\.microsoftonline\.com|huggingface\.co)\//,
+            );
+        }
+      }
+    }
+  });
+
+  it('Vertex AI: solo OAuth con Google, scope cloud-platform y host según la región', () => {
+    const vertex = findProvider('vertex')!;
+    expect(entryMechanisms(vertex).map((m) => m.type)).toEqual(['OAUTH']);
+    const oauth = findMechanism(vertex, 'OAUTH')!.oauth!;
+    expect(oauth.scopes).toEqual(['https://www.googleapis.com/auth/cloud-platform']);
+    expect(oauth.authorizeParams).toMatchObject({ access_type: 'offline' });
+    expect(validateProviderFields(vertex, { projectId: 'mi-proyecto-123' }, 'OAUTH').baseUrl).toBe(
+      'https://aiplatform.googleapis.com/v1/projects/mi-proyecto-123/locations/global/endpoints/openapi',
+    );
+    expect(
+      validateProviderFields(vertex, { projectId: 'mi-proyecto-123', region: 'us-central1' }, 'OAUTH').baseUrl,
+    ).toBe(
+      'https://us-central1-aiplatform.googleapis.com/v1/projects/mi-proyecto-123/locations/us-central1/endpoints/openapi',
+    );
+    expect(() => validateProviderFields(vertex, { projectId: 'x/../y' }, 'OAUTH')).toThrow(/formato/);
+  });
+
+  it('Azure OpenAI: OAuth con Entra ID (scope de Cognitive Services + offline_access) sin clave en el formulario', () => {
+    const oauth = findMechanism(azure(), 'OAUTH')!.oauth!;
+    expect(oauth.scopes).toEqual(['https://cognitiveservices.azure.com/.default', 'offline_access']);
+    expect(oauth.tokenUrl).toBe('https://login.microsoftonline.com/{{ tenantId }}/oauth2/v2.0/token');
+    const v = validateProviderFields(azure(), { resource: 'contoso-ia', deployment: 'gpt-prod' }, 'OAUTH');
+    expect(v).toEqual({
+      apiKey: undefined,
+      values: { resource: 'contoso-ia', deployment: 'gpt-prod', tenantId: 'organizations' },
+      baseUrl: 'https://contoso-ia.openai.azure.com/openai/v1',
+    });
+    // La clave no pertenece al mecanismo OAuth y el inquilino no puede inyectar rutas.
+    expect(() => validateProviderFields(azure(), { resource: 'a', deployment: 'd', apiKey: 'k' }, 'OAUTH')).toThrow(
+      /no reconocidos/,
+    );
+    expect(() =>
+      validateProviderFields(azure(), { resource: 'a', deployment: 'd', tenantId: 'x/../../evil' }, 'OAUTH'),
+    ).toThrow(/formato/);
+  });
+
+  it('Hugging Face: OAuth (scope inference-api), código de dispositivo y token hf_', () => {
+    const hf = findProvider('huggingface')!;
+    expect(entryMechanisms(hf).map((m) => m.type)).toEqual(['OAUTH', 'DEVICE_CODE', 'API_KEY']);
+    expect(findMechanism(hf, 'OAUTH')!.oauth!.scopes).toContain('inference-api');
+    expect(findMechanism(hf, 'DEVICE_CODE')!.oauth!.deviceUrl).toBe('https://huggingface.co/oauth/device');
+  });
+
+  it('la vista pública normaliza especialidades y contexto y oculta las apps OAuth', () => {
+    const anthropic = publicEntry(findProvider('anthropic')!);
+    expect(anthropic).not.toHaveProperty('mechanisms');
+    expect(anthropic.suggestedModels.find((m) => m.id === 'claude-opus-5-5')).toMatchObject({
+      tier: 'PREMIUM',
+      specialties: ['CODE', 'GENERAL', 'VISION'],
+      contextTokens: 1_000_000,
+    });
+    const openai = publicEntry(findProvider('openai')!);
+    expect(openai.suggestedModels.every((m) => m.specialties.join() === 'GENERAL' && m.contextTokens === null)).toBe(
+      true,
+    );
+    expect(publicEntry(findProvider('vertex')!)).not.toHaveProperty('deriveValues');
   });
 });

@@ -12,6 +12,10 @@ export function serializeModel(m: LlmModel) {
     inputUsdPerMTok: num(m.inputUsdPerMTok),
     outputUsdPerMTok: num(m.outputUsdPerMTok),
     cacheReadUsdPerMTok: num(m.cacheReadUsdPerMTok),
+    /** Especialidades verificadas (CODE | REASONING | VISION | FAST | GENERAL); GENERAL si no hay datos. */
+    specialties: m.specialties?.length ? m.specialties : ['GENERAL'],
+    /** Ventana de contexto en tokens; null si no está verificada. */
+    contextTokens: m.contextTokens ?? null,
     enabled: m.enabled,
     /** Importado sin tarifa verificada: la consola debe pedir completarla. */
     needsPricing: m.needsPricing,
@@ -34,6 +38,11 @@ export function serializeConnection(c: LlmConnection & { models?: LlmModel[] }) 
     kind: c.kind,
     baseUrl: c.baseUrl,
     hasApiKey: !!c.apiKeyCipher,
+    /** API_KEY (clave estática) u OAUTH (token renovable; `oauthExpiresAt` = vencimiento del access token actual). */
+    credentialType: c.credentialType,
+    oauthExpiresAt: c.oauthExpiresAt ?? null,
+    /** El token OAuth se renueva solo (hay refresh token); si es false, al expirar hay que volver a iniciar sesión. */
+    oauthRenewable: c.credentialType === 'OAUTH' ? !!c.oauthRefreshCipher : null,
     enabled: c.enabled,
     /** Entrada del catálogo de proveedores; null en conexiones manuales. */
     providerId: c.providerId,

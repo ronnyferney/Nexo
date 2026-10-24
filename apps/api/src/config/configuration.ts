@@ -18,6 +18,12 @@ export interface AppConfig {
     providerUrlOverrides: Record<string, string>;
     /** Pantalla de consentimiento OAuth de OpenRouter (`OPENROUTER_AUTH_URL`). */
     openrouterAuthUrl: string;
+    /**
+     * Endpoints OAuth por proveedor del catálogo (`LLM_OAUTH_ENDPOINT_OVERRIDES`, JSON
+     * `{ "vertex": { "tokenUrl": "https://..." } }`; claves `authorizeUrl`, `tokenUrl`, `deviceUrl`, `revokeUrl`):
+     * proxies de identidad corporativos y pruebas. Solo lo define el operador de la plataforma.
+     */
+    oauthEndpointOverrides: Record<string, OAuthEndpointOverride>;
   };
   http: { timeoutMs: number; allowPrivateNetworks: boolean };
   executions: { retentionDays: number };
@@ -58,6 +64,37 @@ export function parseUrlOverrides(raw: string | undefined): Record<string, strin
   }
 }
 
+export interface OAuthEndpointOverride {
+  authorizeUrl?: string;
+  tokenUrl?: string;
+  deviceUrl?: string;
+  revokeUrl?: string;
+}
+
+const OAUTH_ENDPOINT_KEYS = ['authorizeUrl', 'tokenUrl', 'deviceUrl', 'revokeUrl'] as const;
+
+/** `{ "<providerId>": { tokenUrl, ... } }`; un JSON inválido o valores no http(s) se ignoran. */
+export function parseOAuthEndpointOverrides(raw: string | undefined): Record<string, OAuthEndpointOverride> {
+  if (!raw?.trim()) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const out: Record<string, OAuthEndpointOverride> = {};
+    for (const [provider, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+      const entry: OAuthEndpointOverride = {};
+      for (const key of OAUTH_ENDPOINT_KEYS) {
+        const url = (value as Record<string, unknown>)[key];
+        if (typeof url === 'string' && /^https?:\/\//.test(url)) entry[key] = url;
+      }
+      if (Object.keys(entry).length) out[provider] = entry;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 const nonNegative = (raw: string | undefined, fallback: number) => {
   const n = Number(raw);
   return raw !== undefined && raw !== '' && Number.isFinite(n) && n >= 0 ? n : fallback;
@@ -83,6 +120,7 @@ export default (): AppConfig => ({
     defaultModel: process.env.DEFAULT_MODEL ?? 'claude-opus-5-5',
     providerUrlOverrides: parseUrlOverrides(process.env.LLM_PROVIDER_URL_OVERRIDES),
     openrouterAuthUrl: process.env.OPENROUTER_AUTH_URL || 'https://openrouter.ai/auth',
+    oauthEndpointOverrides: parseOAuthEndpointOverrides(process.env.LLM_OAUTH_ENDPOINT_OVERRIDES),
   },
   http: {
     timeoutMs: parseInt(process.env.CONNECTOR_TIMEOUT_MS ?? '30000', 10),

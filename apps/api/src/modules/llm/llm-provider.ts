@@ -80,6 +80,11 @@ export type AuthHeaderStyle = 'bearer' | 'api-key' | 'none' | 'both';
 
 export interface LlmCredentials {
   apiKey?: string;
+  /**
+   * Token OAuth vigente (conexiones `credentialType = OAUTH`): se invoca en cada llamada para que el token se renueve
+   * antes de expirar, también en ejecuciones largas. Tiene prioridad sobre `apiKey`.
+   */
+  getAccessToken?: () => Promise<string>;
   baseUrl?: string;
   /** Cabeceras adicionales no secretas (p. ej. `X-OpenRouter-Title`). */
   headers?: Record<string, string>;

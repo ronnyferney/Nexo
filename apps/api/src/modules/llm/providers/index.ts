@@ -3,7 +3,7 @@ import { ENTERPRISE_PROVIDERS } from './enterprise.providers';
 import { FRONTIER_PROVIDERS } from './frontier.providers';
 import { LOCAL_PROVIDERS } from './local.providers';
 import { OPEN_MODEL_PROVIDERS } from './open-models.providers';
-import type { ProviderCatalogEntry } from './provider-catalog.types';
+import type { MechanismType, ProviderCatalogEntry, ProviderField } from './provider-catalog.types';
 import { ROUTER_PROVIDERS } from './router.providers';
 
 export * from './provider-catalog.types';
@@ -41,18 +41,29 @@ export class ProviderFieldsError extends Error {}
 
 const MAX_FIELD_LENGTH = 4096;
 
+/** Campos del formulario que aplican a un mecanismo (sin mecanismo: todos). */
+export function fieldsFor(entry: ProviderCatalogEntry, mechanism?: MechanismType): ProviderField[] {
+  return mechanism ? entry.fields.filter((f) => !f.mechanisms || f.mechanisms.includes(mechanism)) : entry.fields;
+}
+
 /**
  * Valida los campos enviados contra la definición del proveedor (desconocidos, obligatorios, patrón, longitud),
- * aplica valores por defecto y renderiza la URL base con el motor de plantillas de Nexo.
+ * aplica valores por defecto y renderiza la URL base con el motor de plantillas de Nexo. Con `mechanism` solo se
+ * aceptan los campos de ese mecanismo (p. ej. OAuth no lleva clave de API).
  */
-export function validateProviderFields(entry: ProviderCatalogEntry, input: Record<string, unknown>): ValidatedFields {
-  const known = new Set(entry.fields.map((f) => f.key));
+export function validateProviderFields(
+  entry: ProviderCatalogEntry,
+  input: Record<string, unknown>,
+  mechanism?: MechanismType,
+): ValidatedFields {
+  const fields = fieldsFor(entry, mechanism);
+  const known = new Set(fields.map((f) => f.key));
   const unknown = Object.keys(input).filter((k) => !known.has(k));
   if (unknown.length) throw new ProviderFieldsError(`Campos no reconocidos para ${entry.name}: ${unknown.join(', ')}`);
 
   const values: Record<string, string> = {};
   let apiKey: string | undefined;
-  for (const field of entry.fields) {
+  for (const field of fields) {
     const raw = input[field.key];
     if (raw !== undefined && raw !== null && typeof raw !== 'string') {
       throw new ProviderFieldsError(`El campo «${field.label}» debe ser texto`);
@@ -70,7 +81,8 @@ export function validateProviderFields(entry: ProviderCatalogEntry, input: Recor
     else values[field.key] = value;
   }
 
-  const baseUrl = String(render<unknown>(entry.baseUrl, values) ?? '').replace(/\/+$/, '');
+  const ctx = { ...values, ...(entry.deriveValues?.(values) ?? {}) };
+  const baseUrl = String(render<unknown>(entry.baseUrl, ctx) ?? '').replace(/\/+$/, '');
   let url: URL;
   try {
     url = new URL(baseUrl);

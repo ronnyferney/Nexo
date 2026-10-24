@@ -43,10 +43,19 @@ const NON_HEX_LETTERS = 'ghijklmnopqrstuvwxyzGHIJKLMNOPQRSTUVWXYZ';
  * Apps OAuth de la plataforma (`OAUTH_<PROVEEDOR>_CLIENT_ID/SECRET`, ver apps/api/src/modules/oauth/oauth.providers.ts).
  * Viven como claves del secreto de la app (vacías = sin app de plataforma: los clientes usan su app propia).
  */
-const OAUTH_PLATFORM_KEYS = ['HUBSPOT', 'GOOGLE', 'MICROSOFT', 'SALESFORCE', 'LINKEDIN', 'SLACK'].flatMap((p) => [
-  `OAUTH_${p}_CLIENT_ID`,
-  `OAUTH_${p}_CLIENT_SECRET`,
-]);
+const OAUTH_PLATFORM_KEYS = [
+  'HUBSPOT',
+  'GOOGLE',
+  'MICROSOFT',
+  'SALESFORCE',
+  'LINKEDIN',
+  'SLACK',
+  // Apps de Nexo para iniciar sesión en proveedores IA (`OAUTH_LLM_<PROVEEDOR>_*`, ADR 0002 D8). En un despliegue
+  // existente, agregue estas claves (vacías) al secreto de la app ANTES de desplegar: ECS no arranca si falta una clave.
+  'LLM_VERTEX',
+  'LLM_AZURE_OPENAI',
+  'LLM_HUGGINGFACE',
+].flatMap((p) => [`OAUTH_${p}_CLIENT_ID`, `OAUTH_${p}_CLIENT_SECRET`]);
 
 /**
  * Piloto de Nexo optimizado en costo, con prácticas de producción:

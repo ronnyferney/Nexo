@@ -96,3 +96,20 @@ describe('OpenAiCompatibleDriver', () => {
     expect(providerErrorMessage('texto', 'texto plano')).toBe('texto plano');
   });
 });
+
+describe('OpenAiCompatibleDriver con token OAuth renovable', () => {
+  it('pide el token en cada llamada (renovación entre turnos) y lo envía como Bearer', async () => {
+    const http = new FakeHttp([
+      { status: 200, body: { data: [{ id: 'm' }] } },
+      chatReply({ role: 'assistant', content: 'hola' }),
+    ]);
+    const tokens = ['ya29.uno', 'ya29.dos'];
+    const getAccessToken = jest.fn(() => Promise.resolve(tokens.shift()!));
+    const c = client(http, { apiKey: 'no-usar', getAccessToken, authHeader: 'bearer' });
+    await c.verify!();
+    await run(c);
+    expect(getAccessToken).toHaveBeenCalledTimes(2);
+    expect(http.requests.map((r) => r.headers?.authorization)).toEqual(['Bearer ya29.uno', 'Bearer ya29.dos']);
+    expect(http.requests.every((r) => r.headers?.['api-key'] === undefined)).toBe(true);
+  });
+});

@@ -18,7 +18,12 @@ export const ROUTER_PROVIDERS: ProviderCatalogEntry[] = [
     kind: 'OPENAI_COMPATIBLE',
     baseUrl: 'https://openrouter.ai/api/v1',
     auth: 'OAUTH',
-    fields: [API_KEY_FIELD({ help: 'Opcional si conecta con «Iniciar sesión con OpenRouter» (OAuth PKCE).' })],
+    fields: [
+      API_KEY_FIELD({
+        help: 'Opcional si conecta con «Iniciar sesión con OpenRouter» (OAuth PKCE).',
+        mechanisms: ['API_KEY'],
+      }),
+    ],
     docsUrl: 'https://openrouter.ai/docs/use-cases/oauth-pkce',
     keySteps: [],
     suggestedModels: [],
@@ -29,5 +34,10 @@ export const ROUTER_PROVIDERS: ProviderCatalogEntry[] = [
     // `/key` devuelve los metadatos de la clave actual (`apiKeysGetCurrentKeyMetadata`): valida la clave en sí.
     verifyPath: '/key',
     headers: { 'X-OpenRouter-Title': 'Nexo' },
+    // El PKCE de OpenRouter no exige registrar la app: siempre disponible.
+    mechanisms: [
+      { type: 'OAUTH', label: 'Iniciar sesión con OpenRouter', primary: true },
+      { type: 'API_KEY', label: 'Clave de API', primary: false },
+    ],
   },
 ];

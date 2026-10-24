@@ -4,6 +4,7 @@ import type { LlmConnection, LlmKind, LlmModel } from '@prisma/client';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { LLM_DRIVERS, type AuthHeaderStyle, type LlmClient, type LlmCredentials, type LlmDriver } from './llm-provider';
+import { LlmTokenService } from './llm-token.service';
 import { SYSTEM_ANTHROPIC_MODELS, SYSTEM_MOCK_MODELS, type CatalogModel, type ModelPricing } from './pricing';
 
 export interface CatalogEntry {
@@ -76,6 +77,7 @@ export class LlmGatewayService {
     private readonly crypto: CryptoService,
     config: ConfigService,
     @Inject(LLM_DRIVERS) drivers: LlmDriver[],
+    private readonly tokens: LlmTokenService,
   ) {
     this.drivers = new Map(drivers.map((d) => [d.kind, d]));
     this.anthropicKey = config.get<string>('llm.anthropicApiKey');
@@ -171,10 +173,16 @@ export class LlmGatewayService {
     }
   }
 
-  /** Cliente (cacheado por versión) de una conexión del workspace. */
+  /**
+   * Cliente (cacheado por versión) de una conexión del workspace. En conexiones OAuth el token se pide en cada llamada
+   * al servicio de tokens, que lo renueva antes de expirar.
+   */
   clientFor(c: LlmConnection): LlmClient {
+    const oauth = c.credentialType === 'OAUTH';
     return this.client(`${c.id}:${c.updatedAt.getTime()}`, c.kind, {
-      apiKey: c.apiKeyCipher ? this.crypto.decrypt(c.apiKeyCipher) : undefined,
+      ...(oauth
+        ? { getAccessToken: () => this.tokens.accessToken(c.id) }
+        : { apiKey: c.apiKeyCipher ? this.crypto.decrypt(c.apiKeyCipher) : undefined }),
       baseUrl: c.baseUrl ?? undefined,
       ...connectionDriverOptions(c),
     });
@@ -190,6 +198,11 @@ export class LlmGatewayService {
   private client(cacheKey: string, kind: LlmKind, credentials: LlmCredentials): LlmClient {
     let client = this.clients.get(cacheKey);
     if (!client) {
+      // Descarta las versiones anteriores de la misma conexión (la renovación OAuth cambia `updatedAt` cada hora).
+      if (!cacheKey.startsWith('system:')) {
+        const prefix = `${cacheKey.slice(0, cacheKey.lastIndexOf(':'))}:`;
+        for (const key of this.clients.keys()) if (key.startsWith(prefix)) this.clients.delete(key);
+      }
       client = this.createClient(kind, credentials);
       this.clients.set(cacheKey, client);
     }

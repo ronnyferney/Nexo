@@ -5,25 +5,46 @@ import { CryptoService } from '../../common/crypto/crypto.service';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import type { ConnectProviderDto } from './dto/llm-providers.dto';
 import { LlmGatewayService } from './llm-gateway.service';
-import { LlmHttpError, type LlmCredentials } from './llm-provider';
+import { mechanismViews, type MechanismView } from './llm-oauth-apps';
+import { LlmHttpError, type AuthHeaderStyle, type LlmCredentials } from './llm-provider';
 import { serializeConnection, serializeModel } from './llm-serializers';
+import type { OAuthTokens } from './llm-token.service';
 import { SYSTEM_ANTHROPIC_MODELS } from './pricing';
 import {
+  findMechanism,
   findProvider,
   PROVIDER_CATALOG,
   ProviderFieldsError,
   validateProviderFields,
+  type MechanismType,
+  type ModelSpecialty,
   type ProviderCatalogEntry,
+  type SuggestedModel,
   type ValidatedFields,
 } from './providers';
 
-/** Entrada del catálogo tal como la ve la web: sin los detalles internos del driver. */
+/** Modelo sugerido normalizado para la web: especialidades (por defecto GENERAL) y contexto (null si no verificado). */
+export type PublicSuggestedModel = Omit<SuggestedModel, 'specialties' | 'contextTokens'> & {
+  specialties: ModelSpecialty[];
+  contextTokens: number | null;
+};
+
+/** Entrada del catálogo tal como la ve la web: sin los detalles internos del driver ni de las apps OAuth. */
 export type ProviderPublicEntry = Omit<
   ProviderCatalogEntry,
-  'authHeader' | 'verifyPath' | 'headers' | 'replayReasoning'
->;
+  | 'authHeader'
+  | 'verifyPath'
+  | 'headers'
+  | 'replayReasoning'
+  | 'mechanisms'
+  | 'verifyMode'
+  | 'deriveValues'
+  | 'suggestedModels'
+> & { suggestedModels: PublicSuggestedModel[] };
 
 export interface ProviderView extends ProviderPublicEntry {
+  /** Mecanismos de conexión con su disponibilidad en esta instalación (ADR 0002, D8). */
+  mechanisms: MechanismView[];
   connected: { connectionId: string; name: string; modelCount: number; enabled: boolean }[];
   /** Cantidad de modelos sugeridos. */
   modelCount: number;
@@ -36,18 +57,50 @@ export interface SaveConnectionInput {
   validated: ValidatedFields;
   models?: string[];
   discovered: string[];
+  /** Conexión con token OAuth renovable (Vertex, Azure con Entra ID, Hugging Face): se envía como Bearer. */
+  oauth?: OAuthTokens;
+}
+
+/** Resultado de `POST /admin/llm/providers/:id/detect`. */
+export interface DetectResult {
+  providerId: string;
+  baseUrl: string;
+  reachable: boolean;
+  models: PublicSuggestedModel[];
+  /** Motivo en español si no se alcanzó el servidor (SSRF, rechazo, inalcanzable). */
+  message?: string;
 }
 
 const MAX_DISCOVERED = 1000;
 const dedupe = (ids: string[]) => [...new Set(ids.map((i) => i.trim()).filter(Boolean))];
 
+export function publicModel(m: SuggestedModel): PublicSuggestedModel {
+  return {
+    ...m,
+    specialties: m.specialties?.length ? m.specialties : ['GENERAL'],
+    contextTokens: m.contextTokens ?? null,
+  };
+}
+
 export function publicEntry(entry: ProviderCatalogEntry): ProviderPublicEntry {
-  const { authHeader, verifyPath, headers, replayReasoning, ...rest } = entry;
+  const { authHeader, verifyPath, headers, replayReasoning, mechanisms, verifyMode, deriveValues, ...rest } = entry;
   void authHeader;
   void verifyPath;
   void headers;
   void replayReasoning;
-  return rest;
+  void mechanisms;
+  void verifyMode;
+  void deriveValues;
+  return { ...rest, suggestedModels: entry.suggestedModels.map(publicModel) };
+}
+
+/**
+ * Metadatos de un modelo importado: los del sugerido verificado o, si no, GENERAL sin contexto y nivel STANDARD
+ * (ECONOMY en los locales, que no tienen costo por token).
+ */
+export function modelMetadata(entry: ProviderCatalogEntry, modelId: string): PublicSuggestedModel {
+  const s = entry.suggestedModels.find((m) => m.id === modelId);
+  return publicModel(s ?? { id: modelId, label: modelId, tier: entry.billing === 'LOCAL' ? 'ECONOMY' : 'STANDARD' });
 }
 
 /**
@@ -113,6 +166,7 @@ export class LlmProvidersService {
     });
     const providers = PROVIDER_CATALOG.map((entry): ProviderView => ({
       ...publicEntry(entry),
+      mechanisms: mechanismViews(this.config, entry),
       connected: rows
         .filter((r) => r.providerId === entry.id)
         .map((r) => ({ connectionId: r.id, name: r.name, modelCount: r._count.models, enabled: r.enabled })),
@@ -132,9 +186,9 @@ export class LlmProvidersService {
   }
 
   /** Valida los campos y renderiza la URL base (con el override de configuración, si existe). */
-  validate(entry: ProviderCatalogEntry, fields: Record<string, unknown>): ValidatedFields {
+  validate(entry: ProviderCatalogEntry, fields: Record<string, unknown>, mechanism?: MechanismType): ValidatedFields {
     try {
-      const validated = validateProviderFields(entry, fields ?? {});
+      const validated = validateProviderFields(entry, fields ?? {}, mechanism);
       const override = this.config.get<Record<string, string>>('llm.providerUrlOverrides')?.[entry.id];
       return override ? { ...validated, baseUrl: override.replace(/\/+$/, '') } : validated;
     } catch (err) {
@@ -143,20 +197,31 @@ export class LlmProvidersService {
     }
   }
 
-  credentials(entry: ProviderCatalogEntry, v: Pick<ValidatedFields, 'apiKey' | 'baseUrl'>): LlmCredentials {
+  credentials(
+    entry: ProviderCatalogEntry,
+    v: Pick<ValidatedFields, 'apiKey' | 'baseUrl'>,
+    authHeader: AuthHeaderStyle = entry.authHeader,
+  ): LlmCredentials {
     return {
       apiKey: v.apiKey,
       baseUrl: v.baseUrl,
-      authHeader: entry.authHeader,
+      authHeader,
       ...(entry.headers ? { headers: entry.headers } : {}),
       ...(entry.verifyPath ? { verifyPath: entry.verifyPath } : {}),
       ...(entry.replayReasoning ? { replayReasoning: true } : {}),
     };
   }
 
-  /** Prueba la conexión (sin consumir tokens) y devuelve los modelos que expone el proveedor. */
-  async probe(entry: ProviderCatalogEntry, validated: ValidatedFields): Promise<string[]> {
-    const client = this.gateway.createClient(entry.kind, this.credentials(entry, validated));
+  /**
+   * Prueba la conexión (sin consumir tokens) y devuelve los modelos que expone el proveedor. Con `verifyMode: 'lenient'`
+   * un 404/405 (endpoint sin `/models` documentado) no impide conectar; un 401/403 sí.
+   */
+  async probe(
+    entry: ProviderCatalogEntry,
+    validated: ValidatedFields,
+    authHeader: AuthHeaderStyle = entry.authHeader,
+  ): Promise<string[]> {
+    const client = this.gateway.createClient(entry.kind, this.credentials(entry, validated, authHeader));
     try {
       if (client.verify) await client.verify();
       else {
@@ -164,6 +229,9 @@ export class LlmProvidersService {
         if (!t.ok) throw new Error(t.message);
       }
     } catch (err) {
+      const tolerated =
+        entry.verifyMode === 'lenient' && err instanceof LlmHttpError && (err.status === 404 || err.status === 405);
+      if (tolerated) return [];
       throw new BadRequestException(describeProbeError(err, entry, validated.baseUrl));
     }
     const ids = await (client.listModels?.() ?? Promise.resolve([])).catch(() => [] as string[]);
@@ -172,7 +240,12 @@ export class LlmProvidersService {
 
   async connect(workspaceId: string, providerId: string, dto: ConnectProviderDto) {
     const entry = this.provider(providerId);
-    const validated = this.validate(entry, dto.fields);
+    // El formulario de campos es el mecanismo API_KEY (o la URL manual de los locales).
+    if (entry.category !== 'LOCAL' && !findMechanism(entry, 'API_KEY')) {
+      const label = findMechanism(entry, 'OAUTH')?.label ?? 'su inicio de sesión';
+      throw new BadRequestException(`${entry.name} no usa clave de API: conéctelo con «${label}»`);
+    }
+    const validated = this.validate(entry, dto.fields, 'API_KEY');
     const discovered = await this.probe(entry, validated);
     return this.saveConnection(workspaceId, entry, { name: dto.name, validated, models: dto.models, discovered });
   }
@@ -188,11 +261,14 @@ export class LlmProvidersService {
 
     const models = ids.map((modelId) => {
       const s = entry.suggestedModels.find((m) => m.id === modelId);
+      const meta = modelMetadata(entry, modelId);
       const priced = s?.inputUsdPerMTok !== undefined && s?.outputUsdPerMTok !== undefined;
       return {
         modelId,
         label: (s?.label ?? modelId).slice(0, 120),
-        tier: s?.tier ?? 'STANDARD',
+        tier: meta.tier,
+        specialties: meta.specialties,
+        contextTokens: meta.contextTokens,
         inputUsdPerMTok: priced ? s.inputUsdPerMTok! : 0,
         outputUsdPerMTok: priced ? s.outputUsdPerMTok! : 0,
         cacheReadUsdPerMTok: priced ? (s.cacheReadUsdPerMTok ?? null) : null,
@@ -201,8 +277,10 @@ export class LlmProvidersService {
       } satisfies Prisma.LlmModelCreateWithoutConnectionInput;
     });
 
+    const { oauth } = input;
     const driverOptions: Prisma.InputJsonObject = {
-      authHeader: entry.authHeader,
+      // Los tokens OAuth siempre viajan como Bearer (Azure con Entra ID incluido).
+      authHeader: oauth ? 'bearer' : entry.authHeader,
       ...(entry.verifyPath ? { verifyPath: entry.verifyPath } : {}),
       ...(entry.replayReasoning ? { replayReasoning: true } : {}),
     };
@@ -215,7 +293,19 @@ export class LlmProvidersService {
         name: input.name?.trim() || entry.name,
         kind: entry.kind,
         baseUrl,
-        apiKeyCipher: validated.apiKey ? this.crypto.encrypt(validated.apiKey) : null,
+        apiKeyCipher: oauth
+          ? this.crypto.encrypt(oauth.accessToken)
+          : validated.apiKey
+            ? this.crypto.encrypt(validated.apiKey)
+            : null,
+        ...(oauth
+          ? {
+              credentialType: 'OAUTH' as const,
+              oauthRefreshCipher: oauth.refreshToken ? this.crypto.encrypt(oauth.refreshToken) : null,
+              oauthExpiresAt: oauth.expiresAt,
+              oauthScope: oauth.scope,
+            }
+          : {}),
         providerId: entry.id,
         providerFields: validated.values,
         ...(entry.headers ? { headers: entry.headers } : {}),
@@ -257,5 +347,29 @@ export class LlmProvidersService {
       discoveredModels: discovered,
       importedModels: connection.models.map((m) => m.modelId).sort(),
     };
+  }
+
+  /**
+   * Detecta un servidor local (Ollama en `http://localhost:11434/v1`, LM Studio en `http://localhost:1234/v1`, o la URL
+   * indicada) y devuelve sus modelos sin guardar nada. Respeta la política SSRF (`CONNECTOR_ALLOW_PRIVATE_NETWORKS`).
+   */
+  async detect(providerId: string, baseUrl?: string): Promise<DetectResult> {
+    const entry = this.provider(providerId);
+    if (entry.category !== 'LOCAL' || !findMechanism(entry, 'LOCAL_DETECT')) {
+      throw new BadRequestException(`${entry.name} no es un proveedor local: no admite detección`);
+    }
+    const validated = this.validate(entry, baseUrl ? { baseUrl } : {});
+    try {
+      const ids = await this.probe(entry, validated);
+      return {
+        providerId: entry.id,
+        baseUrl: validated.baseUrl,
+        reachable: true,
+        models: ids.map((id) => modelMetadata(entry, id)),
+      };
+    } catch (err) {
+      const message = err instanceof BadRequestException ? err.message : (err as Error).message;
+      return { providerId: entry.id, baseUrl: validated.baseUrl, reachable: false, models: [], message };
+    }
   }
 }

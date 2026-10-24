@@ -39,6 +39,18 @@ enum LlmKind {
   MOCK
 }
 
+/// Cómo se autentica una conexión LLM: clave estática o token OAuth renovable (ADR 0002, D8).
+enum LlmCredentialType {
+  API_KEY
+  OAUTH
+}
+
+/// Flujo de conexión de un proveedor LLM en curso (OAuth con redirección o código de dispositivo).
+enum LlmAuthFlowType {
+  OAUTH
+  DEVICE_CODE
+}
+
 enum ModelTier {
   PREMIUM
   STANDARD
@@ -177,6 +189,7 @@ model Workspace {
   apiKeys             ApiKey[]
   secrets             Secret[]
   llmConnections      LlmConnection[]
+  llmAuthFlows        LlmAuthFlow[]
   orgUnits            OrgUnit[]
   usage               UsageRecord[]
   skills              Skill[]
@@ -391,26 +404,33 @@ model Execution {
 
 /// Conexión a un proveedor LLM configurada por el administrador.
 model LlmConnection {
-  id             String     @id @default(cuid())
-  name           String
-  kind           LlmKind
-  baseUrl        String?
+  id                 String            @id @default(cuid())
+  name               String
+  kind               LlmKind
+  baseUrl            String?
   /// API key cifrada con AES-256-GCM.
-  apiKeyCipher   String?
-  enabled        Boolean    @default(true)
+  apiKeyCipher       String?
+  enabled            Boolean           @default(true)
   /// Id de la entrada del catálogo de proveedores (ADR 0002, D8). Null = conexión manual anterior al catálogo.
-  providerId     String?
+  providerId         String?
   /// Valores no secretos del formulario del catálogo (p. ej. recurso de Azure, región de Bedrock).
-  providerFields Json?
+  providerFields     Json?
   /// Cabeceras HTTP adicionales no secretas que el driver envía en cada llamada.
-  headers        Json?
+  headers            Json?
   /// Opciones del driver: { authHeader: 'bearer' | 'api-key' | 'none', verifyPath, replayReasoning }.
-  driverOptions  Json?
-  workspaceId    String
-  workspace      Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  models         LlmModel[]
-  createdAt      DateTime   @default(now())
-  updatedAt      DateTime   @updatedAt
+  driverOptions      Json?
+  /// API_KEY: `apiKeyCipher` es una clave estática. OAUTH: es el access token vigente y se renueva con el refresh token.
+  credentialType     LlmCredentialType @default(API_KEY)
+  /// Refresh token OAuth cifrado con AES-256-GCM (null si el proveedor no lo entrega).
+  oauthRefreshCipher String?
+  /// Expiración del access token OAuth (se renueva 60 s antes).
+  oauthExpiresAt     DateTime?
+  oauthScope         String?
+  workspaceId        String
+  workspace          Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  models             LlmModel[]
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
 
   @@index([workspaceId])
   @@index([workspaceId, providerId])
@@ -428,12 +448,43 @@ model LlmModel {
   enabled             Boolean       @default(true)
   /// Importado sin tarifa verificada (precio 0): la consola pide completarla.
   needsPricing        Boolean       @default(false)
+  /// Especialidades verificadas en la fuente oficial: CODE | REASONING | VISION | FAST | GENERAL.
+  specialties         String[]      @default([])
+  /// Ventana de contexto en tokens (null si no está verificada).
+  contextTokens       Int?
   connectionId        String
   connection          LlmConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
 
   @@unique([connectionId, modelId])
+}
+
+/// Flujo de conexión de un proveedor LLM en curso (ADR 0002, D8). Guarda en servidor lo que no debe viajar por el
+/// navegador (device_code cifrado) y los datos del formulario hasta que el proveedor responde. Vida corta (≤ 15 min).
+model LlmAuthFlow {
+  id               String          @id @default(cuid())
+  type             LlmAuthFlowType
+  providerId       String
+  userId           String
+  /// Nombre de la conexión y valores no secretos del formulario (p. ej. proyecto y región de Vertex).
+  name             String?
+  fields           Json?
+  models           String[]        @default([])
+  /// device_code cifrado (solo DEVICE_CODE).
+  deviceCodeCipher String?
+  intervalSec      Int?
+  nextPollAt       DateTime?
+  /// pending | connected | expired | denied
+  status           String          @default("pending")
+  connectionId     String?
+  expiresAt        DateTime
+  workspaceId      String
+  workspace        Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt        DateTime        @default(now())
+
+  @@index([workspaceId])
+  @@index([expiresAt])
 }
 
 /// Unidad corporativa (árbol). La raíz (parentId = null) es el tope global del workspace.
