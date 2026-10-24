@@ -46,6 +46,8 @@ export interface Connector {
   /** Referencias sin permiso: fallan al ejecutar hasta que un ADMIN las permita (solo en el detalle). */
   blockedSecrets?: string[];
   _count?: { operations: number };
+  /** Cuenta conectada de un conector OAuth (el buzón/identidad que usan los agentes). `null` si no es OAuth. */
+  account?: { label: string | null; connected: boolean } | null;
   updatedAt: string;
 }
 

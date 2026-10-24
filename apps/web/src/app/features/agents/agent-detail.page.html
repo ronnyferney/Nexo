@@ -223,6 +223,13 @@
                 @for (c of connectors(); track c.id) {
                   <div class="connector-group card">
                     <div class="card-title"><div class="icon-tile {{ c.type }}"><nx-icon name="plug" [size]="16" /></div><h3>{{ c.name }}</h3><span class="badge">{{ c.type }}</span></div>
+                    @if (c.account) {
+                      @if (c.account.label) {
+                        <p class="account-id muted small m0"><nx-icon name="user" [size]="14" />El agente actúa como <strong>{{ c.account.label }}</strong></p>
+                      } @else {
+                        <p class="account-id warn small m0"><nx-icon name="alert" [size]="14" />Sin cuenta conectada: vincúlela en <a routerLink="/integrations">Apps conectadas</a> antes de usarla.</p>
+                      }
+                    }
                     @for (op of c.operations; track op.id) {
                       <div class="op-row">
                         <input type="checkbox" [id]="'op-' + op.id" [disabled]="!canEditAgent()" [checked]="toolSelection().has(op.id)" (change)="toggleTool(op.id, $any($event.target).checked)" />
@@ -287,6 +294,12 @@
           <span class="muted small hide-sm">{{ canEditAgent() ? 'Guarde los cambios antes de probar · ' : '' }}Sus conversaciones son privadas</span>
           <button class="btn sm" (click)="newConversation()"><nx-icon name="refresh" [size]="14" />Nueva</button>
         </div>
+        @if (usedAccounts().length) {
+          <div class="acts-on" title="Cuentas conectadas que el agente usará al ejecutar sus herramientas">
+            <nx-icon name="user" [size]="13" />Actúa sobre:
+            @for (acc of usedAccounts(); track acc) { <span class="chip">{{ acc }}</span> }
+          </div>
+        }
         <div class="messages" #scroller aria-live="polite">
           @for (item of chat(); track $index) {
             @switch (item.kind) {

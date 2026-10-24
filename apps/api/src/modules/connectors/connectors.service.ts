@@ -56,18 +56,19 @@ export class ConnectorsService {
   }
 
   // ---------- Conectores ----------
-  list(workspaceId: string) {
-    return this.prisma.connector.findMany({
+  async list(workspaceId: string) {
+    const rows = await this.prisma.connector.findMany({
       where: { workspaceId },
-      include: { _count: { select: { operations: true } } },
+      include: { _count: { select: { operations: true } }, oauth: { select: { accountLabel: true } } },
       orderBy: { updatedAt: 'desc' },
     });
+    return rows.map(({ oauth, ...c }) => ({ ...c, account: connectorAccount(c.auth, oauth) }));
   }
 
   async get(workspaceId: string, id: string) {
     const c = await this.prisma.connector.findFirst({
       where: { id, workspaceId },
-      include: { operations: { orderBy: { name: 'asc' } } },
+      include: { operations: { orderBy: { name: 'asc' } }, oauth: { select: { accountLabel: true } } },
     });
     if (!c) throw new NotFoundException('Conector no encontrado');
     return c;
@@ -363,12 +364,27 @@ export class ConnectorsService {
       c.auth,
       c.operations.map((o) => o.definition),
     );
+    const { oauth, ...rest } = c as T & { oauth?: { accountLabel: string | null } | null };
     return {
-      ...c,
+      ...rest,
+      account: connectorAccount(c.auth, oauth),
       secretReferences: refs.wholeVault ? ['secrets', ...refs.names] : refs.names,
       blockedSecrets: disallowedSecretRefs(refs, c.allowedSecrets),
     };
   }
+}
+
+/**
+ * Identidad conectada de un conector OAuth: la cuenta (buzón, calendario, espacio…) que usarán los agentes al
+ * invocar sus operaciones, tomada del `userPrincipalName`/correo que se capturó al iniciar sesión. `null` si el
+ * conector no es OAuth. Permite que la web muestre «actúa como <cuenta>» sin exponer tokens ni fechas.
+ */
+export function connectorAccount(
+  auth: unknown,
+  oauth?: { accountLabel: string | null } | null,
+): { label: string | null; connected: boolean } | null {
+  if ((auth as { type?: string } | null)?.type !== 'oauth2_code') return null;
+  return { label: oauth?.accountLabel ?? null, connected: !!oauth };
 }
 
 /** Rechaza con 400 un `inputSchema` cuyos `pattern` no cumplen la política anti-ReDoS. */

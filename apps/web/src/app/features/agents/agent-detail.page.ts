@@ -174,6 +174,17 @@ export class AgentDetailPage implements OnInit {
   readonly toolSelection = signal(new Map<string, boolean>()); // operationId -> requiresApproval
   readonly skillSelection = signal(new Set<string>());
   readonly kbSelection = signal(new Set<string>());
+  /** Cuentas (buzones/identidades) sobre las que actuará el agente: las de los conectores con operaciones elegidas. */
+  readonly usedAccounts = computed(() => {
+    const selected = this.toolSelection();
+    const labels: string[] = [];
+    for (const c of this.connectors()) {
+      const label = c.account?.label;
+      if (!label || labels.includes(label)) continue;
+      if ((c.operations ?? []).some((op) => selected.has(op.id))) labels.push(label);
+    }
+    return labels;
+  });
   fallbackDraft = '';
   /** Estado guardado, para detectar cambios y enviar solo los `PUT` necesarios. */
   private saved = { main: '', tools: '', skills: '', kbs: '' };

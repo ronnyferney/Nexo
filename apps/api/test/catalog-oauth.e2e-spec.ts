@@ -447,6 +447,9 @@ describe('Catálogo de conectores y OAuth2 de usuario (E2E, ADR 0005)', () => {
           app: { kind: 'own', clientIdHint: maskClientId(provider.clientId), problem: null },
         },
       ]);
+      // Instalado pero sin conectar: el detalle lo refleja (la web avisa «sin cuenta conectada»).
+      const detail = (await owner.api.get(`/connectors/${hubspot.id}`).expect(200)).body as Record<string, any>;
+      expect(detail.account).toEqual({ label: null, connected: false });
       const inv = await invoke(owner, hubspot.id, searchOpId, { query: 'ana' }).expect(400);
       expect(JSON.stringify(inv.body)).toContain('Conecte la cuenta OAuth del conector');
     });
@@ -488,6 +491,16 @@ describe('Catálogo de conectores y OAuth2 de usuario (E2E, ADR 0005)', () => {
       expect(JSON.stringify(accounts.body)).not.toContain(provider.accessToken);
       await owner.api.get('/connector-catalog/no-existe/accounts').expect(404);
       expect(JSON.stringify(status)).not.toContain(provider.accessToken);
+
+      // El detalle y el listado del conector exponen la identidad conectada (la cuenta que usarán los agentes),
+      // sin tokens ni fechas, para que la web muestre «actúa como <cuenta>» al construir un agente.
+      const detail = (await owner.api.get(`/connectors/${hubspot.id}`).expect(200)).body as Record<string, any>;
+      expect(detail.account).toEqual({ label: 'vendedora@acme.test', connected: true });
+      expect(JSON.stringify(detail.account)).not.toContain(provider.accessToken);
+      const inList = (
+        (await owner.api.get('/connectors').expect(200)).body as { id: string; account?: unknown }[]
+      ).find((c) => c.id === hubspot.id);
+      expect(inList?.account).toEqual({ label: 'vendedora@acme.test', connected: true });
 
       const cred = await prismaOf(app).oAuthCredential.findUnique({ where: { connectorId: hubspot.id } });
       expect(cred!.accessTokenCipher).not.toContain(provider.accessToken);
