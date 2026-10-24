@@ -178,8 +178,8 @@ export class LlmGatewayService {
     if (limit <= 0 || used >= limit) {
       throw new ConnectionUnavailableException(
         limit <= 0
-          ? 'Claude incluido por Nexo no está habilitado para este workspace: conecte su propia cuenta en Proveedores IA'
-          : `Se agotó el cupo mensual de Claude incluido por Nexo (${limit} USD): conecte su propia cuenta en Proveedores IA`,
+          ? 'Claude incluido por Nexo no está habilitado para este workspace: conecte su propia cuenta en «IA conectada»'
+          : `Se agotó el cupo mensual de Claude incluido por Nexo (${limit} USD): conecte su propia cuenta en «IA conectada»`,
         'disabled',
       );
     }
@@ -270,7 +270,7 @@ export class LlmGatewayService {
     }
     if (connection.credentialType === 'OAUTH' && !connection.apiKeyCipher) {
       throw new ConnectionUnavailableException(
-        `La sesión de "${connection.name}" está cerrada: vuelva a iniciar sesión en Administración → Proveedores IA`,
+        `La sesión de "${connection.name}" está cerrada: vuelva a iniciar sesión en Administración → IA conectada`,
         'signed_out',
       );
     }

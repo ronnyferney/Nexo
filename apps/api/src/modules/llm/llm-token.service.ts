@@ -170,7 +170,7 @@ export class LlmTokenService {
     if (!entry || !spec) throw new BadRequestException(`La conexión "${c.name}" no admite renovar su sesión OAuth`);
     if (!c.oauthRefreshCipher) {
       throw new ConnectionUnavailableException(
-        `La sesión de ${name} expiró y el proveedor no entrega refresh token: vuelva a iniciar sesión en Proveedores IA`,
+        `La sesión de ${name} expiró y el proveedor no entrega refresh token: vuelva a iniciar sesión en «IA conectada»`,
         'session_expired',
       );
     }
@@ -194,12 +194,12 @@ export class LlmTokenService {
           data: { apiKeyCipher: null, oauthRefreshCipher: null, oauthExpiresAt: null },
         });
         throw new ConnectionUnavailableException(
-          `La sesión de ${name} fue revocada o caducó en el proveedor: vuelva a iniciar sesión en Proveedores IA`,
+          `La sesión de ${name} fue revocada o caducó en el proveedor: vuelva a iniciar sesión en «IA conectada»`,
           'signed_out',
         );
       }
       throw new ConnectionUnavailableException(
-        `No se pudo renovar la sesión de ${name}${detail}: inténtelo de nuevo o vuelva a iniciar sesión en Proveedores IA`,
+        `No se pudo renovar la sesión de ${name}${detail}: inténtelo de nuevo o vuelva a iniciar sesión en «IA conectada»`,
         'session_expired',
       );
     }
@@ -293,7 +293,7 @@ export class LlmTokenService {
 
 /** Error al usar una conexión OAuth cuya sesión se cerró. */
 export const SIGNED_OUT_MESSAGE =
-  'La sesión de esta conexión está cerrada: vuelva a iniciar sesión en Administración → Proveedores IA';
+  'La sesión de esta conexión está cerrada: vuelva a iniciar sesión en Administración → IA conectada';
 
 export function stringValues(raw: unknown): Record<string, string> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};

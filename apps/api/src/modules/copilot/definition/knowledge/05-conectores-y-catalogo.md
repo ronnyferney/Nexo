@@ -1,5 +1,9 @@
 # Conectores y catálogo de integraciones
 
+En la web, el catálogo está en el menú **Apps conectadas** (instalar con un clic e iniciar sesión) y los conectores
+instalados o creados a mano están en **Conectores**. Una app instalada con aviso naranja está pendiente de conectar:
+el inicio de sesión no terminó y los agentes todavía no pueden usarla.
+
 ## Conectores
 Un conector representa un sistema externo: API REST (importable desde OpenAPI), servicio SOAP (WSDL), endpoint
 GraphQL, servidor MCP o base de datos. Cada conector tiene operaciones con un esquema de entrada; cada operación puede

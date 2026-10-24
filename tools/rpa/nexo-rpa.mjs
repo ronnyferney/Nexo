@@ -59,7 +59,7 @@ function credentials() {
 let anthropic = null;
 
 /**
- * Modelo de IA del recorrido: la conexión de Claude del workspace (la que el administrador conectó en Proveedores IA,
+ * Modelo de IA del recorrido: la conexión de Claude del workspace (la que el administrador conectó en IA conectada,
  * o la incluida por Nexo si el servidor tiene ANTHROPIC_API_KEY). NEXO_RPA_MODEL elige el modelo (por defecto Claude
  * Sonnet 5.5, rápido y económico) y NEXO_RPA_IA=simulada fuerza el modelo de pruebas. Nunca lee ni imprime claves.
  */

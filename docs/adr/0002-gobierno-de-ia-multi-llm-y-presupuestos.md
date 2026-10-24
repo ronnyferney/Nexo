@@ -13,7 +13,7 @@ costos, proveedores, organización) y un **portal de usuarios** (agentes, flujos
 
 ### D1. Una sola SPA con dos zonas por rol
 - Portal (`/`): Inicio, Agentes, Flujos, Ejecuciones, Conectores, **Mi consumo**. Todos los roles.
-- Administración (`/admin/*`): Costos, Proveedores IA, Organización (unidades y miembros), Presupuestos, Alertas,
+- Administración (`/admin/*`): Costos, IA conectada, Organización (unidades y miembros), Presupuestos, Alertas,
   Seguridad (secretos, API keys, MCP). Solo **ADMIN** y **OWNER** (guard en frontend + `@MinRole('ADMIN')` en API).
 
 ### D2. Conexiones LLM dinámicas por workspace

@@ -35,7 +35,7 @@ configuró su propio SMTP, el script lo respeta.
 
 ## Proveedor simulado (`LLM_DEV_SIMULATOR`)
 
-En **Administración → Proveedores IA** aparece «Proveedor simulado (desarrollo)». Lo sirve la propia API en
+En **Administración → IA conectada** aparece «Proveedor simulado (desarrollo)». Lo sirve la propia API en
 `/api/dev/llm-sim` y se comporta como un proveedor real con inicio de sesión:
 
 | Qué probar | Cómo |

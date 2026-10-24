@@ -128,13 +128,13 @@ export class ShellComponent implements OnInit {
     { path: '/supervision', label: 'Supervisión', icon: 'inbox', exact: false },
     { path: '/workflows', label: 'Flujos', icon: 'flow', exact: false },
     { path: '/executions', label: 'Ejecuciones', icon: 'history', exact: false },
-    { path: '/integrations', label: 'Integraciones', icon: 'puzzle', exact: false },
+    { path: '/integrations', label: 'Apps conectadas', icon: 'puzzle', exact: false },
     { path: '/connectors', label: 'Conectores', icon: 'plug', exact: false },
     { path: '/my-usage', label: 'Mi consumo', icon: 'wallet', exact: false },
   ];
   protected readonly adminNav = [
     { path: '/admin', label: 'Costos', icon: 'chart', exact: true },
-    { path: '/admin/providers', label: 'Proveedores IA', icon: 'cpu', exact: false },
+    { path: '/admin/providers', label: 'IA conectada', icon: 'cpu', exact: false },
     { path: '/admin/organization', label: 'Organización', icon: 'building', exact: false },
     { path: '/admin/groups', label: 'Grupos', icon: 'users', exact: false },
     { path: '/admin/budgets', label: 'Presupuestos', icon: 'wallet', exact: false },

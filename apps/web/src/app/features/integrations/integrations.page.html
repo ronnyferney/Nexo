@@ -2,7 +2,7 @@
   <div class="gallery">
     <header class="head">
       <div>
-        <h1>Integraciones</h1>
+        <h1>Apps conectadas</h1>
         <p class="total">Disponibles <span class="count">{{ loading() ? '…' : catalog().length }}</span>
           @if (filtering() && !loading()) { <span class="muted">· {{ rows().length }} {{ rows().length === 1 ? 'coincide' : 'coinciden' }}</span> }
         </p>
@@ -10,8 +10,8 @@
       <div class="tools" role="search">
         <div class="search">
           <nx-icon name="search" [size]="16" />
-          <label class="sr-only" for="int-search">Buscar integraciones por nombre, descripción u operación</label>
-          <input id="int-search" class="input" type="search" placeholder="Buscar integraciones" autocomplete="off"
+          <label class="sr-only" for="int-search">Buscar apps por nombre, descripción u operación</label>
+          <input id="int-search" class="input" type="search" placeholder="Buscar apps" autocomplete="off"
             [ngModel]="query()" (ngModelChange)="query.set($event)" />
         </div>
         <label class="sr-only" for="int-cat">Filtrar por categoría</label>

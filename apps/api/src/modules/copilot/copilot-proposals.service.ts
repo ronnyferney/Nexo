@@ -98,7 +98,7 @@ export class CopilotProposalsService {
     if (!refs.models.has(`${provider}:${model}`)) {
       const fallback = fallbackModel(refs.models);
       if (!fallback)
-        throw new BadRequestException('No hay modelos de IA disponibles: conecte un proveedor en Proveedores IA');
+        throw new BadRequestException('No hay modelos de IA disponibles: conecte un proveedor en «IA conectada»');
       warnings.push(
         `El modelo "${draft.provider}:${draft.model}" no está disponible; se usó "${fallback.provider}:${fallback.model}".`,
       );
