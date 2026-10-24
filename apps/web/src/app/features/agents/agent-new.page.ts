@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, ElementRef, inject, input, OnInit, 
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { ApiService, errorMessage } from '../../core/api.service';
+import { defaultAgentModel } from '../../core/llm-defaults';
 import type { CopilotApplyNavigationState, CopilotApplyResult, CopilotProposal } from '../../core/copilot.models';
 import { ToastService } from '../../core/toast.service';
 import { IconComponent } from '../../shared/icon.component';
@@ -154,14 +155,13 @@ export class AgentNewPage implements OnInit {
     this.creating.set(true);
     try {
       const providers = await this.api.llmCatalog().catch(() => this.api.providers());
-      const anthropic = providers.find((p) => p.id === 'anthropic');
-      const provider = anthropic?.configured ? anthropic : providers.find((p) => p.configured);
-      if (!provider?.models.length) throw new Error('No hay proveedores de IA configurados. Pida a un administrador que configure uno.');
+      const choice = defaultAgentModel(providers);
+      if (!choice) throw new Error('No hay proveedores de IA configurados. Pida a un administrador que configure uno.');
       const role = this.roles.find((r) => r.id === this.roleId);
       const agent = await this.api.createAgent({
         name: this.name.trim(),
-        provider: provider.id,
-        model: provider.models[0]!.id,
+        provider: choice.provider,
+        model: choice.model,
         systemPrompt: role ? '' : DEFAULT_PROMPT,
         ...(role ? { profile: role.profile } : {}),
       });

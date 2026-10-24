@@ -107,6 +107,8 @@ export class LlmModelsComponent {
     for (const s of this.catalog()) {
       const test = s.kind === 'MOCK';
       if (!s.system) continue; // las conexiones propias ya vienen completas de /admin/llm/connections
+      // La conexión de la plataforma sin clave en el servidor no se puede usar: no se lista como disponible.
+      if (!test && !s.configured) continue;
       const prov = test ? MOCK : s.kind === 'ANTHROPIC' ? (anthropic ?? { id: 'anthropic', name: 'Anthropic', logo: 'anthropic' }) : { id: s.id, name: s.label, logo: '' };
       for (const m of s.models) {
         out.push({
@@ -128,7 +130,16 @@ export class LlmModelsComponent {
         });
       }
     }
-    return out;
+    // Por conexión y, dentro de ella, de mayor a menor nivel y tarifa (Premium → Estándar → Económico).
+    const tierRank: Record<ModelTier, number> = { PREMIUM: 0, STANDARD: 1, ECONOMY: 2 };
+    return out.sort(
+      (a, b) =>
+        Number(a.tag === 'TEST') - Number(b.tag === 'TEST') ||
+        Number(a.tag === 'PLATFORM') - Number(b.tag === 'PLATFORM') ||
+        a.source.localeCompare(b.source, 'es') ||
+        tierRank[a.tier] - tierRank[b.tier] ||
+        (b.input ?? 0) - (a.input ?? 0),
+    );
   });
 
   readonly providerOptions = computed(() => {
