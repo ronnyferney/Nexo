@@ -6,6 +6,9 @@
 #   npm run local:status   # estado de los servicios
 #   npm run local:logs     # sigue los logs de API y web
 #
+# Con Docker también arranca Mailpit: los correos de Nexo (invitaciones, verificación y recuperación de contraseña)
+# llegan a la bandeja local http://localhost:8025 y no salen a internet.
+#
 # Requisitos: Node.js 22+ y Docker Desktop. Con Docker, PostgreSQL y Redis de Nexo usan puertos propios (55432 y 6390)
 # para no chocar con un PostgreSQL o Redis que ya tenga instalado. Sin Docker se usan PostgreSQL 16 y Redis 7 locales
 # en 5432/6379 (usuario/contraseña/base `nexo`).
@@ -20,6 +23,9 @@ WEB_URL="http://localhost:4200"
 API_URL="http://localhost:3000/api"
 PG_PORT="${NEXO_PG_PORT:-55432}"
 REDIS_PORT="${NEXO_REDIS_PORT:-6390}"
+SMTP_PORT="${NEXO_SMTP_PORT:-1025}"
+MAIL_UI_URL="http://localhost:${NEXO_MAIL_UI_PORT:-8025}"
+MAILPIT=""  # 1 cuando Mailpit arrancó (solo con Docker)
 mkdir -p "$DEV"
 
 info() { printf '\033[1;34m▸\033[0m %s\n' "$*"; }
@@ -96,6 +102,13 @@ start_infra() {
   wait_for "PostgreSQL" 90 compose exec -T postgres pg_isready -U nexo
   wait_for "Redis" 30 port_open "$REDIS_PORT"
   ok "PostgreSQL y Redis listos"
+  # Correo local: si Mailpit no arranca, Nexo funciona igual pero sin enlaces por correo.
+  if compose --profile dev up -d mailpit >/dev/null 2>&1; then
+    MAILPIT=1
+    ok "Correo local (Mailpit): $MAIL_UI_URL"
+  else
+    warn "No se pudo arrancar Mailpit: sin correo local (recuperación con npm run auth:reset-link en apps/api)"
+  fi
 }
 
 # Apunta la API a la base y al Redis que se acaban de levantar (DATABASE_URL, REDIS_PORT y, con Docker,
@@ -103,7 +116,7 @@ start_infra() {
 sync_env_ports() {
   local rpass=""
   [[ "$USE_DOCKER" == 1 ]] && rpass="$(redis_password)"
-  PG="$PG_PORT" RD="$REDIS_PORT" RPASS="$rpass" FILE="$API_ENV" node -e '
+  PG="$PG_PORT" RD="$REDIS_PORT" RPASS="$rpass" SMTP="${MAILPIT:+smtp://localhost:$SMTP_PORT}" FILE="$API_ENV" node -e '
     const fs = require("fs");
     let s = fs.readFileSync(process.env.FILE, "utf8");
     const url = `postgresql://nexo:nexo@localhost:${process.env.PG}/nexo?schema=public`;
@@ -116,6 +129,12 @@ sync_env_ports() {
     }
     // Proveedor IA simulado (solo desarrollo): se agrega si falta; si el usuario lo definió, se respeta su valor.
     if (!/^LLM_DEV_SIMULATOR=/m.test(s)) s = s.replace(/\n*$/, "\n\n# Proveedor IA simulado (solo desarrollo)\nLLM_DEV_SIMULATOR=true\n");
+    // Correo local (Mailpit): solo si el usuario no configuró su propio SMTP.
+    if (process.env.SMTP && !/^SMTP_URL=\S/m.test(s)) {
+      const set = (k, v) => (s = new RegExp(`^${k}=.*$`, "m").test(s) ? s.replace(new RegExp(`^${k}=.*$`, "m"), `${k}=${v}`) : s.replace(/\n*$/, `\n${k}=${v}\n`));
+      set("SMTP_URL", process.env.SMTP);
+      if (!/^MAIL_FROM=\S/m.test(s)) set("MAIL_FROM", "Nexo local <no-reply@nexo.local>");
+    }
     // Entorno de desarrollo explícito (el simulador y las validaciones de desarrollo lo exigen).
     if (!/^NODE_ENV=/m.test(s)) s = s.replace(/\n*$/, "\nNODE_ENV=development\n");
     fs.writeFileSync(process.env.FILE, s);
@@ -222,6 +241,7 @@ up() {
   check_credentials
   [[ -f "$DEV/credenciales.txt" ]] && { echo; cat "$DEV/credenciales.txt"; echo; }
   if [[ "$(uname)" == "Darwin" ]]; then open "$WEB_URL"; fi
+  [[ "${MAILPIT:-0}" == 1 ]] && echo "Correos de Nexo (invitaciones, recuperación de contraseña): $MAIL_UI_URL"
   echo "Logs: npm run local:logs · Detener: npm run local:stop"
 }
 
@@ -230,6 +250,7 @@ stop() {
   stop_pid api
   if command -v docker >/dev/null && docker info >/dev/null 2>&1; then
     compose stop postgres redis >/dev/null 2>&1 || true
+    compose --profile dev stop mailpit >/dev/null 2>&1 || true
   fi
   ok "Nexo local detenido (los datos se conservan)"
 }
@@ -242,6 +263,7 @@ status() {
   rd="$(sed -n 's/^REDIS_PORT=//p' "$API_ENV" 2>/dev/null)"
   port_open "${pg:-$PG_PORT}" && ok "PostgreSQL: ${pg:-$PG_PORT}" || warn "PostgreSQL detenido"
   port_open "${rd:-$REDIS_PORT}" && ok "Redis: ${rd:-$REDIS_PORT}" || warn "Redis detenido"
+  port_open "$SMTP_PORT" && ok "Correo local (Mailpit): $MAIL_UI_URL" || warn "Correo local detenido"
 }
 
 case "${1:-up}" in

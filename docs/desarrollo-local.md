@@ -13,6 +13,26 @@ npm run local:stop     # detener
 
 `npm run local` activa `LLM_DEV_SIMULATOR=true` en `apps/api/.env`. La variable se ignora con `NODE_ENV=production`.
 
+## Correo local y recuperación de contraseña
+
+Con Docker, `npm run local` arranca también **Mailpit** (perfil `dev` de `docker-compose.yml`) y, si `SMTP_URL` está
+vacío en `apps/api/.env`, lo apunta a `smtp://localhost:1025`. Los correos de Nexo (invitaciones, verificación de
+correo y recuperación de contraseña) llegan a la bandeja local **http://localhost:8025** y no salen a internet. Si usted
+configuró su propio SMTP, el script lo respeta.
+
+¿Olvidó su contraseña en local?
+
+1. **Contraseña inicial del usuario maestro:** está en `.dev/credenciales.txt` (si nunca la cambió).
+2. **Con Mailpit:** en el login aparece «¿Olvidó su contraseña?»; el enlace llega a http://localhost:8025. Tras
+   actualizar, reinicie con `npm run local:stop && npm run local` para que la API tome el `SMTP_URL`.
+3. **Sin correo (o en un servidor sin SMTP):** quien administra el servidor genera el enlace desde la terminal:
+   ```bash
+   cd apps/api && npm run auth:reset-link -- --email=persona@empresa.com
+   # imagen de producción: node dist/modules/auth/auth-reset-link.cli.js --email=persona@empresa.com
+   ```
+   Imprime un enlace de un solo uso que vence en 30 minutos; al usarlo se cierran todas las sesiones de la cuenta.
+   Entréguelo solo a la persona dueña de la cuenta.
+
 ## Proveedor simulado (`LLM_DEV_SIMULATOR`)
 
 En **Administración → Proveedores IA** aparece «Proveedor simulado (desarrollo)». Lo sirve la propia API en

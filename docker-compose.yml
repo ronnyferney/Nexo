@@ -91,6 +91,15 @@ services:
       interval: 5s
       retries: 10
 
+  # Solo desarrollo (`npm run local`, perfil dev): captura los correos de Nexo (invitaciones, verificación y
+  # recuperación de contraseña) sin enviarlos a nadie. Bandeja en http://localhost:8025. Nunca en producción.
+  mailpit:
+    image: axllent/mailpit:v1.21.8
+    profiles: [dev]
+    ports:
+      - "127.0.0.1:${NEXO_SMTP_PORT:-1025}:1025"
+      - "127.0.0.1:${NEXO_MAIL_UI_PORT:-8025}:8025"
+
   # API HTTP (sin worker: escala por réplicas detrás de un balanceador)
   api:
     build: ./apps/api
