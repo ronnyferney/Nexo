@@ -94,6 +94,11 @@ const XAI: BrandLogo = {
 
 const LOGOS: Record<string, BrandLogo> = {
   anthropic: fromSimpleIcon(siAnthropic),
+  // Canales de la familia Claude: el modelo es el mismo, así que se muestra el logo de Anthropic/Claude.
+  claude: fromSimpleIcon(siAnthropic),
+  'claude-google-cloud': fromSimpleIcon(siAnthropic),
+  'claude-vertex': fromSimpleIcon(siAnthropic),
+  'claude-foundry': fromSimpleIcon(siAnthropic),
   openai: OPENAI,
   gemini: fromSimpleIcon(siGooglegemini),
   google: fromSimpleIcon(siGooglegemini),

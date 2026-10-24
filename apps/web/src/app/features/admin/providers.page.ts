@@ -21,6 +21,8 @@ import { providerLogo, vendorOf } from './ai-provider-logos';
 import { type DisconnectAction, DisconnectConfirmComponent } from './disconnect-confirm.component';
 import { LlmModelsComponent } from './llm-models.component';
 import { LlmOAuthFlow, type OAuthOutcome } from './llm-oauth.flow';
+import { type ClaudeCard, ClaudeCardComponent } from './claude-card.component';
+import { ClaudeChannelsComponent } from './claude-channels.component';
 import { ProviderConnectComponent } from './provider-connect.component';
 import { type DetailModel, ProviderDetailComponent, type ProviderDetailData } from './provider-detail.component';
 import {
@@ -28,7 +30,14 @@ import {
   brandOf,
   CATEGORY_LABELS,
   CATEGORY_ORDER,
+  CLAUDE_CHANNELS,
+  claudeChannelOf,
+  claudeModelsLine,
+  claudeSearchText,
+  claudeVia,
   CONNECTION_FILTERS,
+  displayName,
+  isClaude,
   type ConnectionFilter,
   llmOAuthError,
   matchesFilter,
@@ -87,6 +96,10 @@ interface ConnectedCard {
   connectionId: string | null;
   enabled: boolean;
   platform: boolean;
+  /** Conexión de un canal de la familia Claude (el menú ofrece «Conectar otro canal»). */
+  family: boolean;
+  /** Nombre para avisos y confirmaciones: «Claude (vía Vertex AI)» en la familia, el título en el resto. */
+  label: string;
   /** Valor del filtro de proveedor en «Modelos de IA» para «Ver modelos». */
   modelsKey: string;
   /** Conexión creada con inicio de sesión (OAuth o código de dispositivo). */
@@ -105,6 +118,8 @@ interface ConnectedCard {
     IconComponent,
     BrandLogoComponent,
     ProviderConnectComponent,
+    ClaudeChannelsComponent,
+    ClaudeCardComponent,
     ProviderDetailComponent,
     DisconnectConfirmComponent,
     LlmModelsComponent,
@@ -141,6 +156,12 @@ export class ProvidersPage implements OnInit {
   readonly grouped = signal(true);
   readonly modelsProvider = signal('');
   readonly connecting = signal<ProviderView | null>(null);
+  /** Diálogo «Conectar Claude» abierto (comparación de canales). */
+  readonly channelsOpen = signal(false);
+  /** Canales resaltados en el diálogo «Conectar Claude» (según la búsqueda al abrirlo). */
+  readonly channelsHighlight = signal<string[]>([]);
+  /** El diálogo de conexión se abrió desde «Conectar Claude»: ofrece volver a los canales. */
+  readonly connectFromChannels = signal(false);
   /** «Volver a iniciar sesión» en curso: el diálogo de conexión renueva esta conexión en lugar de crear otra. */
   readonly reauthTarget = signal<{ connectionId: string; mechanism: MechanismType; name: string } | null>(null);
   /** El diálogo se abrió con «+»: inicia el mecanismo principal (código de dispositivo, detección local). */
@@ -163,9 +184,21 @@ export class ProvidersPage implements OnInit {
 
   readonly filtering = computed(() => !!this.query().trim() || !!this.filter());
 
+  /** Entradas de la familia Claude (un canal cada una). */
+  readonly claudeChannels = computed(() => this.providers().filter((p) => isClaude(p)));
+  readonly platformConfigured = computed<boolean | null>(() => {
+    const anthropic = this.providers().find((p) => p.id === 'anthropic');
+    const system = this.catalog().find((c) => c.system && c.kind === 'ANTHROPIC');
+    return anthropic?.platform?.configured ?? system?.configured ?? null;
+  });
+
+  /** La familia Claude cuenta como una sola tarjeta, igual que en «Disponibles». */
   readonly filterCounts = computed(() => {
     const counts: Record<string, number> = {};
-    for (const f of this.filters) counts[f.id] = this.providers().filter((p) => matchesFilter(p, f.id)).length;
+    for (const f of this.filters) {
+      const list = this.providers().filter((p) => matchesFilter(p, f.id));
+      counts[f.id] = list.filter((p) => !isClaude(p)).length + (list.some((p) => isClaude(p)) ? 1 : 0);
+    }
     return counts;
   });
 
@@ -184,14 +217,52 @@ export class ProvidersPage implements OnInit {
         out.push({ ...base, matchedModel: null });
         continue;
       }
-      const head = normalize(`${p.name} ${p.id} ${p.description} ${CATEGORY_LABELS[p.category] ?? ''}`).includes(q);
+      const text = isClaude(p) ? claudeSearchText(p) : `${p.name} ${p.id} ${p.description} ${CATEGORY_LABELS[p.category] ?? ''}`;
+      const head = normalize(text).includes(q);
       const sm = head ? null : (p.suggestedModels ?? []).find((s) => normalize(`${s.label} ${s.id}`).includes(q));
       if (head || sm) out.push({ ...base, matchedModel: sm?.label ?? null });
     }
     return out;
   });
 
-  readonly available = computed(() => this.matching().filter((r) => !r.p.connected?.length));
+  /** Proveedores sueltos disponibles; los canales de Claude van en la tarjeta destacada. */
+  readonly available = computed(() => this.matching().filter((r) => !r.p.connected?.length && !isClaude(r.p)));
+
+  /**
+   * Tarjeta «Claude»: visible mientras la familia no tenga conexiones propias; con conexiones, solo si la búsqueda o el
+   * filtro encuentran un canal aún sin conectar (que se resalta).
+   */
+  readonly claudeCard = computed<ClaudeCard | null>(() => {
+    const all = this.claudeChannels();
+    if (!all.length) return null;
+    const rows = this.matching().filter((r) => isClaude(r.p));
+    const open = rows.filter((r) => !r.p.connected?.length);
+    const hasConnection = all.some((p) => p.connected?.length);
+    const filtering = this.filtering();
+    if (!open.length || (hasConnection && !filtering)) return null;
+    const subset = filtering && rows.length < all.length;
+    const highlight = subset ? open.map((r) => r.p.id) : [];
+    const pendingId = this.oauth.pending()?.providerId;
+    const pendingP = pendingId ? all.find((p) => p.id === pendingId) : undefined;
+    const order = (p: ProviderView) => Object.keys(CLAUDE_CHANNELS).indexOf(claudeChannelOf(p));
+    return {
+      models: claudeModelsLine(all),
+      channels: [...all]
+        .sort((a, b) => order(a) - order(b))
+        .map((p) => ({
+          p,
+          short: CLAUDE_CHANNELS[claudeChannelOf(p)].short,
+          highlighted: highlight.includes(p.id),
+          connected: !!p.connected?.length,
+        })),
+      highlight,
+      pending: pendingP ? { p: pendingP, short: CLAUDE_CHANNELS[claudeChannelOf(pendingP)].short } : null,
+      matchedModel: rows.find((r) => r.matchedModel)?.matchedModel ?? null,
+    };
+  });
+
+  /** Tarjetas en «Disponibles»: proveedores sueltos más la tarjeta «Claude». */
+  readonly availableCount = computed(() => this.available().length + (this.claudeCard() ? 1 : 0));
 
   readonly sections = computed(() => {
     const rows = this.available();
@@ -213,22 +284,25 @@ export class ProvidersPage implements OnInit {
     const out: ConnectedCard[] = [];
     const anthropic = this.providers().find((p) => p.id === 'anthropic') ?? null;
     const system = this.catalog().find((c) => c.system && c.kind === 'ANTHROPIC');
-    const platformConfigured = anthropic?.platform?.configured ?? system?.configured;
-    if (platformConfigured !== undefined && (!q || matchIds.has('anthropic'))) {
-      const n = system?.models.length ?? 0;
+    // «Incluido por Nexo» solo cuenta como conectado si el servidor tiene la clave de la plataforma.
+    const claudeMatch = [...matchIds].some((id) => this.claudeChannels().some((p) => p.id === id));
+    if (this.platformConfigured() === true && (!q || matchIds.has('anthropic') || claudeMatch)) {
+      const n = system?.models.length || anthropic?.platform?.models || 0;
       out.push({
         key: 'platform',
-        title: 'Anthropic',
-        subtitle: platformConfigured ? `Incluido por Nexo · ${n} ${n === 1 ? 'modelo' : 'modelos'}` : 'Incluido por Nexo · No configurada en el servidor',
+        title: 'Claude',
+        label: 'Claude (incluido por Nexo)',
+        subtitle: `Incluido por Nexo · ${n} ${n === 1 ? 'modelo' : 'modelos'}`,
         connectionName: null,
-        logo: providerLogo(anthropic ?? { id: 'anthropic', name: 'Anthropic' }),
-        entry: { id: 'anthropic', name: 'Anthropic' },
-        status: platformConfigured ? 'on' : 'missing',
-        statusLabel: platformConfigured ? 'Activa' : 'No configurada',
+        logo: providerLogo({ id: 'claude', name: 'Claude', logo: 'claude' }),
+        entry: { id: 'anthropic', name: 'Claude' },
+        status: 'on',
+        statusLabel: 'Activa',
         provider: anthropic,
         connectionId: null,
-        enabled: !!platformConfigured,
+        enabled: true,
         platform: true,
+        family: true,
         modelsKey: 'anthropic',
         signedIn: false,
         signedOut: false,
@@ -267,7 +341,11 @@ export class ProvidersPage implements OnInit {
     return out;
   });
 
-  readonly totalAvailable = computed(() => this.providers().filter((p) => !p.connected?.length).length);
+  readonly totalAvailable = computed(() => {
+    const loose = this.providers().filter((p) => !p.connected?.length && !isClaude(p)).length;
+    const claude = this.claudeChannels();
+    return loose + (claude.length && !claude.some((p) => p.connected?.length) ? 1 : 0);
+  });
 
   constructor() {
     this.oauth.onOutcome((o) => void this.onOAuthOutcome(o));
@@ -338,9 +416,10 @@ export class ProvidersPage implements OnInit {
     this.filter.set('');
   }
 
-  openConnect(p: ProviderView, ev: Event, autostart = false) {
-    this.trigger = (ev.currentTarget as HTMLElement) ?? null;
+  openConnect(p: ProviderView, ev: Event | HTMLElement, autostart = false) {
+    this.trigger = ev instanceof HTMLElement ? ev : ((ev.currentTarget as HTMLElement) ?? null);
     this.menu.set(null);
+    this.connectFromChannels.set(isClaude(p));
     this.oauthErrors.update(({ [p.id]: _, ...rest }) => rest);
     this.autostart.set(autostart);
     this.reauthTarget.set(null);
@@ -363,20 +442,55 @@ export class ProvidersPage implements OnInit {
     this.openConnect(p, ev, m.available && (m.type === 'DEVICE_CODE' || m.type === 'LOCAL_DETECT'));
   }
 
+  // ----- Diálogo «Conectar Claude» -----
+
+  openChannels(ev: Event | HTMLElement, highlight: string[] = []) {
+    this.trigger = ev instanceof HTMLElement ? ev : ((ev.currentTarget as HTMLElement) ?? null);
+    this.menu.set(null);
+    this.channelsHighlight.set(highlight);
+    this.channelsOpen.set(true);
+  }
+
+  /** Canal elegido: se cierra la comparación y se abre el diálogo de conexión de esa entrada. */
+  onChannelChosen(p: ProviderView) {
+    this.channelsOpen.set(false);
+    this.oauthErrors.update(({ [p.id]: _, ...rest }) => rest);
+    this.autostart.set(false);
+    this.reauthTarget.set(null);
+    this.connectFromChannels.set(true);
+    this.connecting.set(p);
+  }
+
+  /** «Otros canales» en el diálogo de conexión: vuelve a la comparación resaltando el canal que estaba abierto. */
+  connectBack() {
+    const p = this.connecting();
+    this.connecting.set(null);
+    this.connectFromChannels.set(false);
+    this.channelsHighlight.set(p ? [p.id] : []);
+    this.channelsOpen.set(true);
+  }
+
+  channelsClosed() {
+    this.channelsOpen.set(false);
+    const t = this.trigger;
+    if (t?.isConnected) setTimeout(() => t.focus());
+  }
+
   cancelLogin(p: ProviderView) {
     this.oauth.cancel();
-    setTimeout(() => this.document.getElementById(`act-${p.id}`)?.focus());
+    setTimeout(() => this.document.getElementById(isClaude(p) ? 'claude-connect' : `act-${p.id}`)?.focus());
   }
 
   connectClosed() {
     this.connecting.set(null);
+    this.connectFromChannels.set(false);
     this.reauthTarget.set(null);
     const t = this.trigger;
     if (t?.isConnected) setTimeout(() => t.focus());
   }
 
   async onConnected(p: ProviderView) {
-    this.showNotice(`${p.name} quedó conectado`, p);
+    this.showNotice(`${displayName(p)} quedó conectado`, p);
     this.trigger = null;
     await this.load(true);
   }
@@ -387,7 +501,7 @@ export class ProvidersPage implements OnInit {
     this.connecting.set(null);
     this.reauthTarget.set(null);
     await this.load(true);
-    this.showNotice(`Sesión iniciada en ${p.name}`, p);
+    this.showNotice(`Sesión iniciada en ${displayName(p)}`, p);
     this.focusConnected(p.id);
   }
 
@@ -404,7 +518,7 @@ export class ProvidersPage implements OnInit {
     if (o.status === 'connected') {
       if (reload) await this.load(true);
       const p = find();
-      const name = p?.name ?? 'el proveedor';
+      const name = p ? displayName(p) : 'el proveedor';
       if (this.connecting()?.id === o.providerId || !o.providerId) {
         this.trigger = null;
         this.connecting.set(null);
@@ -415,7 +529,7 @@ export class ProvidersPage implements OnInit {
       return;
     }
     const p = find();
-    const msg = llmOAuthError(o.reason, p?.name);
+    const msg = llmOAuthError(o.reason, p ? displayName(p) : undefined);
     if (p && this.connecting()?.id === p.id) this.oauthErrors.update((e) => ({ ...e, [p.id]: msg }));
     else this.toast.error(msg);
   }
@@ -510,6 +624,7 @@ export class ProvidersPage implements OnInit {
     const local = p?.category === 'LOCAL';
     const conn = this.connections().find((x) => x.id === c.connectionId) as LlmConnectionMeta | undefined;
     const brand = p ? brandOf(primaryMechanism(p), p) : c.title;
+    const via = p && c.family && !c.platform ? ` · ${claudeVia(p)}` : '';
     return {
       key: c.key,
       title: c.title,
@@ -519,13 +634,7 @@ export class ProvidersPage implements OnInit {
       statusLabel: c.signedOut ? 'Sesión cerrada' : c.status === 'on' ? 'Conectado' : c.status === 'off' ? 'Deshabilitado' : 'No configurado',
       footLabel: c.platform
         ? 'Incluido por Nexo: usa la cuenta de la plataforma, sin inicio de sesión'
-        : c.signedOut
-          ? `Sesión de ${brand} cerrada`
-          : c.signedIn
-            ? `Sesión iniciada con ${brand}`
-            : local
-              ? 'Conectado a su servidor local'
-              : 'Conectado con clave de API',
+        : `${this.footLabel(c, brand, local)}${via}`,
       signedIn: c.signedIn,
       sessionNote: c.signedOut ? 'Sus modelos y agentes se conservan hasta que vuelva a iniciar sesión.' : this.sessionNote(conn),
       signedOut: c.signedOut,
@@ -533,6 +642,12 @@ export class ProvidersPage implements OnInit {
       canDisconnect: !!c.connectionId,
       models,
     };
+  }
+
+  private footLabel(c: ConnectedCard, brand: string, local: boolean) {
+    if (c.signedOut) return `Sesión de ${brand} cerrada`;
+    if (c.signedIn) return `Sesión iniciada con ${brand}`;
+    return local ? 'Conectado a su servidor local' : 'Conectado con clave de API';
   }
 
   /** Renovación del token OAuth de la conexión (solo `credentialType: 'OAUTH'`). */
@@ -619,8 +734,8 @@ export class ProvidersPage implements OnInit {
     this.testing.set(card.key);
     try {
       const r = await this.api.testLlmConnection(card.connectionId);
-      if (r.ok) this.toast.success(`${card.title}: ${r.message || 'conexión correcta'}`);
-      else this.toast.error(`${card.title}: ${r.message}`);
+      if (r.ok) this.toast.success(`${card.label}: ${r.message || 'conexión correcta'}`);
+      else this.toast.error(`${card.label}: ${r.message}`);
     } catch (e) {
       this.toast.error(errorMessage(e));
     } finally {
@@ -656,8 +771,8 @@ export class ProvidersPage implements OnInit {
     this.menu.set(null);
     if (!card.connectionId) return;
     this.confirmTarget.set({
-      name: card.connectionName && !fromDetail ? `${card.title} (${card.connectionName})` : card.title,
-      entry: { id: card.provider?.id ?? card.entry.id, name: card.title },
+      name: card.connectionName && !fromDetail ? `${card.label} (${card.connectionName})` : card.label,
+      entry: { id: card.provider?.id ?? card.entry.id, name: card.label },
       connectionId: card.connectionId,
       action: signOut ? 'signOut' : card.signedIn ? 'delete' : 'disconnect',
       returnFocus: fromDetail ? null : `menu-btn-${card.key}`,
@@ -763,13 +878,21 @@ export class ProvidersPage implements OnInit {
     signedIn: boolean,
     signedOut: boolean,
   ): ConnectedCard {
-    const title = p?.name ?? name;
-    const how = signedOut ? 'Sesión cerrada' : signedIn ? 'Sesión iniciada' : p ? BILLING_LABELS[p.billing] : 'Conexión propia';
+    const family = isClaude(p);
+    const title = family ? 'Claude' : (p?.name ?? name);
+    const models = `${n} ${n === 1 ? 'modelo' : 'modelos'}`;
+    const session = signedOut ? 'Sesión cerrada' : signedIn ? 'Sesión iniciada' : null;
+    // Claude es una familia de modelos: la tarjeta dice «Claude» y el canal va en el subtítulo.
+    const subtitle =
+      family && p
+        ? [models, claudeVia(p), session].filter(Boolean).join(' · ')
+        : `${models} · ${session ?? (p ? BILLING_LABELS[p.billing] : 'Conexión propia')}`;
     return {
       key: id,
       title,
-      subtitle: `${n} ${n === 1 ? 'modelo' : 'modelos'} · ${how}`,
-      connectionName: name && name !== title ? name : null,
+      label: family && p ? displayName(p) : title,
+      subtitle,
+      connectionName: name && name !== title && name !== p?.name ? name : null,
       logo,
       entry: { id: p?.id ?? id, name: title },
       status: enabled && !signedOut ? 'on' : 'off',
@@ -778,6 +901,7 @@ export class ProvidersPage implements OnInit {
       connectionId: id,
       enabled,
       platform: false,
+      family,
       modelsKey: p?.id ?? `conn:${id}`,
       signedIn,
       signedOut,

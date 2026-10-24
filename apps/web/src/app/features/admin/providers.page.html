@@ -78,7 +78,11 @@
                           }
                           <button type="button" role="menuitem" (click)="goModels(c.modelsKey)"><nx-icon name="cpu" [size]="16" />Ver modelos</button>
                           @if (c.provider && !c.platform) {
-                            <button type="button" role="menuitem" (click)="openConnect(c.provider, $event)"><nx-icon name="plus" [size]="16" />Conectar otra cuenta</button>
+                            @if (c.family) {
+                              <button type="button" role="menuitem" (click)="openChannels($event)"><nx-icon name="plus" [size]="16" />Conectar otro canal</button>
+                            } @else {
+                              <button type="button" role="menuitem" (click)="openConnect(c.provider, $event)"><nx-icon name="plus" [size]="16" />Conectar otra cuenta</button>
+                            }
                           }
                           @if (c.connectionId) {
                             @if (c.reauthMechanism) {
@@ -94,8 +98,8 @@
                               <button type="button" role="menuitem" class="danger" (click)="disconnect(c)"><nx-icon name="unlink" [size]="16" />Desconectar</button>
                             }
                           }
-                          @if (c.platform && c.provider) {
-                            <button type="button" role="menuitem" (click)="openConnect(c.provider, $event)"><nx-icon name="key" [size]="16" />Usar clave propia</button>
+                          @if (c.platform) {
+                            <button type="button" role="menuitem" (click)="openChannels($event)"><nx-icon name="key" [size]="16" />Conectar un canal propio</button>
                           }
                         </div>
                       }
@@ -108,13 +112,13 @@
 
           <section class="sec" aria-labelledby="sec-available">
             <div class="sec-head">
-              <h2 id="sec-available">Disponibles</h2><span class="count">{{ available().length }}</span>
-              @if (filtering() && available().length !== totalAvailable()) { <span class="small muted">de {{ totalAvailable() }}</span> }
+              <h2 id="sec-available">Disponibles</h2><span class="count">{{ availableCount() }}</span>
+              @if (filtering() && availableCount() !== totalAvailable()) { <span class="small muted">de {{ totalAvailable() }}</span> }
               <label class="group-toggle small"><span class="switch"><input type="checkbox" [checked]="grouped()" (change)="grouped.set(!grouped())" /><span></span></span>Agrupar por categoría</label>
             </div>
-            <p class="sr-only" role="status">{{ available().length }} proveedores disponibles</p>
+            <p class="sr-only" role="status">{{ availableCount() }} proveedores disponibles</p>
 
-            @if (!available().length) {
+            @if (!availableCount()) {
               <div class="empty small-empty">
                 @if (filtering()) {
                   <nx-icon name="search" [size]="28" /><h3>Sin resultados</h3><p>Ningún proveedor ni modelo coincide con el filtro.</p>
@@ -123,6 +127,10 @@
                   <nx-icon name="checkCircle" [size]="28" /><h3>Todo conectado</h3><p>Ya conectaste todos los proveedores del catálogo.</p>
                 }
               </div>
+            }
+
+            @if (claudeCard(); as cl) {
+              <nx-claude-card [card]="cl" (connect)="openChannels($event, cl.highlight)" (channel)="openConnect($event.p, $event.el)" (cancel)="cancelLogin($event)" />
             }
 
             @for (s of sections(); track s.id) {
@@ -178,8 +186,13 @@
   </div>
 </div>
 
+@if (channelsOpen()) {
+  <nx-claude-channels [channels]="claudeChannels()" [highlight]="channelsHighlight()" [platformConfigured]="platformConfigured()"
+    (chosen)="onChannelChosen($event)" (closed)="channelsClosed()" />
+}
+
 @if (connecting(); as p) {
-  <nx-provider-connect [provider]="p" [autostart]="autostart()" [reauth]="reauthTarget()" [oauthError]="oauthErrors()[p.id] ?? null" (closed)="connectClosed()"
+  <nx-provider-connect [provider]="p" [autostart]="autostart()" [fromChannels]="connectFromChannels()" (back)="connectBack()" [reauth]="reauthTarget()" [oauthError]="oauthErrors()[p.id] ?? null" (closed)="connectClosed()"
     (connected)="onConnected(p)" (signedIn)="onSignedIn(p)" (goModels)="goModels(p.id)" />
 }
 

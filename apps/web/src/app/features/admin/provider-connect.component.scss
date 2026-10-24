@@ -44,6 +44,8 @@ dialog.connect { width: min(600px, calc(100vw - 24px)); border-radius: 18px; }
 .models .error-text { margin: 0 14px 12px; }
 .tier { height: 18px; font-size: 10.5px; padding: 0 7px; margin-left: 4px; }
 .foot { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; padding-top: 4px; }
+.back { margin-right: auto; }
+.chan { display: block; line-height: 1.4; }
 .spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.4); border-top-color: #fff; animation: spin 0.7s linear infinite; }
 .spin.dark { border-color: var(--border); border-top-color: var(--info); flex-shrink: 0; }
 @keyframes spin { to { transform: rotate(360deg); } }

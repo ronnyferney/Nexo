@@ -36,6 +36,9 @@ import { LocalDetectComponent } from './local-detect.component';
 import {
   BILLING_LABELS,
   brandOf,
+  CLAUDE_CHANNELS,
+  claudeChannelOf,
+  isClaude,
   fieldsFor,
   formatContext,
   isRequired,
@@ -78,10 +81,15 @@ export class ProviderConnectComponent implements OnInit {
   readonly signedIn = output<DevicePollResult>();
   /** El usuario quiere revisar tarifas en la pestaña «Modelos de IA». */
   readonly goModels = output<void>();
+  /** Abierto desde «Conectar Claude»: muestra «Otros canales» para volver a la comparación. */
+  readonly fromChannels = input(false);
+  readonly back = output<void>();
 
   readonly tierLabels = TIER_LABELS;
   readonly billingLabels = BILLING_LABELS;
   readonly logo = computed(() => providerLogo(this.provider()));
+  /** Canal de la familia Claude (quién opera y quién factura), o `null` si el proveedor no es de la familia. */
+  readonly channel = computed(() => (isClaude(this.provider()) ? CLAUDE_CHANNELS[claudeChannelOf(this.provider())] : null));
   readonly personalPlan = computed(() => PERSONAL_PLANS[this.provider().id] ?? null);
   readonly keyUrl = computed(() => (isHttpUrl(this.provider().keyUrl) ? this.provider().keyUrl! : null));
   readonly docsUrl = computed(() => (isHttpUrl(this.provider().docsUrl) ? this.provider().docsUrl : null));

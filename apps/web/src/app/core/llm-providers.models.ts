@@ -2,6 +2,11 @@ import type { LlmConnection, LlmKind, LlmModel, ModelTier } from './models';
 
 /** Familia del proveedor en la galería «Proveedores de IA». */
 export type ProviderCategory = 'FRONTIER' | 'OPEN_MODELS' | 'ENTERPRISE_CLOUD' | 'LOCAL' | 'ROUTER';
+/**
+ * Canal oficial por el que se llega a la familia Claude: los modelos son los mismos y cambian quién opera el servicio,
+ * cómo se inicia sesión y quién factura.
+ */
+export type ClaudeChannel = 'anthropic' | 'google-cloud' | 'vertex' | 'foundry';
 /** Forma de cobro: Nexo no conecta suscripciones personales (Claude Pro/Max, ChatGPT Plus…), solo cuentas de API. */
 export type ProviderBilling = 'PAY_AS_YOU_GO' | 'FREE_TIER' | 'ENTERPRISE' | 'LOCAL';
 export type ProviderAuth = 'API_KEY' | 'OAUTH' | 'NONE';
@@ -85,7 +90,11 @@ export interface ProviderView {
   modelCount: number;
   connected: ProviderConnectionRef[];
   /** Solo en el proveedor de la plataforma (Anthropic): conexión incluida por Nexo configurada en el servidor. */
-  platform?: { configured: boolean };
+  platform?: { configured: boolean; models?: number } | null;
+  /** Familia de modelos a la que pertenece la entrada (la galería agrupa sus canales en una sola tarjeta «Claude»). */
+  family?: 'CLAUDE';
+  /** Canal de la familia Claude (`family: 'CLAUDE'`). */
+  claudeChannel?: ClaudeChannel;
 }
 
 export interface ProviderConnectInput {

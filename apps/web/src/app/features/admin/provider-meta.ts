@@ -1,4 +1,5 @@
 import type {
+  ClaudeChannel,
   MechanismType,
   ModelSpecialty,
   ProviderBilling,
@@ -58,6 +59,98 @@ export const PERSONAL_PLANS: Record<string, string> = {
   gemini: 'Gemini Advanced (Google One)',
   xai: 'SuperGrok',
 };
+
+// ----- Familia Claude -----
+
+/** Canal de Claude: cómo se presenta en la galería y en el diálogo «Conectar Claude». */
+export interface ClaudeChannelInfo {
+  /** «API de Anthropic», «Google Cloud»… */
+  short: string;
+  /** Quién opera el servicio. */
+  operator: string;
+  /** Cómo se conecta. */
+  how: string;
+  /** Quién factura y con qué tarifas. */
+  billing: string;
+  /** Matiz breve del canal. */
+  note: string;
+}
+
+export const CLAUDE_CHANNEL_ORDER: ClaudeChannel[] = ['anthropic', 'google-cloud', 'vertex', 'foundry'];
+
+export const CLAUDE_CHANNELS: Record<ClaudeChannel, ClaudeChannelInfo> = {
+  anthropic: {
+    short: 'API de Anthropic',
+    operator: 'Anthropic',
+    how: 'Clave de API de la Consola de Claude',
+    billing: 'Anthropic, pago por uso',
+    note: 'Todas las funciones nuevas el mismo día.',
+  },
+  'google-cloud': {
+    short: 'Google Cloud',
+    operator: 'Anthropic',
+    how: 'Iniciar sesión con Google',
+    billing: 'Google Cloud Marketplace',
+    note: 'Sin claves de API: proyecto y workspace de Claude.',
+  },
+  vertex: {
+    short: 'Vertex AI',
+    operator: 'Google',
+    how: 'Iniciar sesión con Google',
+    billing: 'Google Cloud, con tarifas de Google',
+    note: 'Su proyecto y región de Vertex AI.',
+  },
+  foundry: {
+    short: 'Microsoft Foundry',
+    operator: 'Su recurso de Microsoft Foundry (Azure)',
+    how: 'Clave del recurso de Azure',
+    billing: 'Microsoft Marketplace, con tarifas de Anthropic',
+    note: 'Modelos desplegados en su recurso de Azure.',
+  },
+};
+
+/** Modelos de la familia que se muestran en la tarjeta «Claude» si el catálogo no los trae. */
+export const CLAUDE_MODELS_FALLBACK = ['Opus 5.5', 'Sonnet 5.5', 'Haiku 5.5', 'Fable 5.1'];
+
+export function isClaude(p: Pick<ProviderView, 'family' | 'claudeChannel'> | null | undefined): boolean {
+  return p?.family === 'CLAUDE' || !!p?.claudeChannel;
+}
+
+/** Canal de una entrada de la familia (`anthropic` si el servidor no lo informa). */
+export function claudeChannelOf(p: Pick<ProviderView, 'id' | 'claudeChannel'>): ClaudeChannel {
+  return p.claudeChannel ?? 'anthropic';
+}
+
+/** «vía Google Cloud». */
+export function claudeVia(p: Pick<ProviderView, 'id' | 'claudeChannel'>): string {
+  return `vía ${CLAUDE_CHANNELS[claudeChannelOf(p)].short}`;
+}
+
+/** Nombre de una entrada para avisos: «Claude (vía Vertex AI)» en la familia, el nombre en el resto. */
+export function displayName(p: Pick<ProviderView, 'id' | 'name' | 'family' | 'claudeChannel'>): string {
+  return isClaude(p) ? `Claude (${claudeVia(p)})` : p.name;
+}
+
+/** «Opus 5.5 · Sonnet 5.5 · Haiku 5.5 · Fable 5.1»: modelos del canal directo sin el prefijo «Claude». */
+export function claudeModelsLine(channels: readonly ProviderView[]): string {
+  const src = channels.find((p) => claudeChannelOf(p) === 'anthropic') ?? channels[0];
+  const labels = (src?.suggestedModels ?? []).map((m) => m.label.replace(/^claude\s+/i, '').trim()).filter(Boolean);
+  if (!labels.length) return CLAUDE_MODELS_FALLBACK.join(' · ');
+  const rank = (l: string) => {
+    const i = CLAUDE_MODELS_FALLBACK.indexOf(l);
+    return i < 0 ? CLAUDE_MODELS_FALLBACK.length : i;
+  };
+  return [...new Set(labels)].sort((a, b) => rank(a) - rank(b)).join(' · ');
+}
+
+/**
+ * Texto que la búsqueda considera para un canal de Claude («google», «azure», «vertex»…). No incluye la descripción
+ * ni quién opera o factura: «anthropic» debe resaltar solo el canal directo, no los de nubes operados por Anthropic.
+ */
+export function claudeSearchText(p: Pick<ProviderView, 'id' | 'name' | 'claudeChannel'>): string {
+  const c = CLAUDE_CHANNELS[claudeChannelOf(p)];
+  return `claude ${p.name} ${p.id} ${c.short} ${c.how}`;
+}
 
 /** Mensajes del retorno OAuth (`?llm=error&reason=`). */
 const LLM_OAUTH_ERRORS: Record<string, (name: string) => string> = {
