@@ -56,6 +56,16 @@ const branching: WorkflowDefinition = {
 };
 
 describe('WorkflowEngine', () => {
+  // Regresión: un nodo sin `config` pasaba el validador y el motor lanzaba en `node.config.retries`, dejando la
+  // ejecución en RUNNING para siempre.
+  it('rechaza nodos sin config y falla limpio en lugar de lanzar', async () => {
+    const def = { nodes: [{ id: 't', type: 'trigger', name: 'Inicio' }], edges: [] } as unknown as WorkflowDefinition;
+    expect(validateDefinition(def)).toContain('El nodo "t" debe tener "config" (un objeto, puede ser {})');
+    const res = await engine().run(def, ctx());
+    expect(res.status).toBe('FAILED');
+    expect(res.error).toContain('debe tener "config"');
+  });
+
   it('toma la rama verdadera y omite la falsa', async () => {
     const r = await engine().run(branching, ctx({ amount: 5000 }));
     expect(r.status).toBe('SUCCEEDED');

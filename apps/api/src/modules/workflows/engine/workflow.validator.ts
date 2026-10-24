@@ -26,6 +26,8 @@ export function validateDefinition(def: WorkflowDefinition): string[] {
     if (!n.id || ids.has(n.id)) errors.push(`ID de nodo duplicado o vacío: "${n.id}"`);
     ids.add(n.id);
     if (!NODE_TYPES.includes(n.type)) errors.push(`Tipo de nodo desconocido: "${n.type}" (${n.id})`);
+    if (!n.config || typeof n.config !== 'object' || Array.isArray(n.config))
+      errors.push(`El nodo "${n.id}" debe tener "config" (un objeto, puede ser {})`);
   }
   const triggers = def.nodes.filter((n) => n.type === 'trigger');
   if (triggers.length !== 1) errors.push('El flujo debe tener exactamente un nodo disparador (trigger)');

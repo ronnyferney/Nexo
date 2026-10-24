@@ -64,29 +64,39 @@ export class WorkflowRunnerService {
       data: { status: 'RUNNING', startedAt: new Date() },
     });
     const abort = new AbortController();
+    let lastSteps: StepLog[] = [];
 
-    const result = await this.engine.run(
-      execution.workflow.definition as unknown as WorkflowDefinition,
-      {
-        workspaceId: execution.workspaceId,
-        executionId,
-        workflowId: execution.workflowId,
-        input: execution.input as Record<string, unknown>,
-        nodes: {},
-        depth: 0,
-      },
-      {
-        signal: abort.signal,
-        onStep: async (_: StepLog, all: StepLog[]) => {
-          const row = await this.prisma.execution.update({
-            where: { id: executionId },
-            data: { steps: json(all) },
-            select: { status: true },
-          });
-          if (row.status === 'CANCELLED') abort.abort();
+    // Un error inesperado del motor no debe dejar la ejecución en RUNNING para siempre: se registra como FAILED.
+    const result = await this.engine
+      .run(
+        execution.workflow.definition as unknown as WorkflowDefinition,
+        {
+          workspaceId: execution.workspaceId,
+          executionId,
+          workflowId: execution.workflowId,
+          input: execution.input as Record<string, unknown>,
+          nodes: {},
+          depth: 0,
         },
-      },
-    );
+        {
+          signal: abort.signal,
+          onStep: async (_: StepLog, all: StepLog[]) => {
+            lastSteps = all;
+            const row = await this.prisma.execution.update({
+              where: { id: executionId },
+              data: { steps: json(all) },
+              select: { status: true },
+            });
+            if (row.status === 'CANCELLED') abort.abort();
+          },
+        },
+      )
+      .catch((err: Error) => ({
+        status: 'FAILED' as const,
+        output: null,
+        error: `Error interno del motor: ${err.message}`,
+        steps: lastSteps,
+      }));
 
     const current = await this.prisma.execution.findUnique({ where: { id: executionId }, select: { status: true } });
     const cancelled = current?.status === 'CANCELLED';

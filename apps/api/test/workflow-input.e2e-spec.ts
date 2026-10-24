@@ -65,6 +65,17 @@ describe('Entrada de los flujos: aviso antes de ejecutar (P2, E2E)', () => {
     expect(JSON.stringify(bad.body.message)).toContain('tipo desconocido');
   });
 
+  // Regresión: un nodo sin `config` se guardaba y su ejecución quedaba en RUNNING para siempre.
+  it('rechaza guardar un nodo sin config', async () => {
+    const bad = await owner.api
+      .post('/workflows', {
+        name: 'Sin config',
+        definition: { nodes: [{ id: 't', type: 'trigger', name: 'Inicio' }], edges: [] },
+      })
+      .expect(400);
+    expect(JSON.stringify(bad.body.message)).toContain('debe tener \\"config\\"');
+  });
+
   it('POST /run responde 400 con los campos requeridos que faltan y no crea la ejecución', async () => {
     const id = await create('Clima con esquema', weather(REQUIRED));
     const res = await owner.api.post(`/workflows/${id}/run`, { input: { latitude: 4.6 }, wait: true }).expect(400);
