@@ -6,6 +6,7 @@ import { AuthService } from '../../core/auth.service';
 import { IntegrationsApi } from '../../core/integrations.api';
 import type { CatalogCategory } from '../../core/integrations.models';
 import { ToastService } from '../../core/toast.service';
+import { PageHeaderComponent } from '../../layout/page-header.component';
 import { EmptyStateComponent } from '../../shared/empty-state.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { IconComponent } from '../../shared/icon.component';
@@ -38,6 +39,7 @@ interface Section {
   imports: [
     FormsModule,
     RouterLink,
+    PageHeaderComponent,
     IconComponent,
     BrandLogoComponent,
     InstallWizardComponent,

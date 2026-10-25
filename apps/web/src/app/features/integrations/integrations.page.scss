@@ -1,5 +1,6 @@
 .gallery { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 28px 32px 36px; }
-.head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px 24px; flex-wrap: wrap; margin-bottom: 8px; }
+/* Maqueta del encabezado (margen, alineación, gap y acciones a lo ancho) la aporta la variante
+   `in-card` de nx-page-header; aquí solo quedan los estilos del contenido proyectado. */
 .total { margin: 6px 0 0; display: flex; align-items: center; gap: 8px; font-weight: 550; flex-wrap: wrap; }
 .count { display: inline-grid; place-items: center; min-width: 26px; height: 22px; padding: 0 8px; border-radius: 999px;
   background: var(--surface-2); color: var(--muted); font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; }
@@ -64,7 +65,6 @@
 }
 @media (max-width: 560px) {
   .gallery { padding: 16px 10px 24px; border-radius: 12px; }
-  .head { padding: 0 4px; }
   .search { flex-basis: 100%; }
   .cat { flex: 1 1 auto; }
   .int-row { padding: 10px 6px; gap: 12px; }

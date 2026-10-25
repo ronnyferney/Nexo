@@ -1,13 +1,10 @@
 <div class="page">
   <div class="gallery">
-    <header class="head">
-      <div>
-        <h1>Apps conectadas</h1>
-        <p class="total">Disponibles <span class="count">{{ loading() ? '…' : catalog().length }}</span>
-          @if (filtering() && !loading()) { <span class="muted">· {{ rows().length }} {{ rows().length === 1 ? 'coincide' : 'coinciden' }}</span> }
-        </p>
-      </div>
-      <div class="tools" role="search">
+    <nx-page-header heading="Apps conectadas" hostClass="in-card">
+      <p meta class="total">Disponibles <span class="count">{{ loading() ? '…' : catalog().length }}</span>
+        @if (filtering() && !loading()) { <span class="muted">· {{ rows().length }} {{ rows().length === 1 ? 'coincide' : 'coinciden' }}</span> }
+      </p>
+      <div actions class="tools" role="search">
         <div class="search">
           <nx-icon name="search" [size]="16" />
           <label class="sr-only" for="int-search">Buscar apps por nombre, descripción u operación</label>
@@ -21,7 +18,7 @@
         </select>
         <a class="btn ghost" routerLink="/connectors"><nx-icon name="plug" [size]="16" />Mis conectores</a>
       </div>
-    </header>
+    </nx-page-header>
 
     @if (loading()) {
       <div aria-busy="true"><span class="sr-only" role="status">Cargando catálogo…</span>

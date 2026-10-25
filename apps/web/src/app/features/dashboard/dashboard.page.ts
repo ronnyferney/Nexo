@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component, inject, OnInit, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { PageHeaderComponent } from '../../layout/page-header.component';
 import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { AccessApi } from '../../core/access.api';
@@ -15,13 +16,13 @@ import { NumberPipe, UsdPipe } from '../../shared/usd.pipe';
 
 @Component({
   selector: 'nx-dashboard',
-  imports: [RouterLink, IconComponent, StatusBadgeComponent, RelativeTimePipe, ProgressBarComponent, UsdPipe, NumberPipe],
+  imports: [RouterLink, PageHeaderComponent, IconComponent, StatusBadgeComponent, RelativeTimePipe, ProgressBarComponent, UsdPipe, NumberPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page">
-      <div class="page-header brand-hero">
-        <div><h1>Hola{{ auth.me() ? ', ' + auth.me()!.name : '' }} 👋</h1><p>Resumen de su plataforma de agentes y automatización</p></div>
-      </div>
+      <nx-page-header hostClass="brand-hero" [heading]="greeting()"
+        description="Resumen de su plataforma de agentes y automatización" />
+
 
       @if (critical().length) {
         <div class="callout danger crit" role="alert">
@@ -131,6 +132,11 @@ export class DashboardPage implements OnInit {
   private readonly api = inject(ApiService);
   private readonly access = inject(AccessApi);
   protected readonly auth = inject(AuthService);
+  /** Saludo dinámico del encabezado «hero»: incluye el nombre si hay sesión y el emoji. */
+  readonly greeting = computed(() => {
+    const me = this.auth.me();
+    return `Hola${me ? ', ' + me.name : ''} 👋`;
+  });
   readonly critical = signal<AgentHealthSummary[]>([]);
   readonly templates = INDUSTRY_TEMPLATES;
   readonly stats = signal<Stats | null>(null);

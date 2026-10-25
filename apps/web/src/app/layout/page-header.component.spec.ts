@@ -7,7 +7,7 @@ import { PageHeaderComponent } from './page-header.component';
   standalone: true,
   imports: [PageHeaderComponent],
   template: `
-    <nx-page-header [heading]="heading" [description]="description" [crumbs]="crumbs">
+    <nx-page-header [heading]="heading" [description]="description" [crumbs]="crumbs" [hostClass]="hostClass">
       <button lead class="back">Volver</button>
       <span meta class="badge">meta</span>
       <button actions class="btn primary">Nuevo</button>
@@ -18,6 +18,7 @@ class HostComponent {
   heading = 'Skills';
   description = 'Habilidades reutilizables';
   crumbs: { label: string; link?: string }[] = [];
+  hostClass = '';
 }
 
 describe('PageHeaderComponent', () => {
@@ -49,6 +50,31 @@ describe('PageHeaderComponent', () => {
     expect(el.querySelector('.ph-title .back')?.textContent).toContain('Volver');
     expect(el.querySelector('.ph-text .badge')?.textContent).toContain('meta');
     expect(el.querySelector('.ph-actions .btn')?.textContent).toContain('Nuevo');
+  });
+
+  it('proyecta una descripción con markup por el slot meta', () => {
+    // El slot meta permite descripciones ricas (no solo string) bajo el título.
+    expect(el.querySelector('.ph-text .badge')?.textContent).toContain('meta');
+  });
+
+  it('usa solo la clase base .page-header cuando no hay hostClass', () => {
+    const header = el.querySelector('header')!;
+    expect(header.classList.contains('page-header')).toBe(true);
+    expect(header.className.trim()).toBe('page-header');
+  });
+
+  it('añade las variantes de hostClass sin perder la clase base', () => {
+    fixture.componentInstance.hostClass = 'brand-hero';
+    fixture.detectChanges();
+    const header = el.querySelector('header')!;
+    expect(header.classList.contains('page-header')).toBe(true);
+    expect(header.classList.contains('brand-hero')).toBe(true);
+
+    fixture.componentInstance.hostClass = 'in-card';
+    fixture.detectChanges();
+    expect(header.classList.contains('page-header')).toBe(true);
+    expect(header.classList.contains('in-card')).toBe(true);
+    expect(header.classList.contains('brand-hero')).toBe(false);
   });
 
   it('muestra migas solo cuando hay ítems', () => {
