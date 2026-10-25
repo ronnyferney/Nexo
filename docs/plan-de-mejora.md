@@ -111,7 +111,7 @@ especializado asignado; el líder coordina y el chat tiene un solo dueño por ar
 | RX-1 | P0 | 3.1 | Chat: separar Conversación / Actividad / Diagnóstico + agrupar eventos de protección de datos | Líder | Hecho (2b91fc9) |
 | RX-2 | P0 | 3.3 | Chat: máquina de estados visible (pensando / consultando… / esperando aprobación / completado / fallado / cancelado) ligada a eventos reales | Líder | Hecho (d872ea3) |
 | RX-3 | P0 | 3.4 | Chat: errores empresariales (mapeo de causas + acciones) y nombres legibles de herramienta | Líder | Hecho (ade7502) |
-| RX-4 | P0 | 3.6/3.7 | Chat: compositor (estado de conexión, anti-doble-envío) y sesiones de prueba (versión/ejecución que respondió) | Líder | Pendiente |
+| RX-4 | P0 | 3.6/3.7 | Chat: compositor (estado de conexión, anti-doble-envío) y sesiones de prueba (versión/ejecución que respondió) | Líder | Hecho |
 | RX-5 | P1 | 4.3 | Panel de salud orientado a la acción (estado de publicación + hallazgos con acción) | nexo-frontend-ui | Hecho (83cd96d) |
 | RX-5b | P1 | 4.3 | **Ajuste de UX del panel de salud** (feedback): (1) debe aparecer **recogido** por defecto, como tarjeta compacta, sin empujar el formulario; (2) **conservar el indicador visual** (anillo/medidor con el puntaje, coloreado por nivel) que el rediseño quitó; (3) «Ver detalle» abre los hallazgos en un **modal** (patrón corporativo de drill-down), no expande en línea. Mantiene los hallazgos con acción ya hechos y la API del componente. | nexo-frontend-ui | Hecho (0ab066d) |
 | RX-6 | P1 | 4.1 | Chat redimensionable / pantalla completa y distribución de 3 áreas | nexo-frontend-core | Pendiente |
