@@ -26,7 +26,7 @@ son la base del resto. Lo que NEXO **ya tiene** se marca para reutilizar y reduc
 | **E14 · Canales de comunicación externa** | Correo, **llamadas telefónicas con agentes conversacionales al 100 %**, mensajería **WhatsApp** — como canales de los empleados digitales, bajo política y aprobación | RF16, RF17, RF35 (ext.) | P0 | Reutiliza (correo) + Construye (voz, WhatsApp) |
 | **E6 · Gobierno de acciones** | Motor de políticas, bandeja de aprobaciones (hash/invalidación/doble), suspensión de emergencia | RF11, RF12, RF13 | P0 | Construye |
 | **E7 · Durabilidad avanzada** | Idempotencia, deduplicación de eventos, reintentos/conciliación, bandeja de excepciones | RF17, RF18, RF20, RF21 | P0 | Modifica + Construye |
-| **E8 · Conocimiento y herramientas** | Conocimiento empresarial, memoria controlada, conectores, pasarela | RF14, RF15, RF16, RF17 | P0 | Reutiliza + Modifica |
+| **E8 · Conocimiento y herramientas** | Conocimiento empresarial, memoria controlada, conectores **REST/SOAP(web service)/GraphQL/MCP**, pasarela, **acceso a internet** y **RPA** como capacidades del agente | RF14, RF15, RF16, RF17 | P0 | Reutiliza + Modifica + Construye |
 | **E9 · Costos e imputación** | Control de costos, presupuestos con reserva/conciliación, imputación por empresa/línea/área/centro de costo, servicios compartidos | RF25, RF26, RF44, RF45 | P0 | Modifica |
 | **E10 · Indicadores y evaluación** | KPIs de resultado (cumplimiento, calidad, tiempo de ciclo, costo por resultado, beneficio validado), evaluaciones, mejora continua | RF27, RF28, RF30-métricas | P0/P1 | Reutiliza + Construye |
 | **E11 · Comunidad interna** | Red social corporativa privada: perfiles, muro, grupos, publicaciones tipificadas, moderación, aprendizajes validados | RF37, RF38 | P0 | Construye |
@@ -119,6 +119,24 @@ reconciliación cron ya existentes. **QA:** QA04 (duplicación), QA06 (continuid
 RF14-RF17. **Reutiliza** RAG, DataGuard, conectores, bóveda y anti-SSRF. **Modifica** para propietario/clasificación/
 vigencia por documento, separación memoria temporal/persistente/documental, credenciales por entorno y listas de
 destinos permitidos. **QA:** QA02 (inyección), QA12 (aislamiento de búsqueda/menciones). **HU:** HU07, HU08.
+
+**Capacidades de conexión del agente — requisito del dueño del producto:** los empleados digitales deben poder
+conectarse a internet, hacer RPA y usar conectores por múltiples protocolos. Todo pasa por la **pasarela de
+herramientas** (RF17), el **motor de políticas** (RF11), la **bandeja de aprobaciones** (RF12) para acciones con efecto,
+y el **presupuesto** (RF26); el contenido traído del exterior es **dato no confiable** (QA02).
+
+| Capacidad | Estado hoy | Qué se construye |
+|---|---|---|
+| **Conectores REST (API)** | ✅ Reutiliza | `ConnectorAdapter` REST con importación OpenAPI, auth (API key/Bearer/Basic/OAuth2), validación de esquema |
+| **Web Service (SOAP)** | ✅ Reutiliza | Adaptador SOAP con importación WSDL |
+| **GraphQL** | ✅ Reutiliza | Adaptador GraphQL |
+| **MCP (cliente)** | ✅ Reutiliza | Cliente MCP hacia servidores externos + el servidor MCP propio de NEXO |
+| **Acceso a internet** (navegar/consultar/buscar web) | 🟡 Modifica | Existe `HttpClientService` saliente con anti-SSRF/timeout/tamaño. Falta exponerlo como **herramienta de agente** gobernada: fetch/búsqueda web con listas de dominios permitidos por política, límites de tamaño/tasa, y tratamiento del resultado como contenido no confiable |
+| **RPA** (automatización de interfaces web/escritorio) | 🔴 Construye | Nuevo adaptador/worker de automatización (navegador headless y, si aplica, escritorio) para sistemas sin API: sesiones con credenciales de la bóveda, pasos auditables, captura de evidencia, idempotencia y conciliación (E7), bajo política y aprobación. Es la pieza más grande; aislarla en su propio worker. Relación con el pendiente P4 de `plan-de-mejora.md` |
+
+**Principio:** preferir **API/conector** sobre **RPA** cuando el sistema destino lo soporte (más robusto y barato); la RPA
+es el puente para sistemas heredados sin API. Toda capacidad de conexión respeta aislamiento multi-tenant y no recibe
+credenciales en el prompt (van por la bóveda y la pasarela).
 
 ### E9 · Costos e imputación (P0) — Modifica
 RF25 (**reutiliza** `UsageRecord`), RF26 (reserva antes de despachar + conciliación; **modifica** `Budget`), RF44
