@@ -41,12 +41,12 @@
           @if (a.launchStatus === 'LAUNCHED') {
             <button class="btn" [disabled]="launchBusy()" (click)="unlaunch()"><nx-icon name="x" [size]="16" />Retirar lanzamiento</button>
           } @else {
-            <button class="btn" [disabled]="launchBusy()" (click)="launchOpen.set(true)"><nx-icon name="rocket" [size]="16" />Lanzar</button>
+            <button class="btn" [disabled]="launchBusy()" title="Publicar: lanza el agente a producción (requiere confirmación)" (click)="launchOpen.set(true)"><nx-icon name="rocket" [size]="16" />Publicar</button>
           }
           @if (canDeleteAgent()) {
             <button class="btn danger icon" title="Eliminar agente" aria-label="Eliminar agente" (click)="remove()"><nx-icon name="trash" /></button>
           }
-          <button class="btn primary" [disabled]="saving() || !dirty()" (click)="save()"><nx-icon name="save" />{{ saving() ? 'Guardando…' : 'Guardar' }}</button>
+          <button class="btn primary" [disabled]="saving() || !dirty()" title="Guardar borrador: conserva sus cambios sin alterar la versión publicada" (click)="save()"><nx-icon name="save" />{{ saving() ? 'Guardando…' : 'Guardar borrador' }}</button>
         } @else {
           <button class="btn" [disabled]="duplicating()" (click)="duplicate()"><nx-icon name="copy" [size]="16" />{{ duplicating() ? 'Duplicando…' : 'Duplicar en mis agentes' }}</button>
           @if (canDeleteAgent()) {
@@ -476,5 +476,5 @@
     <nx-copilot-panel [(open)]="copilotOpen" triggerId="copilot-trigger" [agent]="a" [canApply]="canEditAgent()" (applied)="onCopilotApplied($event)" (showHealth)="showHealth()" />
   }
   @if (shareOpen()) { <nx-agent-share-dialog [agent]="a" (changed)="mergeAccess($event)" (closed)="shareOpen.set(false)" /> }
-  @if (launchOpen()) { <nx-agent-launch-dialog [agent]="a" [health]="health()" (launched)="onLaunched($event)" (closed)="launchOpen.set(false)" /> }
+  @if (launchOpen()) { <nx-agent-launch-dialog [agent]="a" [health]="health()" [dirty]="dirty()" [accounts]="usedAccounts()" (launched)="onLaunched($event)" (closed)="launchOpen.set(false)" /> }
 }

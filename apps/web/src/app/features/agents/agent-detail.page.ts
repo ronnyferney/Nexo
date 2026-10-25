@@ -750,7 +750,7 @@ export class AgentDetailPage implements OnInit {
   onLaunched(a: Agent) {
     this.mergeAccess(a);
     if (!a.launchStatus) this.agent.update((cur) => (cur ? { ...cur, launchStatus: 'LAUNCHED', launchedAt: new Date().toISOString() } : cur));
-    this.toast.success('Agente lanzado');
+    this.toast.success('Agente publicado');
   }
 
   async unlaunch() {
