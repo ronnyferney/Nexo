@@ -59,6 +59,20 @@
       </div>
 
       <div class="card kpi-card">
+        <div class="icon-tile"><nx-icon name="checkCircle" /></div>
+        <div>
+          <div class="muted small">Tasa de éxito ({{ d.window.days }} d)</div>
+          @if (successRate(d.kpis.successRatePct); as sr) {
+            <div class="kpi-value">{{ sr }}</div>
+            <div class="muted small">de ejecuciones completadas</div>
+          } @else {
+            <div class="kpi-value">—</div>
+            <div class="muted small">Sin ejecuciones registradas</div>
+          }
+        </div>
+      </div>
+
+      <div class="card kpi-card">
         <div class="icon-tile"><nx-icon name="wallet" /></div>
         <div>
           <div class="muted small">Costo estimado ({{ d.window.days }} d)</div>

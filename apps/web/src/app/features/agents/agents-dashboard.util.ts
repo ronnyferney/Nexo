@@ -76,6 +76,17 @@ export interface DeltaView {
 }
 
 const DELTA_NUM = new Intl.NumberFormat('es', { maximumFractionDigits: 1 });
+const PCT_NUM = new Intl.NumberFormat('es', { maximumFractionDigits: 1 });
+
+/**
+ * Formatea la tasa de éxito del tablero (`kpis.successRatePct`), un porcentaje ya calculado por el backend como
+ * SUCCEEDED/(SUCCEEDED+FAILED) sobre las ejecuciones registradas (`AgentRun`). Devuelve `null` cuando no hay dato
+ * (`null`/`undefined`/`NaN`): la vista muestra «sin datos», nunca un 0 % inventado (§6).
+ */
+export function formatSuccessRate(value: number | null | undefined): string | null {
+  if (value === null || value === undefined || Number.isNaN(value)) return null;
+  return `${PCT_NUM.format(value)} %`;
+}
 
 function deltaView(value: number, magnitude: string, higherIsBetter: boolean): DeltaView {
   if (value === 0) return { text: 'Sin cambios', dir: 'flat', tone: 'muted', icon: null };

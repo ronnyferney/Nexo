@@ -20,6 +20,7 @@ import {
   filterAgents,
   formatDeltaCount,
   formatDeltaPct,
+  formatSuccessRate,
   pageCount,
   pageSlice,
   type StatusTab,
@@ -61,6 +62,7 @@ export class AgentsListPage implements OnInit {
   // Helpers puros usados en la plantilla.
   protected readonly deltaPct = formatDeltaPct;
   protected readonly deltaCount = formatDeltaCount;
+  protected readonly successRate = formatSuccessRate;
 
   readonly data = signal<AgentDashboard | null>(null);
   readonly loading = signal(true);

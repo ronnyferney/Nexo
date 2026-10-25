@@ -6,6 +6,7 @@ import {
   filterAgents,
   formatDeltaCount,
   formatDeltaPct,
+  formatSuccessRate,
   pageCount,
   pageSlice,
   statusMatchesTab,
@@ -123,6 +124,20 @@ describe('formatDeltaPct / formatDeltaCount', () => {
 
   it('cero es «Sin cambios» neutro', () => {
     expect(formatDeltaCount(0)).toEqual({ text: 'Sin cambios', dir: 'flat', tone: 'muted', icon: null });
+  });
+});
+
+describe('formatSuccessRate', () => {
+  it('devuelve null cuando no hay dato (§6: no se inventa 0 %)', () => {
+    expect(formatSuccessRate(null)).toBeNull();
+    expect(formatSuccessRate(undefined)).toBeNull();
+    expect(formatSuccessRate(Number.NaN)).toBeNull();
+  });
+
+  it('formatea el porcentaje con coma decimal en español', () => {
+    expect(formatSuccessRate(100)).toBe('100 %');
+    expect(formatSuccessRate(87.5)).toBe('87,5 %');
+    expect(formatSuccessRate(0)).toBe('0 %');
   });
 });
 
