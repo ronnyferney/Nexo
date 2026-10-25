@@ -1,3 +1,5 @@
+import type { EstadoEstructura, OrgUnitTipo } from './estructura.models';
+
 export type ConnectorType = 'REST' | 'SOAP' | 'GRAPHQL' | 'MCP' | 'DATABASE';
 export type ExecutionStatus = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
@@ -304,7 +306,7 @@ export interface LlmModelInput {
   enabled?: boolean;
 }
 
-/** `GET /admin/org/units`. */
+/** `GET /admin/org/units`. Dimensión jerárquica/funcional de la estructura empresarial (ADR 0011 D2). */
 export interface OrgUnit {
   id: string;
   name: string;
@@ -313,12 +315,27 @@ export interface OrgUnit {
   allowedModels: string[];
   memberCount: number;
   isRoot: boolean;
+  /** Discriminador del nivel (grupo/empresa/área…). Las unidades previas migran a `AREA_FUNCIONAL`. */
+  tipo: OrgUnitTipo;
+  /** OrgUnit `EMPRESA` ancestro (desnormalizado); `null` en unidades sin empresa asignada. */
+  empresaId: string | null;
+  /** Responsable humano de la unidad (RF02); no concede acceso (D6). */
+  responsableUserId: string | null;
+  estado: EstadoEstructura;
+  vigenteDesde: string | null;
+  vigenteHasta: string | null;
 }
 
 export interface OrgUnitCreateInput {
   name: string;
   code?: string;
   parentId: string;
+  tipo?: OrgUnitTipo;
+  empresaId?: string | null;
+  responsableUserId?: string | null;
+  estado?: EstadoEstructura;
+  vigenteDesde?: string | null;
+  vigenteHasta?: string | null;
 }
 
 /** `code: null` elimina el código. */
@@ -327,6 +344,12 @@ export interface OrgUnitUpdateInput {
   code?: string | null;
   parentId?: string;
   allowedModels?: string[];
+  tipo?: OrgUnitTipo;
+  empresaId?: string | null;
+  responsableUserId?: string | null;
+  estado?: EstadoEstructura;
+  vigenteDesde?: string | null;
+  vigenteHasta?: string | null;
 }
 
 export interface OrgMember {

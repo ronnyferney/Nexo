@@ -1,0 +1,117 @@
+<div class="grid grid-2" style="align-items:start">
+  <div class="card" style="padding:0">
+    <div class="card-title" style="padding:16px 20px 0"><nx-icon name="building" /><h2>Unidades</h2></div>
+    @if (!units().length) {
+      <nx-empty-state icon="building" title="Sin unidades"
+        description="La estructura se crea desde la raíz del workspace. Defina su grupo, empresas y áreas." />
+    } @else {
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr><th>Unidad</th><th>Tipo</th><th>Estado</th><th>Empresa</th><th>Responsable</th><th></th></tr>
+          </thead>
+          <tbody>
+            @for (n of tree(); track n.item.id) {
+              <tr [class.selected]="editing()?.id === n.item.id">
+                <td>
+                  <div class="tree-name" [style.--depth]="n.depth">
+                    @if (n.depth > 0) { <nx-icon class="branch" name="subunit" [size]="14" /> }
+                    <strong>{{ n.item.name }}</strong>
+                    @if (n.item.isRoot) { <span class="badge primary" title="Tope global del workspace">Raíz</span> }
+                  </div>
+                </td>
+                <td>
+                  <span [class]="badgeClass(tipoMeta[n.item.tipo].tono)">
+                    <nx-icon [name]="tipoMeta[n.item.tipo].icon" [size]="12" />{{ tipoMeta[n.item.tipo].label }}
+                  </span>
+                </td>
+                <td><span [class]="badgeClass(estadoMeta[n.item.estado].tono)">{{ estadoMeta[n.item.estado].label }}</span></td>
+                <td class="small">{{ empresaDe(n.item.empresaId) }}</td>
+                <td class="small">{{ responsable(n.item.responsableUserId) }}</td>
+                <td class="num nowrap">
+                  @if (canEdit()) {
+                    <button class="btn ghost icon sm" title="Crear subunidad" aria-label="Crear subunidad" (click)="startCreate(n.item.id)"><nx-icon name="plus" [size]="14" /></button>
+                    <button class="btn ghost icon sm" title="Editar unidad" aria-label="Editar unidad" (click)="startEdit(n.item)"><nx-icon name="pencil" [size]="14" /></button>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  </div>
+
+  <div class="stack">
+    @if (creating(); as c) {
+      <div class="card stack editor">
+        <div class="card-title"><nx-icon name="plus" /><h2>Nueva subunidad</h2><span class="spacer"></span>
+          <button class="btn ghost icon" title="Cerrar" aria-label="Cerrar" (click)="creating.set(null)"><nx-icon name="x" /></button></div>
+        <p class="muted small" style="margin:0">Dentro de <strong>{{ empresaDe(c.empresaId) !== '—' ? empresaDe(c.empresaId) : 'la estructura' }}</strong></p>
+        <div class="grid grid-2">
+          <div class="field"><label for="nu-name">Nombre</label><input id="nu-name" class="input" [(ngModel)]="c.name" placeholder="Ej. Ventas" /></div>
+          <div class="field"><label for="nu-code">Código (opcional)</label><input id="nu-code" class="input mono" [(ngModel)]="c.code" placeholder="Ej. CC-200" /></div>
+        </div>
+        <div class="grid grid-2">
+          <div class="field"><label for="nu-tipo">Tipo</label>
+            <select id="nu-tipo" class="input" [(ngModel)]="c.tipo">
+              @for (t of tipos; track t) { <option [value]="t">{{ tipoMeta[t].label }}</option> }
+            </select></div>
+          <div class="field"><label for="nu-empresa">Empresa</label>
+            <select id="nu-empresa" class="input" [(ngModel)]="c.empresaId">
+              <option [ngValue]="null">— Sin empresa —</option>
+              @for (e of empresas(); track e.id) { <option [ngValue]="e.id">{{ e.name }}</option> }
+            </select></div>
+        </div>
+        <span class="hint">El anidamiento por tipo lo valida el servidor (p. ej. un área cuelga de una empresa).</span>
+        <div class="row"><span class="spacer"></span><button class="btn" (click)="creating.set(null)">Cancelar</button>
+          <button class="btn primary" [disabled]="busy() || c.name.trim().length < 2" (click)="create()"><nx-icon name="save" />Crear</button></div>
+      </div>
+    } @else if (editing(); as d) {
+      <div class="card stack editor">
+        <div class="card-title"><nx-icon name="pencil" /><h2>Editar unidad</h2><span class="spacer"></span>
+          <button class="btn ghost icon" title="Cerrar" aria-label="Cerrar" (click)="editing.set(null)"><nx-icon name="x" /></button></div>
+        <div class="field"><label for="eu-name">Nombre</label><input id="eu-name" class="input" [(ngModel)]="d.name" /></div>
+        <div class="grid grid-2">
+          <div class="field"><label for="eu-tipo">Tipo</label>
+            <select id="eu-tipo" class="input" [(ngModel)]="d.tipo" [disabled]="d.isRoot">
+              @for (t of tipos; track t) { <option [value]="t">{{ tipoMeta[t].label }}</option> }
+            </select></div>
+          <div class="field"><label for="eu-estado">Estado</label>
+            <select id="eu-estado" class="input" [(ngModel)]="d.estado">
+              @for (e of estados; track e) { <option [value]="e">{{ estadoMeta[e].label }}</option> }
+            </select></div>
+        </div>
+        <div class="grid grid-2">
+          <div class="field"><label for="eu-empresa">Empresa</label>
+            <select id="eu-empresa" class="input" [(ngModel)]="d.empresaId">
+              <option [ngValue]="null">— Sin empresa —</option>
+              @for (e of empresas(); track e.id) { <option [ngValue]="e.id">{{ e.name }}</option> }
+            </select></div>
+          <div class="field"><label for="eu-resp">Responsable</label>
+            <select id="eu-resp" class="input" [(ngModel)]="d.responsableUserId">
+              <option [ngValue]="null">— Sin responsable —</option>
+              @for (m of members(); track m.membershipId) { <option [ngValue]="m.userId">{{ m.name }}</option> }
+            </select></div>
+        </div>
+        <div class="grid grid-2">
+          <div class="field"><label for="eu-desde">Vigente desde</label><input id="eu-desde" class="input" type="date" [(ngModel)]="d.vigenteDesde" /></div>
+          <div class="field"><label for="eu-hasta">Vigente hasta</label><input id="eu-hasta" class="input" type="date" [(ngModel)]="d.vigenteHasta" /></div>
+        </div>
+        <span class="hint">El responsable y la estructura no conceden acceso a datos: eso se gobierna por rol y por compartir (ADR 0011 D6).</span>
+        <div class="row"><span class="spacer"></span><button class="btn" (click)="editing.set(null)">Cancelar</button>
+          <button class="btn primary" [disabled]="busy() || d.name.trim().length < 2" (click)="save()"><nx-icon name="save" />Guardar</button></div>
+      </div>
+    } @else {
+      <div class="card stack">
+        <div class="card-title"><nx-icon name="info" /><h3>Dimensión jerárquica</h3></div>
+        <ul class="muted small" style="margin:0; padding-left:18px; display:grid; gap:6px">
+          <li>El árbol modela mando y función: grupo → empresa → unidad de negocio → área → departamento → equipo.</li>
+          <li>No se imponen todos los niveles: un equipo puede colgar directo de una empresa pequeña.</li>
+          <li>Marque la <strong>empresa</strong> de cada unidad para acotar sus líneas, sedes y centros de costo.</li>
+          <li>El renombrado, el movimiento entre padres y los modelos permitidos se editan en <strong>Organización</strong>.</li>
+        </ul>
+      </div>
+    }
+  </div>
+</div>

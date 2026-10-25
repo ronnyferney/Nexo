@@ -156,6 +156,7 @@ export class SidebarComponent {
     { path: '/admin', label: 'Costos', icon: 'chart', exact: true },
     { path: '/admin/providers', label: 'IA conectada', icon: 'cpu', exact: false },
     { path: '/admin/organization', label: 'Organización', icon: 'building', exact: false },
+    { path: '/admin/estructura', label: 'Estructura', icon: 'layers', exact: false },
     { path: '/admin/groups', label: 'Grupos', icon: 'users', exact: false },
     { path: '/admin/budgets', label: 'Presupuestos', icon: 'wallet', exact: false },
     { path: '/admin/alerts', label: 'Alertas', icon: 'bell', exact: false },

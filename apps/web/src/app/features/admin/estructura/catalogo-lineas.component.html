@@ -1,0 +1,87 @@
+<div class="row wrap" style="margin-bottom:16px">
+  <div class="field" style="min-width:220px">
+    <label for="lin-emp">Empresa</label>
+    <select id="lin-emp" class="input" [ngModel]="filtro()" (ngModelChange)="onFiltro($event)">
+      <option value="">Todas las empresas</option>
+      @for (e of empresas(); track e.id) { <option [value]="e.id">{{ e.name }}</option> }
+    </select>
+  </div>
+  <span class="spacer"></span>
+  @if (canEdit() && empresas().length) {
+    <button class="btn primary brand" style="align-self:end" (click)="startCreate()"><nx-icon name="plus" />Nueva línea</button>
+  }
+</div>
+
+@if (!empresas().length) {
+  <div class="callout warning"><nx-icon name="info" [size]="16" /><span>Primero defina al menos una empresa (unidad de tipo Empresa) en la pestaña Estructura: las líneas de negocio pertenecen a una empresa.</span></div>
+} @else if (loading()) {
+  <nx-loading-state text="Cargando líneas de negocio…" />
+} @else if (error()) {
+  <nx-error-state title="No se pudieron cargar las líneas" message="{{ error() }}" (retry)="load()" />
+} @else {
+  @if (draft(); as d) {
+    <div class="card stack editor" style="margin-bottom:16px">
+      <div class="card-title"><nx-icon [name]="d.id ? 'pencil' : 'plus'" /><h2>{{ d.id ? 'Editar línea' : 'Nueva línea de negocio' }}</h2>
+        <span class="spacer"></span><button class="btn ghost icon" title="Cerrar" aria-label="Cerrar" (click)="draft.set(null)"><nx-icon name="x" /></button></div>
+      <div class="grid grid-3">
+        <div class="field"><label for="ld-emp">Empresa</label>
+          <select id="ld-emp" class="input" [(ngModel)]="d.empresaId" [disabled]="!!d.id">
+            @for (e of empresas(); track e.id) { <option [value]="e.id">{{ e.name }}</option> }
+          </select>
+          @if (d.id) { <span class="hint">La empresa no se cambia tras crear la línea.</span> }
+        </div>
+        <div class="field"><label for="ld-cod">Código</label><input id="ld-cod" class="input mono" [(ngModel)]="d.codigo" placeholder="Ej. LN-01" /></div>
+        <div class="field"><label for="ld-nom">Nombre</label><input id="ld-nom" class="input" [(ngModel)]="d.nombre" placeholder="Ej. Banca personas" /></div>
+      </div>
+      <div class="grid grid-3">
+        <div class="field"><label for="ld-resp">Responsable</label>
+          <select id="ld-resp" class="input" [(ngModel)]="d.responsableUserId">
+            <option [ngValue]="null">— Sin responsable —</option>
+            @for (m of members(); track m.membershipId) { <option [ngValue]="m.userId">{{ m.name }}</option> }
+          </select></div>
+        <div class="field"><label for="ld-est">Estado</label>
+          <select id="ld-est" class="input" [(ngModel)]="d.estado">
+            @for (e of estados; track e) { <option [value]="e">{{ estadoMeta[e].label }}</option> }
+          </select></div>
+        <div></div>
+      </div>
+      <div class="grid grid-2">
+        <div class="field"><label for="ld-desde">Vigente desde</label><input id="ld-desde" class="input" type="date" [(ngModel)]="d.vigenteDesde" /></div>
+        <div class="field"><label for="ld-hasta">Vigente hasta</label><input id="ld-hasta" class="input" type="date" [(ngModel)]="d.vigenteHasta" /></div>
+      </div>
+      <div class="row"><span class="spacer"></span><button class="btn" (click)="draft.set(null)">Cancelar</button>
+        <button class="btn primary" [disabled]="busy() || invalid(d)" (click)="save()"><nx-icon name="save" />{{ d.id ? 'Guardar' : 'Crear' }}</button></div>
+    </div>
+  }
+
+  @if (!items().length) {
+    <nx-empty-state icon="target" title="Sin líneas de negocio"
+      description="Esta empresa aún no tiene líneas de negocio. Cree la primera para organizar su oferta económica."
+      [actionLabel]="canEdit() ? 'Nueva línea' : ''" actionIcon="plus" (action)="startCreate()" />
+  } @else {
+    <div class="card" style="padding:0">
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Código</th><th>Nombre</th><th>Empresa</th><th>Responsable</th><th>Estado</th><th></th></tr></thead>
+          <tbody>
+            @for (l of items(); track l.id) {
+              <tr [class.selected]="draft()?.id === l.id">
+                <td class="mono small nowrap">{{ l.codigo }}</td>
+                <td><strong>{{ l.nombre }}</strong></td>
+                <td class="small">{{ empresaDe(l.empresaId) }}</td>
+                <td class="small">{{ responsable(l.responsableUserId) }}</td>
+                <td><span [class]="badgeClass(estadoMeta[l.estado].tono)">{{ estadoMeta[l.estado].label }}</span></td>
+                <td class="num nowrap">
+                  @if (canEdit()) {
+                    <button class="btn ghost icon sm" title="Editar línea" aria-label="Editar línea" (click)="startEdit(l)"><nx-icon name="pencil" [size]="14" /></button>
+                    <button class="btn ghost icon sm danger" title="Eliminar línea" aria-label="Eliminar línea" (click)="remove(l)"><nx-icon name="trash" [size]="14" /></button>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  }
+}

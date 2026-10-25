@@ -1,0 +1,84 @@
+<div class="row wrap" style="margin-bottom:16px">
+  <div class="field" style="min-width:220px">
+    <label for="sed-emp">Empresa</label>
+    <select id="sed-emp" class="input" [ngModel]="filtro()" (ngModelChange)="onFiltro($event)">
+      <option value="">Todas las empresas</option>
+      @for (e of empresas(); track e.id) { <option [value]="e.id">{{ e.name }}</option> }
+    </select>
+  </div>
+  <span class="spacer"></span>
+  @if (canEdit() && empresas().length) {
+    <button class="btn primary brand" style="align-self:end" (click)="startCreate()"><nx-icon name="plus" />Nueva sede</button>
+  }
+</div>
+
+@if (!empresas().length) {
+  <div class="callout warning"><nx-icon name="info" [size]="16" /><span>Primero defina al menos una empresa en la pestaña Estructura: las sedes pertenecen a una empresa.</span></div>
+} @else if (loading()) {
+  <nx-loading-state text="Cargando sedes…" />
+} @else if (error()) {
+  <nx-error-state title="No se pudieron cargar las sedes" message="{{ error() }}" (retry)="load()" />
+} @else {
+  @if (draft(); as d) {
+    <div class="card stack editor" style="margin-bottom:16px">
+      <div class="card-title"><nx-icon [name]="d.id ? 'pencil' : 'plus'" /><h2>{{ d.id ? 'Editar sede' : 'Nueva sede' }}</h2>
+        <span class="spacer"></span><button class="btn ghost icon" title="Cerrar" aria-label="Cerrar" (click)="draft.set(null)"><nx-icon name="x" /></button></div>
+      <div class="grid grid-3">
+        <div class="field"><label for="sd-emp">Empresa</label>
+          <select id="sd-emp" class="input" [(ngModel)]="d.empresaId" [disabled]="!!d.id">
+            @for (e of empresas(); track e.id) { <option [value]="e.id">{{ e.name }}</option> }
+          </select>
+          @if (d.id) { <span class="hint">La empresa no se cambia tras crear la sede.</span> }
+        </div>
+        <div class="field"><label for="sd-cod">Código</label><input id="sd-cod" class="input mono" [(ngModel)]="d.codigo" placeholder="Ej. SEDE-BOG" /></div>
+        <div class="field"><label for="sd-nom">Nombre</label><input id="sd-nom" class="input" [(ngModel)]="d.nombre" placeholder="Ej. Sede Bogotá" /></div>
+      </div>
+      <div class="grid grid-3">
+        <div class="field"><label for="sd-tz">Zona horaria (IANA)</label><input id="sd-tz" class="input mono" [(ngModel)]="d.zonaHoraria" placeholder="America/Bogota" /></div>
+        <div class="field"><label for="sd-est">Estado</label>
+          <select id="sd-est" class="input" [(ngModel)]="d.estado">
+            @for (e of estados; track e) { <option [value]="e">{{ estadoMeta[e].label }}</option> }
+          </select></div>
+        <div></div>
+      </div>
+      <div class="field"><label for="sd-alc">Alcance territorial (opcional)</label><input id="sd-alc" class="input" [(ngModel)]="d.alcanceTerritorial" placeholder="Ciudades, regiones o países que cubre" /></div>
+      <div class="grid grid-2">
+        <div class="field"><label for="sd-desde">Vigente desde</label><input id="sd-desde" class="input" type="date" [(ngModel)]="d.vigenteDesde" /></div>
+        <div class="field"><label for="sd-hasta">Vigente hasta</label><input id="sd-hasta" class="input" type="date" [(ngModel)]="d.vigenteHasta" /></div>
+      </div>
+      <div class="row"><span class="spacer"></span><button class="btn" (click)="draft.set(null)">Cancelar</button>
+        <button class="btn primary" [disabled]="busy() || invalid(d)" (click)="save()"><nx-icon name="save" />{{ d.id ? 'Guardar' : 'Crear' }}</button></div>
+    </div>
+  }
+
+  @if (!items().length) {
+    <nx-empty-state icon="globe" title="Sin sedes"
+      description="Esta empresa aún no tiene sedes. Registre su primera ubicación con zona horaria."
+      [actionLabel]="canEdit() ? 'Nueva sede' : ''" actionIcon="plus" (action)="startCreate()" />
+  } @else {
+    <div class="card" style="padding:0">
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Código</th><th>Nombre</th><th>Empresa</th><th>Zona horaria</th><th>Estado</th><th></th></tr></thead>
+          <tbody>
+            @for (s of items(); track s.id) {
+              <tr [class.selected]="draft()?.id === s.id">
+                <td class="mono small nowrap">{{ s.codigo }}</td>
+                <td><strong>{{ s.nombre }}</strong>@if (s.alcanceTerritorial) { <span class="muted small"> · {{ s.alcanceTerritorial }}</span> }</td>
+                <td class="small">{{ empresaDe(s.empresaId) }}</td>
+                <td class="mono small nowrap">{{ s.zonaHoraria }}</td>
+                <td><span [class]="badgeClass(estadoMeta[s.estado].tono)">{{ estadoMeta[s.estado].label }}</span></td>
+                <td class="num nowrap">
+                  @if (canEdit()) {
+                    <button class="btn ghost icon sm" title="Editar sede" aria-label="Editar sede" (click)="startEdit(s)"><nx-icon name="pencil" [size]="14" /></button>
+                    <button class="btn ghost icon sm danger" title="Eliminar sede" aria-label="Eliminar sede" (click)="remove(s)"><nx-icon name="trash" [size]="14" /></button>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  }
+}

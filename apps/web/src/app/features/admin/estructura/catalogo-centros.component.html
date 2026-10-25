@@ -1,0 +1,92 @@
+<div class="row wrap" style="margin-bottom:16px">
+  <div class="field" style="min-width:220px">
+    <label for="cc-emp">Empresa</label>
+    <select id="cc-emp" class="input" [ngModel]="filtro()" (ngModelChange)="onFiltro($event)">
+      <option value="">Todas las empresas</option>
+      @for (e of empresas(); track e.id) { <option [value]="e.id">{{ e.name }}</option> }
+    </select>
+  </div>
+  <span class="spacer"></span>
+  @if (canEdit() && empresas().length) {
+    <button class="btn primary brand" style="align-self:end" (click)="startCreate()"><nx-icon name="plus" />Nuevo centro de costo</button>
+  }
+</div>
+
+@if (!empresas().length) {
+  <div class="callout warning"><nx-icon name="info" [size]="16" /><span>Primero defina al menos una empresa en la pestaña Estructura: los centros de costo pertenecen a una empresa.</span></div>
+} @else if (loading()) {
+  <nx-loading-state text="Cargando centros de costo…" />
+} @else if (error()) {
+  <nx-error-state title="No se pudieron cargar los centros de costo" message="{{ error() }}" (retry)="load()" />
+} @else {
+  @if (draft(); as d) {
+    <div class="card stack editor" style="margin-bottom:16px">
+      <div class="card-title"><nx-icon [name]="d.id ? 'pencil' : 'plus'" /><h2>{{ d.id ? 'Editar centro de costo' : 'Nuevo centro de costo' }}</h2>
+        <span class="spacer"></span><button class="btn ghost icon" title="Cerrar" aria-label="Cerrar" (click)="draft.set(null)"><nx-icon name="x" /></button></div>
+      <div class="grid grid-3">
+        <div class="field"><label for="cd-emp">Empresa</label>
+          <select id="cd-emp" class="input" [ngModel]="d.empresaId" (ngModelChange)="onEmpresaChange($event)" [disabled]="!!d.id">
+            @for (e of empresas(); track e.id) { <option [value]="e.id">{{ e.name }}</option> }
+          </select>
+          @if (d.id) { <span class="hint">La empresa no se cambia tras crear el centro.</span> }
+        </div>
+        <div class="field"><label for="cd-cod">Código</label><input id="cd-cod" class="input mono" [(ngModel)]="d.codigo" placeholder="Ej. CC-100" /></div>
+        <div class="field"><label for="cd-nom">Nombre</label><input id="cd-nom" class="input" [(ngModel)]="d.nombre" placeholder="Ej. Operaciones" /></div>
+      </div>
+      <div class="grid grid-3">
+        <div class="field"><label for="cd-unit">Unidad asociada (opcional)</label>
+          <select id="cd-unit" class="input" [(ngModel)]="d.orgUnitId">
+            <option [ngValue]="null">— Ninguna —</option>
+            @for (n of unitTree(); track n.item.id) { <option [ngValue]="n.item.id">{{ pad(n.depth) }}{{ n.item.name }}</option> }
+          </select></div>
+        <div class="field"><label for="cd-lin">Línea asociada (opcional)</label>
+          <select id="cd-lin" class="input" [(ngModel)]="d.lineaNegocioId">
+            <option [ngValue]="null">— Ninguna —</option>
+            @for (l of lineasEmpresa(); track l.id) { <option [ngValue]="l.id">{{ l.nombre }}</option> }
+          </select></div>
+        <div class="field"><label for="cd-est">Estado</label>
+          <select id="cd-est" class="input" [(ngModel)]="d.estado">
+            @for (e of estados; track e) { <option [value]="e">{{ estadoMeta[e].label }}</option> }
+          </select></div>
+      </div>
+      <div class="callout info"><nx-icon name="info" [size]="16" /><span>El centro de costo es la dimensión económica (destino del consumo). Es distinto del área y no concede permisos (RF42).</span></div>
+      <div class="grid grid-2">
+        <div class="field"><label for="cd-desde">Vigente desde</label><input id="cd-desde" class="input" type="date" [(ngModel)]="d.vigenteDesde" /></div>
+        <div class="field"><label for="cd-hasta">Vigente hasta</label><input id="cd-hasta" class="input" type="date" [(ngModel)]="d.vigenteHasta" /></div>
+      </div>
+      <div class="row"><span class="spacer"></span><button class="btn" (click)="draft.set(null)">Cancelar</button>
+        <button class="btn primary" [disabled]="busy() || invalid(d)" (click)="save()"><nx-icon name="save" />{{ d.id ? 'Guardar' : 'Crear' }}</button></div>
+    </div>
+  }
+
+  @if (!items().length) {
+    <nx-empty-state icon="wallet" title="Sin centros de costo"
+      description="Esta empresa aún no tiene centros de costo. Cree el primero para imputar el consumo."
+      [actionLabel]="canEdit() ? 'Nuevo centro de costo' : ''" actionIcon="plus" (action)="startCreate()" />
+  } @else {
+    <div class="card" style="padding:0">
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Código</th><th>Nombre</th><th>Empresa</th><th>Unidad asociada</th><th>Estado</th><th></th></tr></thead>
+          <tbody>
+            @for (c of items(); track c.id) {
+              <tr [class.selected]="draft()?.id === c.id">
+                <td class="mono small nowrap">{{ c.codigo }}</td>
+                <td><strong>{{ c.nombre }}</strong></td>
+                <td class="small">{{ empresaDe(c.empresaId) }}</td>
+                <td class="small">{{ unitName(c.orgUnitId) }}</td>
+                <td><span [class]="badgeClass(estadoMeta[c.estado].tono)">{{ estadoMeta[c.estado].label }}</span></td>
+                <td class="num nowrap">
+                  @if (canEdit()) {
+                    <button class="btn ghost icon sm" title="Editar centro" aria-label="Editar centro" (click)="startEdit(c)"><nx-icon name="pencil" [size]="14" /></button>
+                    <button class="btn ghost icon sm danger" title="Eliminar centro" aria-label="Eliminar centro" (click)="remove(c)"><nx-icon name="trash" [size]="14" /></button>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  }
+}

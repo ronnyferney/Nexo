@@ -1,0 +1,126 @@
+<div class="row wrap" style="margin-bottom:16px">
+  <label class="checkbox small" style="align-self:end">
+    <input type="checkbox" [checked]="soloVigentes()" (change)="soloVigentes.set($any($event.target).checked)" />
+    <span>Solo vigentes</span>
+  </label>
+  <span class="spacer"></span>
+  @if (canEdit() && (agents().length || members().length)) {
+    <button class="btn primary brand" (click)="startCreate()"><nx-icon name="plus" />Nueva asignación</button>
+  }
+</div>
+
+@if (loading()) {
+  <nx-loading-state text="Cargando asignaciones…" />
+} @else if (error()) {
+  <nx-error-state title="No se pudieron cargar las asignaciones" message="{{ error() }}" (retry)="load()" />
+} @else {
+  @if (draft(); as d) {
+    <div class="card stack editor" style="margin-bottom:16px">
+      <div class="card-title"><nx-icon name="plus" /><h2>Nueva asignación</h2>
+        <span class="spacer"></span><button class="btn ghost icon" title="Cerrar" aria-label="Cerrar" (click)="draft.set(null)"><nx-icon name="x" /></button></div>
+
+      <div class="field">
+        <label id="as-sujeto">Sujeto</label>
+        <div class="row" role="radiogroup" aria-labelledby="as-sujeto">
+          <label class="checkbox small"><input type="radio" name="sujeto" value="agent" [(ngModel)]="d.sujeto" /><span>Agente</span></label>
+          <label class="checkbox small"><input type="radio" name="sujeto" value="user" [(ngModel)]="d.sujeto" /><span>Persona</span></label>
+        </div>
+      </div>
+
+      <div class="grid grid-2">
+        @if (d.sujeto === 'agent') {
+          <div class="field"><label for="as-agent">Agente</label>
+            <select id="as-agent" class="input" [(ngModel)]="d.agentId">
+              @for (a of agents(); track a.id) { <option [value]="a.id">{{ a.name }}</option> }
+            </select>
+            @if (!agents().length) { <span class="hint">No hay agentes disponibles.</span> }
+          </div>
+        } @else {
+          <div class="field"><label for="as-user">Persona</label>
+            <select id="as-user" class="input" [(ngModel)]="d.userId">
+              @for (m of members(); track m.membershipId) { <option [value]="m.userId">{{ m.name }}</option> }
+            </select>
+            @if (!members().length) { <span class="hint">No hay miembros disponibles.</span> }
+          </div>
+        }
+        <div class="field"><label for="as-tipo">Tipo de asignación</label>
+          <select id="as-tipo" class="input" [(ngModel)]="d.tipoAsignacion">
+            @for (t of tipos; track t) { <option [value]="t">{{ tipoMeta[t].label }}</option> }
+          </select>
+          <span class="hint">{{ tipoMeta[d.tipoAsignacion].descripcion }}</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="as-dest">Destino</label>
+        @switch (destinoDe(d.tipoAsignacion)) {
+          @case ('lineaNegocioId') {
+            <select id="as-dest" class="input" [(ngModel)]="d.lineaNegocioId">
+              <option value="">— Seleccione una línea —</option>
+              @for (l of lineas(); track l.id) { <option [value]="l.id">{{ l.nombre }}</option> }
+            </select>
+          }
+          @case ('sedeId') {
+            <select id="as-dest" class="input" [(ngModel)]="d.sedeId">
+              <option value="">— Seleccione una sede —</option>
+              @for (s of sedes(); track s.id) { <option [value]="s.id">{{ s.nombre }}</option> }
+            </select>
+          }
+          @case ('proyectoId') {
+            <input id="as-dest" class="input mono" [(ngModel)]="d.proyectoId" placeholder="Identificador de proyecto (reservado)" />
+          }
+          @default {
+            <select id="as-dest" class="input" [(ngModel)]="d.orgUnitId">
+              <option value="">— Seleccione una unidad —</option>
+              @for (u of units(); track u.id) { <option [value]="u.id">{{ u.name }}</option> }
+            </select>
+          }
+        }
+      </div>
+
+      <div class="grid grid-3">
+        <div class="field"><label for="as-rol">Rol (opcional)</label><input id="as-rol" class="input" [(ngModel)]="d.rol" placeholder="colaborador, revisor…" /></div>
+        <div class="field"><label for="as-desde">Vigente desde</label><input id="as-desde" class="input" type="date" [(ngModel)]="d.vigenteDesde" /></div>
+        <div class="field"><label for="as-hasta">Vigente hasta</label><input id="as-hasta" class="input" type="date" [(ngModel)]="d.vigenteHasta" /></div>
+      </div>
+
+      <div class="callout info"><nx-icon name="info" [size]="16" /><span>Una asignación describe estructura: no concede acceso a datos ni herramientas (ADR 0011 D6). Solo puede haber una Funcional principal vigente por sujeto.</span></div>
+      <div class="row"><span class="spacer"></span><button class="btn" (click)="draft.set(null)">Cancelar</button>
+        <button class="btn primary" [disabled]="busy() || invalid(d)" (click)="save()"><nx-icon name="save" />Crear</button></div>
+    </div>
+  }
+
+  @if (!visibles().length) {
+    <nx-empty-state icon="shuffle" title="Sin asignaciones"
+      [description]="soloVigentes() ? 'No hay asignaciones vigentes. Asigne un agente o persona a un área, línea, sede o proyecto.' : 'Aún no se ha registrado ninguna asignación.'"
+      [actionLabel]="canEdit() ? 'Nueva asignación' : ''" actionIcon="plus" (action)="startCreate()" />
+  } @else {
+    <div class="card" style="padding:0">
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Sujeto</th><th>Tipo</th><th>Destino</th><th>Rol</th><th>Vigencia</th><th>Estado</th><th></th></tr></thead>
+          <tbody>
+            @for (a of visibles(); track a.id) {
+              <tr>
+                <td><strong>{{ sujetoNombre(a) }}</strong><br /><span class="muted small">{{ sujetoTipo(a) }}</span></td>
+                <td><span class="badge">{{ tipoLabel(a.tipoAsignacion) }}</span></td>
+                <td class="small">{{ destinoNombre(a) }}</td>
+                <td class="small">{{ a.rol || '—' }}</td>
+                <td class="small nowrap">{{ fmtDate(a.vigenteDesde) }} → {{ fmtDate(a.vigenteHasta) }}</td>
+                <td>
+                  @if (asignacionVigente(a)) { <span class="badge success">Vigente</span> }
+                  @else { <span class="badge">Histórica</span> }
+                </td>
+                <td class="num nowrap">
+                  @if (canEdit() && asignacionVigente(a)) {
+                    <button class="btn ghost sm" title="Cerrar asignación" aria-label="Cerrar asignación" (click)="cerrar(a)"><nx-icon name="stop" [size]="14" />Cerrar</button>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  }
+}
