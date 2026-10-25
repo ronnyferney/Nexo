@@ -5,10 +5,9 @@
   </div>
 
   @if (loading()) {
-    <div class="card empty"><p>Cargando organización…</p></div>
+    <nx-loading-state text="Cargando organización…" />
   } @else if (error()) {
-    <div class="card empty"><nx-icon name="alert" [size]="28" /><h3>No se pudo cargar la organización</h3><p>{{ error() }}</p>
-      <button class="btn" (click)="load()">Reintentar</button></div>
+    <nx-error-state title="No se pudo cargar la organización" message="{{ error() }}" (retry)="load()" />
   } @else {
     <div class="grid grid-2" style="align-items:start">
       <div class="card" style="padding:0">
@@ -183,10 +182,10 @@
       </div>
     }
 
-    <div class="card" style="padding:0">
-      @if (membersError()) {
-        <div class="empty"><p class="error-text">{{ membersError() }}</p><button class="btn" (click)="loadMembers()">Reintentar</button></div>
-      } @else {
+    @if (membersError()) {
+      <nx-error-state title="No se pudieron cargar los miembros" message="{{ membersError() }}" (retry)="loadMembers()" />
+    } @else {
+      <div class="card" style="padding:0">
         <div class="table-wrap">
           <table class="table">
             <thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Unidad</th><th></th></tr></thead>
@@ -217,7 +216,7 @@
             </tbody>
           </table>
         </div>
-      }
-    </div>
+      </div>
+    }
   }
 </div>

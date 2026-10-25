@@ -5,7 +5,9 @@ import { AuthService } from '../../core/auth.service';
 import type { Invitation, OrgMember, OrgUnit, ProviderInfo, Role } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
 import { ROLE_LABELS, treeOrder } from '../../shared/budget';
+import { ErrorStateComponent } from '../../shared/error-state.component';
 import { IconComponent } from '../../shared/icon.component';
+import { LoadingStateComponent } from '../../shared/loading-state.component';
 
 interface UnitDraft {
   id: string;
@@ -33,7 +35,7 @@ interface CreatedInvite {
 
 @Component({
   selector: 'nx-admin-organization',
-  imports: [FormsModule, IconComponent],
+  imports: [FormsModule, IconComponent, ErrorStateComponent, LoadingStateComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './organization.page.html',
 })

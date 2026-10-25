@@ -6,6 +6,8 @@ import { AuthService } from '../../core/auth.service';
 import { IntegrationsApi } from '../../core/integrations.api';
 import type { CatalogCategory } from '../../core/integrations.models';
 import { ToastService } from '../../core/toast.service';
+import { EmptyStateComponent } from '../../shared/empty-state.component';
+import { ErrorStateComponent } from '../../shared/error-state.component';
 import { IconComponent } from '../../shared/icon.component';
 import { WORKFLOW_TEMPLATES } from '../workflows/templates';
 import { BrandLogoComponent } from './brand-logo.component';
@@ -33,7 +35,16 @@ interface Section {
 /** Galería del catálogo de conectores nativos y kit comercial (ADR 0005 D2). */
 @Component({
   selector: 'nx-integrations',
-  imports: [FormsModule, RouterLink, IconComponent, BrandLogoComponent, InstallWizardComponent, IntegrationDetailComponent],
+  imports: [
+    FormsModule,
+    RouterLink,
+    IconComponent,
+    BrandLogoComponent,
+    InstallWizardComponent,
+    IntegrationDetailComponent,
+    EmptyStateComponent,
+    ErrorStateComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './integrations.page.html',
   styleUrl: './integrations.page.scss',

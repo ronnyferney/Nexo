@@ -5,14 +5,17 @@ import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import type { Connector, ConnectorType } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
+import { EmptyStateComponent } from '../../shared/empty-state.component';
+import { ErrorStateComponent } from '../../shared/error-state.component';
 import { IconComponent } from '../../shared/icon.component';
+import { LoadingStateComponent } from '../../shared/loading-state.component';
 import { OAUTH_QUERY_CLEAR, oauthErrorMessage } from '../../shared/oauth-result';
 import { RelativeTimePipe } from '../../shared/relative-time.pipe';
 import { CONNECTOR_TYPES, DB_PRESETS, DEFAULT_CONFIG } from './connector-presets';
 
 @Component({
   selector: 'nx-connectors-list',
-  imports: [FormsModule, RouterLink, IconComponent, RelativeTimePipe],
+  imports: [FormsModule, RouterLink, IconComponent, RelativeTimePipe, EmptyStateComponent, ErrorStateComponent, LoadingStateComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page">
@@ -56,10 +59,9 @@ import { CONNECTOR_TYPES, DB_PRESETS, DEFAULT_CONFIG } from './connector-presets
       }
 
       @if (loadError()) {
-        <div class="card empty" role="alert"><nx-icon name="alert" [size]="32" /><h3>No se pudieron cargar los conectores</h3><p>{{ loadError() }}</p>
-          <button class="btn" (click)="load()"><nx-icon name="refresh" />Reintentar</button></div>
+        <nx-error-state title="No se pudieron cargar los conectores" message="{{ loadError() }}" (retry)="load()" />
       } @else if (loading()) {
-        <p class="muted" role="status">Cargando conectores…</p>
+        <nx-loading-state text="Cargando conectores…" />
       } @else if (connectors().length) {
         <div class="cards">
           @for (c of connectors(); track c.id) {
@@ -73,8 +75,13 @@ import { CONNECTOR_TYPES, DB_PRESETS, DEFAULT_CONFIG } from './connector-presets
             </a>
           }
         </div>
+      } @else if (auth.canEdit()) {
+        <nx-empty-state icon="plug" title="Sin conectores"
+          description="Cree el primero para que sus agentes y flujos accedan a sistemas externos."
+          actionLabel="Nuevo conector" actionIcon="plus" (action)="creating.set(true)" />
       } @else {
-        <div class="card empty"><nx-icon name="plug" [size]="36" /><h3>Sin conectores</h3><p>Cree el primero para que sus agentes y flujos accedan a sistemas externos.</p></div>
+        <nx-empty-state icon="plug" title="Sin conectores"
+          description="Aún no hay conectores. Solicite a un editor que cree el primero." />
       }
     </div>
   `,

@@ -29,16 +29,16 @@
         <div class="grid-rows">@for (i of [1, 2, 3, 4, 5, 6]; track i) { <div class="skel-row"><span></span><span></span></div> }</div>
       </div>
     } @else if (error()) {
-      <div class="empty" role="alert"><nx-icon name="alert" [size]="32" /><h3>No se pudo cargar el catálogo</h3><p>{{ error() }}</p>
-        <button class="btn" (click)="load()"><nx-icon name="refresh" />Reintentar</button></div>
+      <nx-error-state title="No se pudo cargar el catálogo" message="{{ error() }}" (retry)="load()" />
     } @else if (!catalog().length) {
-      <div class="empty"><nx-icon name="puzzle" [size]="36" /><h3>Catálogo vacío</h3>
-        <p>Aún no hay integraciones disponibles. Puede crear un conector manualmente.</p>
-        <a class="btn" routerLink="/connectors"><nx-icon name="plug" />Ir a Mis conectores</a></div>
+      <nx-empty-state icon="puzzle" title="Catálogo vacío"
+        description="Aún no hay integraciones disponibles. Puede crear un conector manualmente.">
+        <div class="empty-actions"><a class="btn" routerLink="/connectors"><nx-icon name="plug" [size]="16" />Ir a Mis conectores</a></div>
+      </nx-empty-state>
     } @else if (!rows().length) {
-      <div class="empty"><nx-icon name="search" [size]="32" /><h3>Sin resultados</h3>
-        <p>Ninguna integración ni operación coincide con el filtro.</p>
-        <button class="btn" (click)="clearFilters()">Limpiar filtros</button></div>
+      <nx-empty-state icon="search" title="Sin resultados"
+        description="Ninguna integración ni operación coincide con el filtro." actionLabel="Limpiar filtros" actionIcon="x"
+        (action)="clearFilters()" />
     } @else {
       <p class="sr-only" role="status">{{ rows().length }} integraciones</p>
       @for (s of sections(); track s.id) {
