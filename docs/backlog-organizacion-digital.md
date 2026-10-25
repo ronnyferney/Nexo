@@ -141,7 +141,7 @@ credenciales en el prompt (van por la bóveda y la pasarela).
 ### E9 · Costos e imputación (P0) — Modifica
 RF25 (**reutiliza** `UsageRecord`), RF26 (reserva antes de despachar + conciliación; **modifica** `Budget`), RF44
 (servicios compartidos con acuerdo de servicio), RF45 (imputación por empresa/línea/área/centro de costo; sin doble
-conteo). **QA:** QA05 (presupuesto concurrente), QA24 (consolidación). **HU:** HU11, HU24.
+conteo). **QA:** QA05 (presupuesto concurrente). **HU:** HU11, HU24 (consolidación económica).
 
 ### E10 · Indicadores y evaluación (P0/P1) — Reutiliza + Construye
 RF27 (**reutiliza** evaluaciones con puerta de publicación), RF28 (mejora continua), métricas de RF30/RF16: cumplimiento,
