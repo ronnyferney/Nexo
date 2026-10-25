@@ -103,6 +103,32 @@ export class RoutingRuleDto {
   prefer!: RoutingRulePreferDto;
 }
 
+/** Política de veredicto ante un problema del verificador (ADR 0010 D4, decisión 6). */
+export const VERIFY_ISSUE_POLICIES = ['auto', 'warn', 'require_human'] as const;
+
+/**
+ * Verificación cruzada redactor+verificador (ADR 0010 D4, fase 3). Opt-in y premium: al menos duplica costo/latencia.
+ * El verificador se elige con las reglas de D2/D3; se puede exigir otro `providerId` para reducir sesgos correlacionados.
+ */
+export class RoutingVerifyDto {
+  @ApiProperty({ description: 'Activa la verificación cruzada (opt-in, premium)' })
+  @IsBoolean()
+  enabled!: boolean;
+  @ApiPropertyOptional({ description: 'Verificador explícito "<providerId>:<modelId>"; si falta, se elige por reglas' })
+  @IsOptional()
+  @IsString()
+  @Matches(MODEL_REF, { message: 'El verificador debe tener el formato "<providerId>:<modelId>"' })
+  model?: string;
+  @ApiPropertyOptional({ description: 'Exigir un verificador de distinto proveedor que el redactor' })
+  @IsOptional()
+  @IsBoolean()
+  requireDifferentProvider?: boolean;
+  @ApiPropertyOptional({ enum: VERIFY_ISSUE_POLICIES, description: 'Veredicto ante un problema (por defecto auto)' })
+  @IsOptional()
+  @IsIn(VERIFY_ISSUE_POLICIES)
+  onIssue?: (typeof VERIFY_ISSUE_POLICIES)[number];
+}
+
 export class RoutingPolicyDto {
   @ApiProperty({ enum: ROUTING_OBJECTIVES, description: 'Cómo desempatar entre candidatos válidos' })
   @IsIn(ROUTING_OBJECTIVES)
@@ -120,6 +146,14 @@ export class RoutingPolicyDto {
   @Min(1)
   @Max(5)
   maxCandidates?: number;
+  @ApiPropertyOptional({
+    type: RoutingVerifyDto,
+    description: 'Verificación cruzada redactor+verificador (ADR 0010 D4)',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => RoutingVerifyDto)
+  verify?: RoutingVerifyDto;
 }
 
 export class CreateAgentDto {

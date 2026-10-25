@@ -42,6 +42,33 @@ export interface RoutingPolicy {
   rules?: RoutingRule[];
   /** Tope de candidatos (intentos totales) por tarea. Por defecto `DEFAULT_MAX_CANDIDATES`. */
   maxCandidates?: number;
+  /** Verificación cruzada opcional (ADR 0010 D4, fase 3). `undefined`/`enabled: false` ⇒ solo redactor (fase 2). */
+  verify?: RoutingVerifyPolicy;
+}
+
+/**
+ * Qué hacer cuando el verificador detecta un problema (ADR 0010 D4, decisión 6):
+ * - `auto` (por defecto): **advierte** en tareas informativas y **exige revisión humana** antes de una acción sensible.
+ * - `warn`: solo advierte siempre (nunca bloquea).
+ * - `require_human`: exige revisión humana ante **cualquier** problema.
+ */
+export type VerifyIssuePolicy = 'auto' | 'warn' | 'require_human';
+
+/**
+ * Verificación cruzada redactor+verificador (ADR 0010 D4, decisiones 6/7). Un modelo redacta y **otro** (preferiblemente
+ * de distinto `providerId`) critica/verifica contrastando con las fuentes; el veredicto se añade como contexto. Es
+ * **opt-in y premium** (vive en `Agent.routing.verify`): al menos duplica costo y latencia. El runtime la **orquesta por
+ * encima del gateway** (no dentro del driver); cada modelo mide e imputa su propio consumo. Dato puro, sin `eval`.
+ */
+export interface RoutingVerifyPolicy {
+  /** Activa la verificación cruzada. Sin el sub-objeto (o `false`) el comportamiento es idéntico a la fase 2. */
+  enabled: boolean;
+  /** Verificador explícito `"<providerId>:<modelId>"`. Si falta, se elige con las reglas de D2/D3 sobre el catálogo. */
+  model?: string;
+  /** Preferir (exigir) un verificador de **distinto `providerId`** que el redactor; reduce la correlación de sesgos. */
+  requireDifferentProvider?: boolean;
+  /** Política de veredicto ante un problema. Por defecto `auto` (decisión 6). */
+  onIssue?: VerifyIssuePolicy;
 }
 
 /**
@@ -95,7 +122,8 @@ export type RoutingReasonCode =
   | 'OBJETIVO_COSTO'
   | 'OBJETIVO_CALIDAD'
   | 'OBJETIVO_EQUILIBRADO'
-  | 'PENDIENTE_DE_TARIFA';
+  | 'PENDIENTE_DE_TARIFA'
+  | 'VERIFICACION_CRUZADA';
 
 /** Código auditable de un aviso de enrutamiento (equivalente a los `notice` del chat/ejecución). */
 export type RoutingNoticeCode =

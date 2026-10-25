@@ -24,8 +24,15 @@ import { ConnectionUnavailableException } from '../llm/llm-errors';
 import { LlmGatewayService } from '../llm/llm-gateway.service';
 import type { AgentEvent, Effort, LlmRunResult, ToolCall, ToolOutcome, ToolSpec } from '../llm/llm-provider';
 import { ModelRouterService } from '../llm/model-router.service';
-import type { RoutingPolicy, RoutingReasonCode, RoutingRule, RoutingSignals } from '../llm/routing.types';
+import type {
+  RoutingPolicy,
+  RoutingReasonCode,
+  RoutingRule,
+  RoutingSignals,
+  RoutingVerifyPolicy,
+} from '../llm/routing.types';
 import { costUsd } from '../llm/pricing';
+import { AgentVerificationService, type VerificationOutcome } from './agent-verification.service';
 import { composeSystemPrompt, LOAD_SKILL_TOOL, SAVE_KNOWLEDGE_TOOL, SEARCH_KNOWLEDGE_TOOL } from './prompt-composer';
 
 const MAX_TOOL_OUTPUT = 50_000;
@@ -34,6 +41,12 @@ const MAX_TOOL_OUTPUT = 50_000;
  * tramo redactor; la Fase 3 añadirá `verify` y roles de multi-agente. Sin política de enrutamiento el rol queda `null`.
  */
 const DRAFT_ROLE = 'draft';
+/** Rol del tramo que verifica/critica lo redactado (ADR 0010 D4/D5, fase 3). Se imputa con `role='verify'`. */
+const VERIFY_ROLE = 'verify';
+/** Motivo auditable del consumo del verificador (ADR 0010 D5): código, nunca el razonamiento del modelo. */
+const VERIFICATION_REASON: RoutingReasonCode = 'VERIFICACION_CRUZADA';
+/** El verificador hace un único turno de crítica (sin tools): la verificación añade exactamente una llamada al modelo. */
+const VERIFY_MAX_TURNS = 1;
 /** Separador estable entre varios códigos de motivo de enrutamiento al persistirlos en `UsageRecord.routingReason`. */
 const ROUTING_REASON_SEP = ',';
 /** Fragmentos que devuelve `search_knowledge`. */
@@ -76,6 +89,20 @@ export interface AgentRunResult extends LlmRunResult {
   providerId: string;
   model: string;
   costUsd: number;
+  /** Resultado de la verificación cruzada (ADR 0010 D4), presente solo si el agente la tiene activada y pudo correr. */
+  verification?: VerificationOutcome;
+}
+
+/**
+ * Rastro de las acciones sensibles (herramientas `requiresApproval`) del tramo redactor: marca si el modelo **pidió
+ * aprobación** para una (sin ejecutarla) o si **ejecutó** una ya aprobada por el usuario. Decide, ante un problema del
+ * verificador, entre advertir (informativo) y exigir revisión humana (ADR 0010 D4/decisión 6).
+ */
+interface SensitivitySink {
+  /** El redactor intentó una acción sensible sin aprobación: quedó pendiente de confirmación humana (no se ejecutó). */
+  pending: boolean;
+  /** El redactor ejecutó una acción sensible que el usuario ya había aprobado en el mecanismo de aprobación existente. */
+  taken: boolean;
 }
 
 /** Acumulador de consumo de una ejecución: suma de todos los turnos e intentos de respaldo. */
@@ -135,7 +162,23 @@ export function toRoutingPolicy(raw: unknown): RoutingPolicy | null {
   const policy: RoutingPolicy = { objective: o.objective };
   if (Array.isArray(o.rules)) policy.rules = o.rules as RoutingRule[];
   if (typeof o.maxCandidates === 'number' && o.maxCandidates > 0) policy.maxCandidates = o.maxCandidates;
+  const verify = toVerifyPolicy(o.verify);
+  if (verify) policy.verify = verify;
   return policy;
+}
+
+/** Lee defensivamente el sub-objeto `verify` (ADR 0010 D4). Forma inválida o `enabled` ausente/falsy ⇒ `null`. */
+function toVerifyPolicy(raw: unknown): RoutingVerifyPolicy | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  if (o.enabled !== true) return null;
+  const verify: RoutingVerifyPolicy = { enabled: true };
+  if (typeof o.model === 'string' && o.model.includes(':')) verify.model = o.model;
+  if (o.requireDifferentProvider === true) verify.requireDifferentProvider = true;
+  if (o.onIssue === 'auto' || o.onIssue === 'warn' || o.onIssue === 'require_human') {
+    verify.onIssue = o.onIssue;
+  }
+  return verify;
 }
 
 /**
@@ -204,6 +247,7 @@ export class AgentRuntimeService {
     private readonly prisma: PrismaService,
     private readonly knowledge: KnowledgeService,
     private readonly router: ModelRouterService,
+    private readonly verification: AgentVerificationService,
   ) {}
 
   /** System prompt y herramientas del agente, en orden estable (favorece la caché de prompts). */
@@ -375,7 +419,7 @@ export class AgentRuntimeService {
     // del workspace; sin política (`agent.routing` == null) es la cadena estática de hoy (principal + fallbackModels).
     // En ambos casos cada candidato pasa por `budgets.plan` (permisos/presupuesto/degradación) y `gateway.resolve`
     // (DataGuard). El router solo ordena: no evade presupuesto ni permisos.
-    const { chain, routed, reasons } = await this.candidateChain(agent, prepared, opts);
+    const { chain, routed, reasons, verify } = await this.candidateChain(agent, prepared, opts);
     // `list` es la lista de respaldos que recorre el bucle. En modo enrutado toda la cadena del router se consume como
     // respaldos (se omite con aviso el candidato no permitido; el presupuesto agotado detiene la cadena, igual que
     // `fallbackModels`); sin política, el principal `Agent.model` se planifica y resuelve aparte, como hasta hoy.
@@ -433,9 +477,15 @@ export class AgentRuntimeService {
       ...this.routingTrace(routed, reasons, primary),
     };
     let failed = label(primary);
+    // El tramo redactor: resuelve por la cadena (D1) y registra si tocó una acción sensible para la verificación (D4).
+    const sensitivity: SensitivitySink = { pending: false, taken: false };
+    let draft: AgentRunResult | undefined;
     for (let i = start ? start.index + 1 : 0; ; i++) {
+      sensitivity.pending = false;
+      sensitivity.taken = false;
       try {
-        return await this.attempt(agent, opts, prepared, orgUnitId, current, totals);
+        draft = await this.attempt(agent, opts, prepared, orgUnitId, current, totals, sensitivity);
+        break;
       } catch (err) {
         if (!isProviderFailure(err, opts.signal)) throw err;
         this.logger.warn(`Modelo ${failed} falló para el agente ${agent.id}: ${(err as Error).message}`);
@@ -452,6 +502,149 @@ export class AgentRuntimeService {
         failed = label(next.resolved);
       }
     }
+
+    // Verificación cruzada (ADR 0010 D4, fase 3): opt-in y premium, solo en modo enrutado. Es orquestación por encima
+    // del gateway: otro modelo (preferiblemente de otro proveedor) critica al redactor; mide e imputa su propio consumo
+    // con `role='verify'`. Nunca invalida una respuesta ya redactada: a lo sumo advierte o exige revisión humana.
+    if (routed && verify?.enabled) {
+      return this.runVerification(agent, opts, prepared, orgUnitId, {
+        draft,
+        sensitivity,
+        verify,
+        orderedRefs: chain.map((c) => `${c.providerId}:${c.model}`),
+        totals,
+      });
+    }
+    return draft;
+  }
+
+  /**
+   * Orquesta la verificación cruzada sobre el borrador ya redactado (ADR 0010 D4, decisiones 6/7). Elige un verificador
+   * (otro modelo, preferido de otro `providerId`) con las reglas de D2/D3, lo resuelve **reutilizando el gobierno de
+   * costos** (`budgets.plan`/`gateway.resolve`, DataGuard incluido), lo corre en un único turno sin herramientas, mide e
+   * imputa su consumo con `role='verify'` y motivo `VERIFICACION_CRUZADA`, y aplica el veredicto: en tareas informativas
+   * un problema **solo advierte**; antes de una acción sensible **exige revisión humana** (se integra con el mecanismo de
+   * aprobación de herramientas existente: la acción queda pendiente de confirmación, no se ejecuta sola). Si no hay un
+   * verificador independiente disponible o el presupuesto no da, la verificación **se omite con aviso** (no descarta el
+   * borrador ni gasta en silencio). El borrador siempre se devuelve.
+   */
+  private async runVerification(
+    agent: AgentWithTools,
+    opts: AgentRunOptions,
+    prepared: PreparedAgent,
+    orgUnitId: string,
+    args: {
+      draft: AgentRunResult;
+      sensitivity: SensitivitySink;
+      verify: RoutingVerifyPolicy;
+      orderedRefs: string[];
+      totals: RunTotals;
+    },
+  ): Promise<AgentRunResult> {
+    const ws = agent.workspaceId;
+    const { draft, sensitivity, verify, orderedRefs, totals } = args;
+    const draftRef = `${draft.providerId}:${draft.model}`;
+    const notice = (message: string) => opts.onEvent?.({ type: 'notice', message });
+
+    const refs = this.verification.selectVerifierRefs(verify, draftRef, orderedRefs);
+    if (!refs.length) {
+      notice(
+        'Verificación cruzada (VERIFICACION_OMITIDA): no se encontró un verificador independiente; se omite la verificación.',
+      );
+      return draft;
+    }
+
+    const parsed = refs.map(parseModelRef).filter((r): r is { providerId: string; model: string } => r !== null);
+    let verifier: { index: number; resolved: ResolvedModel; chainIds: string[] } | null;
+    try {
+      verifier = await this.nextFallback(ws, orgUnitId, parsed, 0, opts);
+    } catch (err) {
+      if (err instanceof BudgetExceededException) {
+        notice(`Verificación cruzada (VERIFICACION_OMITIDA): sin presupuesto para verificar (${err.message}).`);
+        return draft;
+      }
+      throw err;
+    }
+    if (!verifier) {
+      notice(
+        'Verificación cruzada (VERIFICACION_OMITIDA): ningún verificador está disponible dentro de permisos y presupuesto.',
+      );
+      return draft;
+    }
+
+    const { resolved, chainIds: verifierChainIds } = verifier;
+    const { system, userMessage } = this.verification.buildPrompt({
+      userMessage: opts.message,
+      draftText: draft.text,
+    });
+    let verdictText: string;
+    try {
+      const run = await resolved.client.run({
+        model: resolved.model,
+        system,
+        effort: agent.effort as Effort,
+        history: [],
+        userMessage,
+        tools: [],
+        maxTurns: VERIFY_MAX_TURNS,
+        onEvent: undefined,
+        signal: opts.signal,
+        privacyScope: opts.context.conversationId
+          ? `conversation:${opts.context.conversationId}`
+          : opts.context.executionId
+            ? `execution:${opts.context.executionId}`
+            : undefined,
+        beforeTurn: () => this.budgets.assertCanSpend(ws, orgUnitId),
+        onUsage: async (usage) => {
+          const cost = costUsd(usage, resolved.pricing);
+          totals.cost += cost;
+          totals.inputTokens += usage.inputTokens;
+          totals.outputTokens += usage.outputTokens;
+          await this.budgets.record(
+            {
+              workspaceId: ws,
+              orgUnitId,
+              agentId: agent.id,
+              ...opts.context,
+              routingReason: VERIFICATION_REASON,
+              role: VERIFY_ROLE,
+            },
+            verifierChainIds,
+            resolved.providerId,
+            resolved.model,
+            usage,
+            cost,
+          );
+        },
+        executeTool: async () => ({ content: 'El verificador no dispone de herramientas.', isError: true }),
+      });
+      verdictText = run.text;
+    } catch (err) {
+      if (err instanceof BudgetExceededException) {
+        notice(`Verificación cruzada (VERIFICACION_OMITIDA): sin presupuesto para verificar (${err.message}).`);
+        return draft;
+      }
+      if (!isProviderFailure(err, opts.signal)) throw err;
+      notice(`Verificación cruzada (VERIFICACION_OMITIDA): el verificador falló (${(err as Error).message}).`);
+      return draft;
+    }
+
+    const { verdict, critique } = this.verification.parseVerdict(verdictText);
+    const verifierRef = { providerId: resolved.providerId, model: resolved.model };
+    if (verdict === 'OK') {
+      notice(`Verificación cruzada (VERIFICACION_OK): ${label(resolved)} no detectó problemas en la respuesta.`);
+      return {
+        ...draft,
+        verification: { verdict, code: 'VERIFICACION_OK', requiresHumanReview: false, critique, verifier: verifierRef },
+      };
+    }
+    const sensitiveAction = sensitivity.pending || sensitivity.taken;
+    const { code, requiresHumanReview } = this.verification.resolveIssueOutcome(verify.onIssue, sensitiveAction);
+    const prefix = requiresHumanReview
+      ? 'se requiere revisión humana antes de continuar (la acción no se ejecuta sola)'
+      : 'advertencia (la respuesta no se bloquea)';
+    notice(`Verificación cruzada (${code}): ${prefix}. Crítica del verificador ${label(resolved)}: ${critique}`);
+    return { ...draft, verification: { verdict, code, requiresHumanReview, critique, verifier: verifierRef } };
   }
 
   /**
@@ -471,6 +664,8 @@ export class AgentRuntimeService {
     routed: boolean;
     /** Motivos auditables por referencia `"<providerId>:<modelId>"` (ADR 0010 D5); vacío sin enrutamiento. */
     reasons: Map<string, RoutingReasonCode[]>;
+    /** Verificación cruzada declarada (ADR 0010 D4); `null` sin política o sin `verify.enabled`. */
+    verify: RoutingVerifyPolicy | null;
   }> {
     const staticChain: { providerId: string; model: string }[] = [
       { providerId: agent.provider, model: agent.model },
@@ -479,7 +674,8 @@ export class AgentRuntimeService {
         .filter((r): r is { providerId: string; model: string } => r !== null),
     ];
     const policy = toRoutingPolicy(agent.routing);
-    if (!policy) return { chain: staticChain, routed: false, reasons: new Map() };
+    if (!policy) return { chain: staticChain, routed: false, reasons: new Map(), verify: null };
+    const verify = policy.verify ?? null;
 
     const candidates = await this.gateway.routingCandidates(agent.workspaceId);
     const decision = this.router.route({ policy, candidates, task: taskSignals(prepared, opts) });
@@ -492,7 +688,7 @@ export class AgentRuntimeService {
         type: 'notice',
         message: 'El enrutamiento no encontró candidatos; se usa la configuración por defecto del agente.',
       });
-      return { chain: staticChain, routed: false, reasons: new Map() };
+      return { chain: staticChain, routed: false, reasons: new Map(), verify };
     }
     const [top, ...backups] = decision.candidates;
     opts.onEvent?.({
@@ -506,7 +702,7 @@ export class AgentRuntimeService {
       .filter((r): r is { providerId: string; model: string } => r !== null);
     // Traza auditable: el motivo del tramo se persiste en `UsageRecord` a partir de esta tabla ref → códigos (D5).
     const reasons = new Map(decision.candidates.map((c) => [c.ref, c.reasons]));
-    return { chain, routed: true, reasons };
+    return { chain, routed: true, reasons, verify };
   }
 
   /**
@@ -637,6 +833,7 @@ export class AgentRuntimeService {
       role: string | null;
     },
     totals: RunTotals,
+    sensitivity?: SensitivitySink,
   ): Promise<AgentRunResult> {
     const ws = agent.workspaceId;
     const { resolved, chainIds } = current;
@@ -679,7 +876,7 @@ export class AgentRuntimeService {
           cost,
         );
       },
-      executeTool: (call) => this.executeTool(agent, prepared, approved, call),
+      executeTool: (call) => this.executeTool(agent, prepared, approved, call, sensitivity),
     });
     return { ...result, providerId: resolved.providerId, model: resolved.model, costUsd: totals.cost };
   }
@@ -689,6 +886,7 @@ export class AgentRuntimeService {
     prepared: PreparedAgent,
     approved: Set<string>,
     call: ToolCall,
+    sensitivity?: SensitivitySink,
   ): Promise<ToolOutcome> {
     if (call.name === LOAD_SKILL_TOOL && prepared.skills.length) return this.loadSkill(prepared, call.input);
     if (call.name === SEARCH_KNOWLEDGE_TOOL && prepared.knowledgeBaseIds.length) {
@@ -700,11 +898,15 @@ export class AgentRuntimeService {
     const binding = prepared.bindings.get(call.name);
     if (!binding) return { content: `Tool desconocida: ${call.name}`, isError: true };
     if (binding.requiresApproval && !approved.has(call.name)) {
+      // Acción sensible intentada sin aprobación: queda pendiente de confirmación humana (señal para la verificación).
+      if (sensitivity) sensitivity.pending = true;
       return {
         content: `APROBACIÓN REQUERIDA: la acción "${call.name}" necesita confirmación del usuario. Explique qué hará y pida autorización.`,
         isError: true,
       };
     }
+    // Acción sensible ya aprobada por el usuario (mecanismo de aprobación existente) que se va a ejecutar.
+    if (binding.requiresApproval && sensitivity) sensitivity.taken = true;
     try {
       const result = await this.connectors.invoke(binding.operation, call.input);
       const serialized = JSON.stringify({ ok: result.ok, status: result.status, data: result.data });

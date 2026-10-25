@@ -157,6 +157,33 @@ describe('Estudio de agentes · perfil, skills, conocimiento, ejemplos y respald
         .expect(400);
       await owner.api.post('/agents', { ...base, routing: { objective: 'cost', maxCandidates: 99 } }).expect(400);
     });
+
+    it('guarda la verificación cruzada (ADR 0010 D4) dentro de routing.verify y la devuelve', async () => {
+      const routing = {
+        objective: 'quality',
+        verify: { enabled: true, model: 'mock:mock-echo', requireDifferentProvider: true, onIssue: 'auto' },
+      };
+      const res = await owner.api
+        .post('/agents', { name: 'Agente con verificación', provider: 'mock', model: 'mock-echo', routing })
+        .expect(201);
+      const id = (res.body as { id: string }).id;
+      const got = (await owner.api.get(`/agents/${id}`).expect(200)).body as { routing: unknown };
+      expect(got.routing).toEqual(routing);
+    });
+
+    it('rechaza una verificación cruzada mal formada', async () => {
+      const base = { name: 'Verify inválido', provider: 'mock', model: 'mock-echo' };
+      // `enabled` es obligatorio y booleano.
+      await owner.api.post('/agents', { ...base, routing: { objective: 'cost', verify: {} } }).expect(400);
+      // `model` debe tener el formato "<providerId>:<modelId>".
+      await owner.api
+        .post('/agents', { ...base, routing: { objective: 'cost', verify: { enabled: true, model: 'sin-formato' } } })
+        .expect(400);
+      // `onIssue` fuera del enum.
+      await owner.api
+        .post('/agents', { ...base, routing: { objective: 'cost', verify: { enabled: true, onIssue: 'explota' } } })
+        .expect(400);
+    });
   });
 
   describe('Skills', () => {

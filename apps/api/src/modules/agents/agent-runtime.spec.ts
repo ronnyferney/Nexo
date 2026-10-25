@@ -11,6 +11,7 @@ import { ModelRouterService } from '../llm/model-router.service';
 import type { RoutingCandidate } from '../llm/routing.types';
 import type { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AgentRuntimeService, isProviderFailure, parseModelRef, type AgentWithTools } from './agent-runtime.service';
+import { AgentVerificationService } from './agent-verification.service';
 
 type Behavior = (req: LlmRunRequest) => Promise<LlmRunResult>;
 
@@ -79,6 +80,7 @@ function setup(
     { connectorOperation: { findMany: async () => [] } } as unknown as PrismaService,
     { search: async () => [] } as unknown as KnowledgeService,
     new ModelRouterService(),
+    new AgentVerificationService(),
   );
   return { runtime, calls, planned, gateway, budgets };
 }
@@ -382,6 +384,197 @@ describe('AgentRuntimeService · traza de rol/razón de enrutamiento en el consu
     const ctx = lastRecordCtx(budgets);
     expect(ctx.role).toBe('draft');
     expect(ctx.routingReason).toContain('OBJETIVO_CALIDAD');
+  });
+});
+
+describe('AgentRuntimeService · verificación cruzada redactor+verificador (ADR 0010 D4, fase 3)', () => {
+  const noticeMessages = (events: AgentEvent[]) =>
+    events.filter((e) => e.type === 'notice').map((e) => (e as { message: string }).message);
+  type RecordCtx = { routingReason: string | null; role: string | null };
+  const recordCtxs = (budgets: ReturnType<typeof setup>['budgets']): RecordCtx[] => {
+    const calls = (budgets.record as jest.Mock).mock.calls as [RecordCtx, ...unknown[]][];
+    return calls.map((c) => c[0]);
+  };
+
+  // Redactor: reporta consumo (para imputar role='draft') y responde `text`.
+  const drafts =
+    (text: string): Behavior =>
+    async (req) => {
+      await req.onUsage?.({ inputTokens: 2, outputTokens: 3, cacheReadTokens: 0, cacheWriteTokens: 0 });
+      return ok(text)(req);
+    };
+  // Verificador: reporta consumo (para imputar role='verify') y devuelve un veredicto con el formato acordado.
+  const verifies =
+    (verdict: string): Behavior =>
+    async (req) => {
+      await req.onUsage?.({ inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 });
+      return {
+        history: [],
+        text: verdict,
+        stopReason: 'end_turn',
+        turns: 1,
+        usage: { inputTokens: 1, outputTokens: 1 },
+      };
+    };
+
+  /** Agente enrutado con una herramienta sensible (requiere aprobación): base de las pruebas de acción sensible. */
+  const sensitiveOp = {
+    id: 'op1',
+    key: 'enviar',
+    name: 'Enviar correo',
+    description: 'Envía un correo al exterior',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    connector: { name: 'correo' },
+  };
+  const SENSITIVE_TOOL = 'correo__enviar';
+  const withVerify = (verify: unknown, sensitive = false): AgentWithTools => ({
+    ...agent([]),
+    routing: { objective: 'cost', verify } as never,
+    tools: sensitive ? ([{ operationId: 'op1', requiresApproval: true, operation: sensitiveOp }] as never) : [],
+  });
+  // Dos candidatos de distinto proveedor: con objetivo `cost`, el ECONOMY redacta y el otro (otro proveedor) verifica.
+  const pair = (): RoutingCandidate[] => [
+    candidate('p1:draft', { tier: 'ECONOMY', inputUsdPerMTok: 0.1, outputUsdPerMTok: 0.5 }),
+    candidate('p2:judge', { tier: 'STANDARD' }),
+  ];
+
+  it('OK informativo: redacta uno, verifica otro (distinto proveedor) y ambos imputan su consumo (draft/verify)', async () => {
+    const { runtime, calls, planned, budgets } = setup(
+      {
+        'p1:draft': { kind: 'MOCK', behavior: drafts('respuesta') },
+        'p2:judge': { kind: 'MOCK', behavior: verifies('VEREDICTO: OK todo respaldado por las fuentes') },
+      },
+      {},
+      pair(),
+    );
+    const events: AgentEvent[] = [];
+    const r = await runtime.run(withVerify({ enabled: true, requireDifferentProvider: true }), {
+      message: 'hola',
+      context: { source: 'CHAT' },
+      onEvent: (e) => events.push(e),
+    });
+    expect(r.text).toBe('respuesta');
+    expect(r.verification).toMatchObject({
+      verdict: 'OK',
+      code: 'VERIFICACION_OK',
+      requiresHumanReview: false,
+      verifier: { providerId: 'p2', model: 'judge' },
+    });
+    expect(calls.map((c) => c.key)).toEqual(['p1:draft', 'p2:judge']);
+    // El verificador corre en un turno sin herramientas ni historial (orquestación por encima del gateway).
+    expect(calls[1].req.tools).toEqual([]);
+    expect(calls[1].req.history).toEqual([]);
+    expect(planned).toEqual(['p1:draft', 'p2:judge']);
+    const ctxs = recordCtxs(budgets);
+    expect(ctxs).toContainEqual(expect.objectContaining({ role: 'draft' }));
+    expect(ctxs).toContainEqual(expect.objectContaining({ role: 'verify', routingReason: 'VERIFICACION_CRUZADA' }));
+    expect(noticeMessages(events).some((m) => m.includes('VERIFICACION_OK'))).toBe(true);
+  });
+
+  it('PROBLEMA en tarea informativa: solo advierte, no bloquea y devuelve el borrador', async () => {
+    const { runtime, calls } = setup(
+      {
+        'p1:draft': { kind: 'MOCK', behavior: drafts('respuesta informativa') },
+        'p2:judge': { kind: 'MOCK', behavior: verifies('VEREDICTO: PROBLEMA la fecha no coincide con la fuente') },
+      },
+      {},
+      pair(),
+    );
+    const events: AgentEvent[] = [];
+    const r = await runtime.run(withVerify({ enabled: true, requireDifferentProvider: true }), {
+      message: 'hola',
+      context: { source: 'CHAT' },
+      onEvent: (e) => events.push(e),
+    });
+    expect(r.text).toBe('respuesta informativa');
+    expect(r.verification).toMatchObject({ code: 'VERIFICACION_ADVERTENCIA', requiresHumanReview: false });
+    expect(calls.map((c) => c.key)).toEqual(['p1:draft', 'p2:judge']);
+    const msg = noticeMessages(events).find((m) => m.includes('VERIFICACION_ADVERTENCIA'));
+    expect(msg).toContain('la fecha no coincide con la fuente');
+  });
+
+  it('PROBLEMA antes de una acción sensible: exige revisión humana (no ejecuta la acción sola)', async () => {
+    const invoked: unknown[] = [];
+    const { runtime } = setup(
+      {
+        'p1:draft': {
+          kind: 'MOCK',
+          behavior: async (req) => {
+            await req.onUsage?.({ inputTokens: 2, outputTokens: 3, cacheReadTokens: 0, cacheWriteTokens: 0 });
+            // El redactor intenta la acción sensible sin aprobación: queda pendiente de confirmación humana.
+            await req.executeTool({ id: 't1', name: SENSITIVE_TOOL, input: {} });
+            return ok('Voy a enviar el correo, ¿me autorizas?')(req);
+          },
+        },
+        'p2:judge': { kind: 'MOCK', behavior: verifies('VEREDICTO: PROBLEMA el destinatario parece incorrecto') },
+      },
+      {},
+      pair(),
+    );
+    (runtime as unknown as { connectors: { invoke: jest.Mock } }).connectors = {
+      invoke: jest.fn(async (...a: unknown[]) => void invoked.push(a) as unknown as never),
+    };
+    const events: AgentEvent[] = [];
+    const r = await runtime.run(withVerify({ enabled: true, requireDifferentProvider: true }, true), {
+      message: 'envía el correo',
+      context: { source: 'CHAT' },
+      onEvent: (e) => events.push(e),
+    });
+    expect(r.verification).toMatchObject({ code: 'VERIFICACION_REVISION_HUMANA', requiresHumanReview: true });
+    expect(invoked).toHaveLength(0); // la acción sensible no se ejecutó
+    expect(noticeMessages(events).some((m) => m.includes('revisión humana'))).toBe(true);
+  });
+
+  it('onIssue=warn nunca bloquea aunque haya una acción sensible pendiente', async () => {
+    const { runtime } = setup(
+      {
+        'p1:draft': {
+          kind: 'MOCK',
+          behavior: async (req) => {
+            await req.onUsage?.({ inputTokens: 2, outputTokens: 3, cacheReadTokens: 0, cacheWriteTokens: 0 });
+            await req.executeTool({ id: 't1', name: SENSITIVE_TOOL, input: {} });
+            return ok('pido autorización')(req);
+          },
+        },
+        'p2:judge': { kind: 'MOCK', behavior: verifies('VEREDICTO: PROBLEMA revisa esto') },
+      },
+      {},
+      pair(),
+    );
+    const r = await runtime.run(withVerify({ enabled: true, requireDifferentProvider: true, onIssue: 'warn' }, true), {
+      message: 'envía el correo',
+      context: { source: 'CHAT' },
+    });
+    expect(r.verification).toMatchObject({ code: 'VERIFICACION_ADVERTENCIA', requiresHumanReview: false });
+  });
+
+  it('sin verificador independiente (requireDifferentProvider y solo mismo proveedor) omite la verificación con aviso', async () => {
+    const { runtime, calls } = setup({ 'p1:draft': { kind: 'MOCK', behavior: drafts('respuesta') } }, {}, [
+      candidate('p1:draft', { tier: 'ECONOMY', inputUsdPerMTok: 0.1, outputUsdPerMTok: 0.5 }),
+      candidate('p1:judge', { tier: 'STANDARD' }),
+    ]);
+    const events: AgentEvent[] = [];
+    const r = await runtime.run(withVerify({ enabled: true, requireDifferentProvider: true }), {
+      message: 'hola',
+      context: { source: 'CHAT' },
+      onEvent: (e) => events.push(e),
+    });
+    expect(r.text).toBe('respuesta');
+    expect(r.verification).toBeUndefined();
+    expect(calls.map((c) => c.key)).toEqual(['p1:draft']);
+    expect(noticeMessages(events).some((m) => m.includes('VERIFICACION_OMITIDA'))).toBe(true);
+  });
+
+  it('verify.enabled=false se comporta como la fase 2 (no invoca verificador)', async () => {
+    const { runtime, calls, budgets } = setup(
+      { 'p1:draft': { kind: 'MOCK', behavior: drafts('respuesta') } },
+      {},
+      pair(),
+    );
+    const r = await runtime.run(withVerify({ enabled: false }), { message: 'hola', context: { source: 'CHAT' } });
+    expect(r.verification).toBeUndefined();
+    expect(calls.map((c) => c.key)).toEqual(['p1:draft']);
+    expect(recordCtxs(budgets).some((c) => c.role === 'verify')).toBe(false);
   });
 });
 
