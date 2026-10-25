@@ -28,11 +28,20 @@ const MAX_EXAMPLES = 20;
           <button class="btn sm" (click)="load()">Reintentar</button></div>
       } @else {
         @for (ex of examples(); track ex.id; let i = $index) {
-          <div class="example">
-            <div class="io"><span class="tag">Entrada</span><p>{{ ex.input }}</p></div>
-            <div class="io"><span class="tag out">Salida esperada</span><p>{{ ex.output }}</p></div>
+          <div class="example" [class.open]="isOpen(ex.id)">
+            <button type="button" class="ex-head" [attr.aria-expanded]="isOpen(ex.id)" [attr.aria-label]="(isOpen(ex.id) ? 'Contraer' : 'Expandir') + ' ejemplo ' + (i + 1)" (click)="toggle(ex.id)">
+              <nx-icon class="chev" name="chevronDown" [size]="14" />
+              <span class="prev"><span class="tag">Entrada</span>{{ ex.input }}</span>
+              <span class="prev out"><span class="tag out">Salida</span>{{ ex.output }}</span>
+            </button>
             @if (canEdit()) {
               <button class="btn ghost icon sm danger del" title="Eliminar ejemplo" [attr.aria-label]="'Eliminar ejemplo ' + (i + 1)" (click)="remove(ex)"><nx-icon name="trash" [size]="15" /></button>
+            }
+            @if (isOpen(ex.id)) {
+              <div class="body">
+                <div class="io"><span class="tag">Entrada</span><p>{{ ex.input }}</p></div>
+                <div class="io"><span class="tag out">Salida esperada</span><p>{{ ex.output }}</p></div>
+              </div>
             }
           </div>
         } @empty {
@@ -58,13 +67,21 @@ const MAX_EXAMPLES = 20;
   `,
   styles: `
     .m0 { margin: 0; }
-    .example { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 10px 44px 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
-    .io p { margin: 4px 0 0; white-space: pre-wrap; word-break: break-word; font-size: 13px; }
+    .example { position: relative; border: 1px solid var(--border); border-radius: 10px; }
+    .example.open { background: var(--surface-2, var(--bg)); }
+    .ex-head { display: grid; grid-template-columns: 16px 1fr 1fr; align-items: center; gap: 10px; width: 100%; padding: 9px 44px 9px 10px; background: none; border: 0; text-align: left; cursor: pointer; font: inherit; color: inherit; }
+    .ex-head:hover { background: var(--surface-2, var(--bg)); border-radius: 10px; }
+    .chev { color: var(--muted); transition: transform 0.15s ease; transform: rotate(-90deg); }
+    .example.open .chev { transform: rotate(0); }
+    .prev { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--muted); }
+    .prev .tag { margin-right: 6px; }
+    .body { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 0 44px 12px 36px; }
+    .io p { margin: 4px 0 0; white-space: pre-wrap; word-break: break-word; font-size: 13px; color: var(--text); }
     .tag { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--info); }
     .tag.out { color: var(--success); }
     .del { position: absolute; top: 6px; right: 6px; width: 30px; }
     .add { padding-top: 6px; border-top: 1px dashed var(--border); }
-    @media (max-width: 640px) { .example { grid-template-columns: 1fr; } }
+    @media (max-width: 640px) { .ex-head, .body { grid-template-columns: 1fr; } .ex-head { grid-template-columns: 16px 1fr; } .prev.out { display: none; } }
   `,
 })
 export class AgentExamplesComponent implements OnInit {
@@ -77,8 +94,25 @@ export class AgentExamplesComponent implements OnInit {
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
   readonly adding = signal(false);
+  readonly openIds = signal<ReadonlySet<string>>(new Set());
   draftInput = '';
   draftOutput = '';
+
+  isOpen(id: string): boolean {
+    return this.openIds().has(id);
+  }
+
+  toggle(id: string) {
+    this.openIds.update((set) => {
+      const next = new Set(set);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
 
   ngOnInit() {
     void this.load();
@@ -101,6 +135,7 @@ export class AgentExamplesComponent implements OnInit {
     try {
       const ex = await this.studio.createExample(this.agentId(), { input: this.draftInput.trim(), output: this.draftOutput.trim() });
       this.examples.update((list) => [...list, ex]);
+      this.openIds.update((set) => new Set(set).add(ex.id));
       this.draftInput = '';
       this.draftOutput = '';
       this.toast.success('Ejemplo agregado');
