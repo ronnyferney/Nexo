@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { BudgetPeriod, BudgetPolicy, Role } from '@prisma/client';
+import { BudgetPeriod, BudgetPolicy, EstadoEstructura, OrgUnitTipo, Role } from '@prisma/client';
 import {
   ArrayMaxSize,
   IsArray,
@@ -21,6 +21,15 @@ export class CreateOrgUnitDto {
   @ApiProperty() @IsString() @MinLength(2) @MaxLength(80) name!: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(40) code?: string;
   @ApiProperty() @IsString() parentId!: string;
+  /** Dimensión jerárquica/funcional (ADR 0011 D2). Por defecto AREA_FUNCIONAL (retrocompatible). */
+  @ApiPropertyOptional({ enum: OrgUnitTipo }) @IsOptional() @IsEnum(OrgUnitTipo) tipo?: OrgUnitTipo;
+  /** Empresa (OrgUnit EMPRESA) a la que pertenece la unidad. Se valida que exista y sea EMPRESA del workspace. */
+  @ApiPropertyOptional() @IsOptional() @IsString() empresaId?: string | null;
+  /** Responsable humano de la unidad (RF43). No concede acceso (D6). */
+  @ApiPropertyOptional() @IsOptional() @IsString() responsableUserId?: string | null;
+  @ApiPropertyOptional({ enum: EstadoEstructura }) @IsOptional() @IsEnum(EstadoEstructura) estado?: EstadoEstructura;
+  @ApiPropertyOptional() @IsOptional() @IsISO8601() vigenteDesde?: string | null;
+  @ApiPropertyOptional() @IsOptional() @IsISO8601() vigenteHasta?: string | null;
 }
 
 export class UpdateOrgUnitDto {
@@ -33,6 +42,12 @@ export class UpdateOrgUnitDto {
   @ArrayMaxSize(200)
   @IsString({ each: true })
   allowedModels?: string[];
+  @ApiPropertyOptional({ enum: OrgUnitTipo }) @IsOptional() @IsEnum(OrgUnitTipo) tipo?: OrgUnitTipo;
+  @ApiPropertyOptional() @IsOptional() @IsString() empresaId?: string | null;
+  @ApiPropertyOptional() @IsOptional() @IsString() responsableUserId?: string | null;
+  @ApiPropertyOptional({ enum: EstadoEstructura }) @IsOptional() @IsEnum(EstadoEstructura) estado?: EstadoEstructura;
+  @ApiPropertyOptional() @IsOptional() @IsISO8601() vigenteDesde?: string | null;
+  @ApiPropertyOptional() @IsOptional() @IsISO8601() vigenteHasta?: string | null;
 }
 
 /** Invitación a un miembro (C1): la cuenta y la contraseña las crea la persona al aceptar. */

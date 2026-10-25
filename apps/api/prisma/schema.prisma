@@ -117,6 +117,34 @@ enum NivelJerarquico {
   SUPEREMPLEADO
 }
 
+/// Tipo de nodo del árbol organizacional (ADR 0011 D2). Discriminador de la dimensión jerárquica/funcional. El valor
+/// por defecto `AREA_FUNCIONAL` conserva la semántica de las unidades ya existentes (retrocompatibilidad).
+enum OrgUnitTipo {
+  GRUPO
+  EMPRESA
+  UNIDAD_NEGOCIO
+  AREA_FUNCIONAL
+  DEPARTAMENTO
+  EQUIPO
+}
+
+/// Estado de vigencia de una pieza de estructura organizacional (ADR 0011 D2/D3/D4).
+enum EstadoEstructura {
+  ACTIVA
+  SUSPENDIDA
+  CERRADA
+}
+
+/// Tipo de relación matricial entre un sujeto (agente o miembro) y una dimensión destino (ADR 0011 D4). A lo sumo una
+/// `FUNCIONAL_PRINCIPAL` vigente por sujeto (RF42): se garantiza con un índice parcial único creado por SQL manual.
+enum TipoAsignacion {
+  FUNCIONAL_PRINCIPAL
+  LINEA
+  SEDE
+  PROYECTO
+  SERVICIO
+}
+
 /// Política de DataGuard hacia los modelos de IA (ADR 0008 D2).
 enum DataGuardMode {
   OFF
@@ -273,6 +301,10 @@ model Workspace {
   edgeAgents                EdgeAgent[]
   invitations               Invitation[]
   cargos                    Cargo[]
+  lineasNegocio             LineaNegocio[]
+  sedes                     Sede[]
+  centrosCosto              CentroCosto[]
+  asignaciones              AsignacionOrganizacional[]
 }
 
 /// Catálogo de cargos (RF03): perfil reutilizable del empleado digital con propósito, funciones, entregables,
@@ -686,6 +718,18 @@ model OrgUnit {
   children      OrgUnit[]      @relation("OrgTree")
   workspaceId   String
   workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// Dimensión jerárquica/funcional (ADR 0011 D2). Las unidades previas migran a `AREA_FUNCIONAL` (default neutro).
+  tipo              OrgUnitTipo      @default(AREA_FUNCIONAL)
+  /// Empresa (OrgUnit `EMPRESA`) a la que pertenece la unidad. Desnormalizado para filtrar barato por empresa
+  /// (ADR 0011 D1/D2). `null` en las unidades ya existentes (retrocompatible). Referencia blanda: se valida en servicio.
+  empresaId         String?
+  /// Responsable humano de la unidad (RF43). Referencia blanda a `User` (no concede acceso: ADR 0011 D6).
+  responsableUserId String?
+  /// Estado de vigencia de la unidad (ADR 0011 D2). Las unidades previas quedan `ACTIVA`.
+  estado            EstadoEstructura @default(ACTIVA)
+  /// Vigencia de la unidad (RF43). Opcionales; `null` = sin límite.
+  vigenteDesde      DateTime?
+  vigenteHasta      DateTime?
   memberships   Membership[]
   agents        Agent[]
   budget        Budget?
@@ -697,6 +741,8 @@ model OrgUnit {
   updatedAt     DateTime       @updatedAt
 
   @@index([workspaceId])
+  @@index([workspaceId, tipo])
+  @@index([workspaceId, empresaId])
 }
 
 /// Bolsa de presupuesto de una unidad (descuenta también el consumo de sus descendientes).
@@ -767,6 +813,111 @@ model UsageRecord {
 
   @@index([workspaceId, createdAt])
   @@index([orgUnitId, createdAt])
+}
+
+// ===================== Estructura empresarial (ADR 0011 · E1) =====================
+// Dimensiones ortogonales al árbol de mando (`OrgUnit`). No forman jerarquía ni conceden acceso por sí mismas
+// (ADR 0011 D3/D6). Todo filtra por `workspaceId` (multi-tenant) y referencia su empresa (`OrgUnit` `EMPRESA`) por
+// `empresaId`, validado en servicio. El marco de dimensiones configurables (D8) es una cédula aparte.
+
+/// Línea de negocio (dimensión de negocio, ADR 0011 D3/RF41). Cruza áreas y empresas; no reemplaza el sistema de origen.
+model LineaNegocio {
+  id                String           @id @default(cuid())
+  workspaceId       String
+  workspace         Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// OrgUnit `EMPRESA` dueña de la línea (referencia blanda, validada en servicio).
+  empresaId         String
+  codigo            String
+  nombre            String
+  /// Responsable humano opcional (RF43). No concede acceso (ADR 0011 D6).
+  responsableUserId String?
+  /// Metas u objetivos comerciales opcionales (no reemplazan el sistema de origen, RF43).
+  metas             Json             @default("{}")
+  estado            EstadoEstructura @default(ACTIVA)
+  vigenteDesde      DateTime?
+  vigenteHasta      DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@unique([workspaceId, empresaId, codigo])
+  @@index([workspaceId, empresaId])
+}
+
+/// Sede (dimensión territorial, ADR 0011 D3/RF41). Es una etiqueta, no un sub-árbol; las áreas no se duplican por sede.
+model Sede {
+  id                 String           @id @default(cuid())
+  workspaceId        String
+  workspace          Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  empresaId          String
+  codigo             String
+  nombre             String
+  /// Zona horaria IANA, p. ej. "America/Bogota".
+  zonaHoraria        String
+  /// Alcance territorial opcional (ciudades, regiones, países que cubre la sede).
+  alcanceTerritorial String?
+  estado             EstadoEstructura @default(ACTIVA)
+  vigenteDesde       DateTime?
+  vigenteHasta       DateTime?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@unique([workspaceId, empresaId, codigo])
+  @@index([workspaceId, empresaId])
+}
+
+/// Centro de costo (dimensión económica de reporte, ADR 0011 D3/RF45). Distinto del área; NO es la unidad de reserva
+/// de presupuesto (esa sigue siendo `OrgUnit`/`Budget`, ADR 0002 intacto) y NO concede permisos (RF41/D6).
+model CentroCosto {
+  id             String           @id @default(cuid())
+  workspaceId    String
+  workspace      Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  empresaId      String
+  codigo         String
+  nombre         String
+  /// Asociación por defecto opcional (referencias blandas; no conceden permisos).
+  orgUnitId      String?
+  lineaNegocioId String?
+  estado         EstadoEstructura @default(ACTIVA)
+  vigenteDesde   DateTime?
+  vigenteHasta   DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([workspaceId, empresaId, codigo])
+  @@index([workspaceId, empresaId])
+}
+
+/// Asignación organizacional (la matriz, ADR 0011 D4/RF42). Relaciona un sujeto (exactamente uno de `agentId`/`userId`,
+/// validado en servicio) con una dimensión destino, con alcance y vigencia. Identificador estable que sobrevive a la
+/// reorganización (QA16). No duplica agentes ni ejecuciones; NO concede acceso a datos por sí misma (D6). A lo sumo una
+/// `FUNCIONAL_PRINCIPAL` vigente por sujeto (RF42): índice parcial único creado por SQL manual en la migración.
+model AsignacionOrganizacional {
+  id              String           @id @default(cuid())
+  workspaceId     String
+  workspace       Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// Sujeto: exactamente uno de los dos (referencias blandas, validadas en servicio).
+  agentId         String?
+  userId          String?
+  tipoAsignacion  TipoAsignacion
+  /// Destino según `tipoAsignacion` (referencias blandas): área/equipo, línea, sede o proyecto (futuro).
+  orgUnitId       String?
+  lineaNegocioId  String?
+  sedeId          String?
+  proyectoId      String?
+  /// Rol en esa dimensión (colaborador | revisor | responsable_proceso ...). Resuelve autoridad (RF33/RF42).
+  rol             String?
+  /// Qué habilita OPERATIVAMENTE la asignación (procesos/tareas). NUNCA acceso a datos (ADR 0011 D6).
+  alcance         Json             @default("{}")
+  estado          EstadoEstructura @default(ACTIVA)
+  vigenteDesde    DateTime         @default(now())
+  vigenteHasta    DateTime?
+  creadaPorUserId String?
+  createdAt       DateTime         @default(now())
+
+  @@index([workspaceId, agentId])
+  @@index([workspaceId, userId])
+  @@index([workspaceId, lineaNegocioId])
+  // Índice parcial único (SQL manual): a lo sumo una FUNCIONAL_PRINCIPAL vigente (vigenteHasta IS NULL) por sujeto.
 }
 
 // ===================== Estudio de agentes y n8n (ADR 0003) =====================

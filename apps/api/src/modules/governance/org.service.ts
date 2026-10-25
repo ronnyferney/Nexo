@@ -81,15 +81,43 @@ export class OrgService {
       code: u.code,
       parentId: u.parentId,
       allowedModels: u.allowedModels,
+      tipo: u.tipo,
+      empresaId: u.empresaId,
+      responsableUserId: u.responsableUserId,
+      estado: u.estado,
+      vigenteDesde: u.vigenteDesde,
+      vigenteHasta: u.vigenteHasta,
       memberCount: countOf(u.id),
       isRoot: !u.parentId,
     }));
   }
 
+  /**
+   * Garantiza que `empresaId` referencia un OrgUnit `EMPRESA` del mismo workspace (ADR 0011 D1/D2): es el aislamiento
+   * por empresa de las entidades nuevas. `null` lo deja sin empresa (retrocompatible con las unidades previas).
+   */
+  async assertEmpresa(workspaceId: string, empresaId: string): Promise<OrgUnit> {
+    const empresa = await this.prisma.orgUnit.findFirst({ where: { id: empresaId, workspaceId, tipo: 'EMPRESA' } });
+    if (!empresa) throw new BadRequestException('La empresa indicada no existe en este workspace o no es una EMPRESA');
+    return empresa;
+  }
+
   async create(workspaceId: string, dto: CreateOrgUnitDto) {
     await this.unit(workspaceId, dto.parentId);
+    if (dto.empresaId) await this.assertEmpresa(workspaceId, dto.empresaId);
     return this.prisma.orgUnit.create({
-      data: { workspaceId, name: dto.name, code: dto.code, parentId: dto.parentId },
+      data: {
+        workspaceId,
+        name: dto.name,
+        code: dto.code,
+        parentId: dto.parentId,
+        tipo: dto.tipo ?? undefined,
+        empresaId: dto.empresaId ?? undefined,
+        responsableUserId: dto.responsableUserId ?? undefined,
+        estado: dto.estado ?? undefined,
+        vigenteDesde: dto.vigenteDesde ? new Date(dto.vigenteDesde) : undefined,
+        vigenteHasta: dto.vigenteHasta ? new Date(dto.vigenteHasta) : undefined,
+      },
     });
   }
 
@@ -102,9 +130,25 @@ export class OrgService {
       if (ancestors.some((a) => a.id === id))
         throw new BadRequestException('No puede mover una unidad dentro de sí misma');
     }
+    if (dto.empresaId) await this.assertEmpresa(workspaceId, dto.empresaId);
     return this.prisma.orgUnit.update({
       where: { id },
-      data: { name: dto.name, code: dto.code, parentId: dto.parentId, allowedModels: dto.allowedModels },
+      data: {
+        name: dto.name,
+        code: dto.code,
+        parentId: dto.parentId,
+        allowedModels: dto.allowedModels,
+        tipo: dto.tipo ?? undefined,
+        ...(dto.empresaId !== undefined ? { empresaId: dto.empresaId } : {}),
+        ...(dto.responsableUserId !== undefined ? { responsableUserId: dto.responsableUserId } : {}),
+        estado: dto.estado ?? undefined,
+        ...(dto.vigenteDesde !== undefined
+          ? { vigenteDesde: dto.vigenteDesde ? new Date(dto.vigenteDesde) : null }
+          : {}),
+        ...(dto.vigenteHasta !== undefined
+          ? { vigenteHasta: dto.vigenteHasta ? new Date(dto.vigenteHasta) : null }
+          : {}),
+      },
     });
   }
 
