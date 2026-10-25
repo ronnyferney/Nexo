@@ -1,6 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
+import { AgentsScopeApi } from '../../core/agents-scope.api';
+import type { AgentAnalytics } from '../../core/agents-scope.models';
 import { errorMessage } from '../../core/api.service';
 import { TrainingApi } from '../../core/training.api';
 import type { Feedback, FeedbackStatus } from '../../core/training.models';
@@ -9,6 +11,7 @@ import { ErrorStateComponent } from '../../shared/error-state.component';
 import { IconComponent } from '../../shared/icon.component';
 import { LoadingStateComponent } from '../../shared/loading-state.component';
 import { FeedbackReviewItemComponent } from '../agents/training/feedback-review-item.component';
+import { formatMs, formatPct } from './supervision.util';
 
 type StatusFilter = FeedbackStatus | 'ALL';
 
@@ -46,6 +49,26 @@ type StatusFilter = FeedbackStatus | 'ALL';
         </div>
       </div>
 
+      <section class="card chat-obs">
+        <div class="card-title"><h2>Observabilidad del chat</h2><span class="spacer"></span><span class="muted small">Últimos 30 días</span></div>
+        @if (analyticsLoading()) {
+          <nx-loading-state text="Cargando métricas de chat…" size="sm" />
+        } @else if (analyticsError()) {
+          <nx-error-state title="No se pudieron cargar las métricas" message="{{ analyticsError() }}" (retry)="loadAnalytics()" />
+        } @else if (chat(); as c) {
+          <div class="grid grid-4 metrics">
+            <div class="metric"><div class="muted small">Tasa de éxito</div><div class="value">{{ pct(c.successRatePct) }}</div></div>
+            <div class="metric"><div class="muted small">Canceladas</div><div class="value">{{ c.cancelled }}</div></div>
+            <div class="metric"><div class="muted small">Duración · p50 / p95</div><div class="value">{{ ms(c.durationMs?.p50) }} <span class="sep">/</span> {{ ms(c.durationMs?.p95) }}</div></div>
+            <div class="metric"><div class="muted small">Primer token (ttft) · p50 / p95</div><div class="value">{{ ms(c.ttftMs?.p50) }} <span class="sep">/</span> {{ ms(c.ttftMs?.p95) }}</div></div>
+          </div>
+          <p class="muted small obs-foot">{{ c.total }} {{ c.total === 1 ? 'turno registrado' : 'turnos registrados' }} · {{ c.failed }} con error</p>
+        } @else {
+          <nx-empty-state icon="send" title="Aún no hay turnos de chat registrados"
+            description="Cuando los agentes respondan en el chat verá aquí su tasa de éxito, cancelaciones y latencias." />
+        }
+      </section>
+
       <p class="muted small mb">Se muestra la retroalimentación de los agentes que usted puede editar: los suyos y los que le compartieron con permiso de edición.</p>
 
       @if (loading() && !items().length) {
@@ -72,11 +95,21 @@ type StatusFilter = FeedbackStatus | 'ALL';
     .filters .field { min-width: 170px; }
     .mb { margin-bottom: 16px; }
     .count { margin: 0 0 10px; }
+    .chat-obs { margin-bottom: 16px; }
+    .chat-obs .metrics { margin-top: 4px; }
+    .chat-obs .metric { display: grid; gap: 4px; }
+    .chat-obs .value { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .chat-obs .sep { color: var(--muted); font-weight: 400; }
+    .chat-obs .obs-foot { margin: 12px 0 0; }
     @media (max-width: 640px) { .filters { width: 100%; } .filters .field { flex: 1; min-width: 140px; } .refresh { width: 100%; justify-content: center; } }
   `,
 })
 export class SupervisionPage implements OnInit {
   private readonly training = inject(TrainingApi);
+  private readonly scope = inject(AgentsScopeApi);
+  /** Formateadores puros expuestos a la plantilla (ver `supervision.util.ts`). */
+  readonly ms = formatMs;
+  readonly pct = formatPct;
   readonly statuses: { id: StatusFilter; label: string }[] = [
     { id: 'PENDING', label: 'Pendientes' },
     { id: 'APPROVED', label: 'Aprobados' },
@@ -99,8 +132,33 @@ export class SupervisionPage implements OnInit {
     return id ? this.items().filter((f) => f.agentId === id) : this.items();
   });
 
+  // Observabilidad del chat (RX-12): `GET /agents/analytics`. Complementaria a la bandeja, se carga aparte.
+  readonly analytics = signal<AgentAnalytics | null>(null);
+  readonly analyticsLoading = signal(true);
+  readonly analyticsError = signal<string | null>(null);
+  /** Bloque de chat; `null` cuando aún no hay turnos registrados o mientras no hay datos cargados. */
+  readonly chat = computed(() => {
+    const a = this.analytics();
+    if (!a?.chat || a.chat.total === 0) return null;
+    return a.chat;
+  });
+
   ngOnInit() {
     void this.load();
+    void this.loadAnalytics();
+  }
+
+  async loadAnalytics() {
+    this.analyticsLoading.set(true);
+    this.analyticsError.set(null);
+    try {
+      this.analytics.set(await this.scope.analytics());
+    } catch (e) {
+      this.analytics.set(null);
+      this.analyticsError.set(errorMessage(e));
+    } finally {
+      this.analyticsLoading.set(false);
+    }
   }
 
   setStatus(s: StatusFilter) {

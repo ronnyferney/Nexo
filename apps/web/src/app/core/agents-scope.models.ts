@@ -81,3 +81,55 @@ export interface AgentDashboard {
   counts: AgentDashboardCounts;
   agents: DashboardAgent[];
 }
+
+// ----- Observabilidad de agentes (`GET /agents/analytics`, RX-12) -----
+
+/** Media y percentiles (ms) de una muestra. `null` cuando no hay muestras suficientes. */
+export interface MetricPercentiles {
+  avg: number;
+  p50: number;
+  p95: number;
+}
+
+/**
+ * Métricas de los turnos de chat registrados en `AgentRun` (RX-14), ventana de 30 días. La tasa de éxito solo
+ * cuenta turnos terminados (SUCCEEDED/FAILED); las cancelaciones no entran. `durationMs` es la duración real por
+ * turno y `ttftMs` la latencia al primer token; ambos `null` si aún no hay muestras.
+ */
+export interface ChatAnalytics {
+  total: number;
+  successRatePct: number | null;
+  failed: number;
+  cancelled: number;
+  durationMs: MetricPercentiles | null;
+  ttftMs: MetricPercentiles | null;
+}
+
+/** Consumo (`UsageRecord`) de la ventana con desglose por origen. */
+export interface UsageAnalytics {
+  calls: number;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  bySource: { source: string; calls: number; costUsd: number }[];
+}
+
+/** Corridas de rutinas (`RoutineRun`) de la ventana. */
+export interface RoutinesAnalytics {
+  total: number;
+  byStatus: Record<string, number>;
+  successRatePct: number | null;
+  failed: number;
+  durationMs: MetricPercentiles | null;
+}
+
+/**
+ * Respuesta de `GET /agents/analytics` (RX-12): observabilidad de consumo, rutinas y chat en la ventana de 30 días.
+ * El bloque `chat` es `null` cuando aún no hay turnos de chat registrados.
+ */
+export interface AgentAnalytics {
+  window: { from: string; to: string; days: number };
+  usage: UsageAnalytics;
+  routines: RoutinesAnalytics;
+  chat: ChatAnalytics | null;
+}
