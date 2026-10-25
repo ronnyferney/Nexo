@@ -10,6 +10,7 @@ import { EmptyStateComponent } from '../../shared/empty-state.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { IconComponent } from '../../shared/icon.component';
 import { LoadingStateComponent } from '../../shared/loading-state.component';
+import { PageHeaderComponent } from '../../layout/page-header.component';
 import { FeedbackReviewItemComponent } from '../agents/training/feedback-review-item.component';
 import { formatMs, formatPct } from './supervision.util';
 
@@ -29,13 +30,13 @@ type StatusFilter = FeedbackStatus | 'ALL';
     EmptyStateComponent,
     ErrorStateComponent,
     LoadingStateComponent,
+    PageHeaderComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page">
-      <div class="page-header">
-        <div><h1>Supervisión</h1><p>Respuestas calificadas o corregidas en el chat de los agentes, listas para revisar</p></div>
-        <div class="row wrap filters">
+      <nx-page-header heading="Supervisión" description="Respuestas calificadas o corregidas en el chat de los agentes, listas para revisar">
+        <div actions class="row wrap filters">
           <div class="field"><label for="sv-status">Estado</label>
             <select id="sv-status" class="input" [ngModel]="status()" (ngModelChange)="setStatus($event)">
               @for (s of statuses; track s.id) { <option [value]="s.id">{{ s.label }}</option> }
@@ -47,7 +48,7 @@ type StatusFilter = FeedbackStatus | 'ALL';
             </select></div>
           <button class="btn refresh" [disabled]="loading()" (click)="load()"><nx-icon name="refresh" [size]="15" />Actualizar</button>
         </div>
-      </div>
+      </nx-page-header>
 
       <section class="card chat-obs">
         <div class="card-title"><h2>Observabilidad del chat</h2><span class="spacer"></span><span class="muted small">Últimos 30 días</span></div>

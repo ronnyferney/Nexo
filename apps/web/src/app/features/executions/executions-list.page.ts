@@ -9,6 +9,7 @@ import { IconComponent } from '../../shared/icon.component';
 import { LoadingStateComponent } from '../../shared/loading-state.component';
 import { DurationPipe, RelativeTimePipe } from '../../shared/relative-time.pipe';
 import { StatusBadgeComponent } from '../../shared/status-badge.component';
+import { PageHeaderComponent } from '../../layout/page-header.component';
 
 const TRIGGERS: Record<string, string> = { MANUAL: 'Manual', WEBHOOK: 'Webhook', SCHEDULE: 'Programado', AGENT: 'Agente', MCP: 'MCP' };
 
@@ -24,13 +25,13 @@ const TRIGGERS: Record<string, string> = { MANUAL: 'Manual', WEBHOOK: 'Webhook',
     EmptyStateComponent,
     ErrorStateComponent,
     LoadingStateComponent,
+    PageHeaderComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page">
-      <div class="page-header">
-        <div><h1>Ejecuciones</h1><p>Historial y trazabilidad de cada flujo ejecutado</p></div>
-        <div class="row wrap">
+      <nx-page-header heading="Ejecuciones" description="Historial y trazabilidad de cada flujo ejecutado">
+        <div actions class="row wrap">
           <label class="sr-only" for="exe-flujo">Filtrar por flujo</label>
           <select id="exe-flujo" class="input" style="width:220px" [(ngModel)]="workflowId" (ngModelChange)="reload()">
             <option value="">Todos los flujos</option>
@@ -44,7 +45,7 @@ const TRIGGERS: Record<string, string> = { MANUAL: 'Manual', WEBHOOK: 'Webhook',
           </select>
           <button class="btn icon" title="Actualizar" aria-label="Actualizar" [disabled]="loading()" (click)="reload()"><nx-icon name="refresh" /></button>
         </div>
-      </div>
+      </nx-page-header>
 
       @if (error()) {
         <nx-error-state title="No se pudieron cargar las ejecuciones" message="{{ error() }}" (retry)="reload()" />

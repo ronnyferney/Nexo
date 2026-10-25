@@ -8,6 +8,7 @@ import { ROLE_LABELS, treeOrder } from '../../shared/budget';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { IconComponent } from '../../shared/icon.component';
 import { LoadingStateComponent } from '../../shared/loading-state.component';
+import { PageHeaderComponent } from '../../layout/page-header.component';
 
 interface UnitDraft {
   id: string;
@@ -35,7 +36,7 @@ interface CreatedInvite {
 
 @Component({
   selector: 'nx-admin-organization',
-  imports: [FormsModule, IconComponent, ErrorStateComponent, LoadingStateComponent],
+  imports: [FormsModule, IconComponent, ErrorStateComponent, LoadingStateComponent, PageHeaderComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './organization.page.html',
 })

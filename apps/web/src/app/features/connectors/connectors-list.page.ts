@@ -5,6 +5,7 @@ import { ApiService, errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import type { Connector, ConnectorType } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
+import { PageHeaderComponent } from '../../layout/page-header.component';
 import { EmptyStateComponent } from '../../shared/empty-state.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { IconComponent } from '../../shared/icon.component';
@@ -15,19 +16,18 @@ import { CONNECTOR_TYPES, DB_PRESETS, DEFAULT_CONFIG } from './connector-presets
 
 @Component({
   selector: 'nx-connectors-list',
-  imports: [FormsModule, RouterLink, IconComponent, RelativeTimePipe, EmptyStateComponent, ErrorStateComponent, LoadingStateComponent],
+  imports: [FormsModule, RouterLink, IconComponent, RelativeTimePipe, EmptyStateComponent, ErrorStateComponent, LoadingStateComponent, PageHeaderComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page">
-      <div class="page-header">
-        <div><h1>Conectores</h1><p>Integre APIs REST, web services SOAP, GraphQL, servidores MCP y bases de datos</p></div>
-        <div class="row wrap">
+      <nx-page-header heading="Conectores" description="Integre APIs REST, web services SOAP, GraphQL, servidores MCP y bases de datos">
+        <div actions class="row wrap">
           <a class="btn" routerLink="/integrations"><nx-icon name="puzzle" />Catálogo de integraciones</a>
           @if (auth.canEdit()) {
             <button class="btn primary" (click)="creating.set(!creating())"><nx-icon name="plus" />Nuevo conector</button>
           }
         </div>
-      </div>
+      </nx-page-header>
 
       @if (creating()) {
         <div class="card stack" style="margin-bottom:20px">

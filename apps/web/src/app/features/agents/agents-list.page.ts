@@ -11,6 +11,7 @@ import { ErrorStateComponent } from '../../shared/error-state.component';
 import { IconComponent } from '../../shared/icon.component';
 import { LoadingStateComponent } from '../../shared/loading-state.component';
 import { NumberPipe, UsdPipe } from '../../shared/usd.pipe';
+import { PageHeaderComponent } from '../../layout/page-header.component';
 import {
   type AgentFilter,
   buildStatusTabs,
@@ -47,6 +48,7 @@ type StatusFilter = '' | 'LAUNCHED' | 'DRAFT';
     EmptyStateComponent,
     ErrorStateComponent,
     LoadingStateComponent,
+    PageHeaderComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './agents-list.page.html',

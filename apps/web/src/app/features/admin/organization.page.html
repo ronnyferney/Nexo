@@ -1,8 +1,10 @@
 <div class="page">
-  <div class="page-header">
-    <div><h1>Organización</h1><p>Unidades corporativas (centros de costo), políticas de modelos y miembros del workspace</p></div>
-    <button class="btn" (click)="load()" [disabled]="loading()"><nx-icon name="refresh" [size]="15" />Actualizar</button>
-  </div>
+  <nx-page-header
+    heading="Organización"
+    description="Unidades corporativas (centros de costo), políticas de modelos y miembros del workspace"
+    [crumbs]="[{ label: 'Administración', link: '/admin' }, { label: 'Organización' }]">
+    <button actions class="btn" (click)="load()" [disabled]="loading()"><nx-icon name="refresh" [size]="15" />Actualizar</button>
+  </nx-page-header>
 
   @if (loading()) {
     <nx-loading-state text="Cargando organización…" />

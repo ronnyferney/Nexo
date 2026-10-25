@@ -1,16 +1,12 @@
 <div class="page">
-  <div class="page-header">
-    <div>
-      <h1>Agentes de IA</h1>
-      <p>Asistentes con instrucciones, modelo y herramientas conectadas a sus sistemas</p>
-    </div>
-    <div class="row wrap">
+  <nx-page-header heading="Agentes de IA" description="Asistentes con instrucciones, modelo y herramientas conectadas a sus sistemas">
+    <div actions class="row wrap">
       <a class="btn" routerLink="/agents/explore"><nx-icon name="search" />Explorar agentes</a>
       @if (canCreate()) {
         <a class="btn primary brand" routerLink="/agents/new"><nx-icon name="plus" />Crear agente</a>
       }
     </div>
-  </div>
+  </nx-page-header>
 
   @if (error()) {
     <nx-error-state message="{{ error() }}" title="No se pudieron cargar los agentes" (retry)="load()" />

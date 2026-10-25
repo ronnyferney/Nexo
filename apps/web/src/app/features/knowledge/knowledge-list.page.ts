@@ -12,6 +12,7 @@ import { IconComponent } from '../../shared/icon.component';
 import { LoadingStateComponent } from '../../shared/loading-state.component';
 import { RelativeTimePipe } from '../../shared/relative-time.pipe';
 import { NumberPipe } from '../../shared/usd.pipe';
+import { PageHeaderComponent } from '../../layout/page-header.component';
 
 @Component({
   selector: 'nx-knowledge-list',
@@ -24,16 +25,16 @@ import { NumberPipe } from '../../shared/usd.pipe';
     EmptyStateComponent,
     ErrorStateComponent,
     LoadingStateComponent,
+    PageHeaderComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page">
-      <div class="page-header">
-        <div><h1>Conocimiento</h1><p>Bases de documentos de su empresa que los agentes consultan para responder con información propia</p></div>
+      <nx-page-header heading="Conocimiento" description="Bases de documentos de su empresa que los agentes consultan para responder con información propia">
         @if (auth.canEdit()) {
-          <button class="btn primary" (click)="creating.set(!creating())"><nx-icon name="plus" />Nueva base</button>
+          <button actions class="btn primary" (click)="creating.set(!creating())"><nx-icon name="plus" />Nueva base</button>
         }
-      </div>
+      </nx-page-header>
 
       @if (creating()) {
         <form class="card editor stack" style="margin-bottom:20px" (ngSubmit)="create()">

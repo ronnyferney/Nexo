@@ -5,17 +5,17 @@ import { budgetLevel, periodLabel, POLICY_HELP, POLICY_LABELS } from '../../shar
 import { IconComponent } from '../../shared/icon.component';
 import { ProgressBarComponent } from '../../shared/progress-bar.component';
 import { NumberPipe, UsdPipe } from '../../shared/usd.pipe';
+import { PageHeaderComponent } from '../../layout/page-header.component';
 
 @Component({
   selector: 'nx-my-usage',
-  imports: [IconComponent, ProgressBarComponent, UsdPipe, NumberPipe],
+  imports: [IconComponent, ProgressBarComponent, UsdPipe, NumberPipe, PageHeaderComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page">
-      <div class="page-header">
-        <div><h1>Mi consumo</h1><p>Su uso de modelos de IA y los presupuestos que lo cubren</p></div>
-        <button class="btn" (click)="load()" [disabled]="loading()"><nx-icon name="refresh" [size]="15" />Actualizar</button>
-      </div>
+      <nx-page-header heading="Mi consumo" description="Su uso de modelos de IA y los presupuestos que lo cubren">
+        <button actions class="btn" (click)="load()" [disabled]="loading()"><nx-icon name="refresh" [size]="15" />Actualizar</button>
+      </nx-page-header>
 
       @if (loading()) {
         <div class="card empty"><p>Cargando consumo…</p></div>

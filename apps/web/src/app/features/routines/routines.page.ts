@@ -17,6 +17,7 @@ import { LoadingStateComponent } from '../../shared/loading-state.component';
 import { RelativeTimePipe } from '../../shared/relative-time.pipe';
 import { StatusBadgeComponent } from '../../shared/status-badge.component';
 import { UsdPipe } from '../../shared/usd.pipe';
+import { PageHeaderComponent } from '../../layout/page-header.component';
 import { RoutineRunsComponent } from './routine-runs.component';
 
 const DATE_TIME = new Intl.DateTimeFormat('es', { dateStyle: 'medium', timeStyle: 'short' });
@@ -34,18 +35,18 @@ const DATE_TIME = new Intl.DateTimeFormat('es', { dateStyle: 'medium', timeStyle
     EmptyStateComponent,
     ErrorStateComponent,
     LoadingStateComponent,
+    PageHeaderComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page">
-      <div class="page-header">
-        <div><h1>Rutinas</h1><p>Tareas programadas de todos los agentes del espacio de trabajo</p></div>
-        <div class="row wrap tools">
+      <nx-page-header heading="Rutinas" description="Tareas programadas de todos los agentes del espacio de trabajo">
+        <div actions class="row wrap tools">
           <label class="sr-only" for="rt-filter">Filtrar</label>
           <input id="rt-filter" class="input filter" type="search" placeholder="Buscar por rutina o agente…" [ngModel]="filter()" (ngModelChange)="filter.set($event)" />
           <button class="btn" (click)="load()" [disabled]="loading()"><nx-icon name="refresh" [size]="15" />Actualizar</button>
         </div>
-      </div>
+      </nx-page-header>
 
       @if (loading() && !routines().length) {
         <nx-loading-state text="Cargando rutinas…" />
