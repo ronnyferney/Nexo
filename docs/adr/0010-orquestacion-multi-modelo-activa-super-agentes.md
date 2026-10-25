@@ -1,6 +1,6 @@
 # 0010. Orquestación multi-modelo activa: enrutamiento por capacidad/costo y verificación cruzada (super-agentes)
 
-- **Estado:** Propuesto
+- **Estado:** Aceptado (decisiones de negocio resueltas 2026-10-25 por el dueño del producto)
 - **Fecha:** 2026-10-25
 - **Responsables:** nexo-architect
 - **Relacionado:** ADR 0002 (gobierno multi-LLM y presupuestos), ADR 0003 D1 (cadena de respaldo), ADR 0008
@@ -86,8 +86,14 @@ Una **política de enrutamiento** (`RoutingPolicy`, JSON) con esta forma concept
 }
 ```
 
-- **Por agente:** `Agent.routing` (Json, opcional). `null` ⇒ comportamiento actual (principal `Agent.model` +
-  `Agent.fallbackModels`). Requiere migración (ver Consecuencias). Es el nivel principal de L17.
+- **Por empresa/unidad (gobierno central, decisión 1):** el administrador define desde el inicio los **modelos
+  permitidos y los límites** (ya existe `OrgUnit.allowedModels` y el presupuesto jerárquico de ADR 0002) y, además, una
+  **política de enrutamiento por defecto** a nivel de workspace/unidad. Cada dueño de agente configura su agente
+  **dentro de esas condiciones**: no puede habilitar un modelo prohibido ni superar el presupuesto de su unidad. Este es
+  el marco que gobierna a los niveles de abajo.
+- **Por agente:** `Agent.routing` (Json, opcional). `null` ⇒ hereda la política por defecto de su unidad (o, si no hay,
+  el comportamiento actual: principal `Agent.model` + `Agent.fallbackModels`). Requiere migración (ver Consecuencias). Es
+  el nivel principal de L17, siempre acotado por el gobierno central.
 - **Por skill:** una skill (ADR 0003 D3) puede declarar una **capacidad requerida** (p. ej. `CODE`); cuando el agente
   carga esa skill, la necesidad se añade como señal de enrutamiento para los pasos de esa skill. Opcional; sin dato, no
   cambia nada.
@@ -126,8 +132,14 @@ imputa su propio consumo):
 - **Redactor + verificador (draft-and-critique):** un modelo redacta y **otro de distinto fabricante** critica/verifica
   (y, opcionalmente, el redactor revisa con la crítica). Se declara como una **política opcional de verificación** a
   nivel de agente (`Agent.routing.verify`) o como composición explícita en un flujo. El verificador se elige con las
-  mismas reglas de D2/D3 (preferir **otro `providerId`** para reducir correlación de errores/sesgos). El veredicto del
-  verificador se añade como contexto; la política define si un rechazo bloquea, reintenta o solo advierte.
+  mismas reglas de D2/D3. El veredicto del verificador se añade como contexto.
+  **Política por defecto (decisión 6):** en tareas **informativas**, un problema detectado **solo advierte**; antes de
+  una **acción sensible** (herramienta con efecto, salida al exterior, decisión de negocio, extracción de datos
+  sensibles), un problema detectado **exige revisión humana** antes de continuar (no se ejecuta la acción solo). El
+  verificador debe **contrastar con las fuentes** (conocimiento del agente, entradas), no opinar en el vacío. Usar **otro
+  fabricante** como verificador es **configurable** (recomendado para reducir correlación de errores/sesgos) y siempre
+  **respeta los permisos de datos de la empresa** (DataGuard, ADR 0008). Se expone como función **premium** por su costo
+  (al menos duplica costo/latencia).
 - **Multi-agente por rol con modelos heterogéneos:** agentes como herramientas de otros agentes (backlog "agentes como
   herramientas", item 4 de `AGENTS-TEAM.md`), cada sub-agente con su propio modelo/política. Se apoya en el nodo `agent`
   y en la composición de flujos ya existentes; este ADR no crea un runtime multi-agente nuevo, define cómo encaja el
@@ -142,10 +154,14 @@ por presupuesto; nunca es el modo por defecto.
 
 - Cada turno ya se mide en `UsageRecord` con `model` y `providerId`; el enrutamiento **no** pierde esa trazabilidad
   porque sigue pasando por `onUsage`.
-- Se añade la **razón de enrutamiento y el rol** a la traza: qué política/regla eligió el modelo y, en verificación
-  cruzada/multi-agente, qué rol jugó (`draft`, `verify`, o el nombre del rol). Decisión de forma de dato en
-  Consecuencias (columna nueva vs. metadato); requiere decisión de producto por su impacto en la consola de consumo
-  (`GET /admin/usage/*`) y en RX-12.
+- **Registro obligatorio (decisión 2):** por cada paso se guarda **modelo utilizado, motivo de selección, costo, tiempo,
+  número de intentos y resultado** (éxito/fallo). El **motivo es una regla o código auditable** (p. ej. `VISION_REQUERIDA`,
+  `OBJETIVO_COSTO`, `RESPALDO_POR_FALLO`, `VERIFICACION_CRUZADA`), **nunca el razonamiento interno del modelo**: no se
+  almacena la cadena de pensamiento ni texto libre generado por el modelo como "motivo". Esto se expone en la consola de
+  consumo (`GET /admin/usage/*`) y en RX-12.
+- Se añade también el **rol** a la traza (`draft`, `verify`, o el nombre del rol en multi-agente). Decisión de forma de
+  dato en Consecuencias (columnas nuevas, preferido, vs. metadato); por la decisión 2 el registro es obligatorio, así que
+  se implementa con columnas consultables en `UsageRecord`.
 - Se emite un `notice` por cada decisión de enrutamiento (igual que hoy con el respaldo), visible en el chat y en la
   ejecución, para que el usuario sepa qué modelo respondió y por qué.
 
@@ -159,8 +175,12 @@ por presupuesto; nunca es el modo por defecto.
 
 ### D7. Límites y seguridad
 
-- `maxCandidates` y un **tope de costo por tarea** acotan la amplificación de costo/latencia del enrutamiento y de la
-  verificación cruzada; se define el valor por defecto como decisión de producto.
+- **Topes (decisión 4):** **presupuesto por tarea** y **límite mensual por empresa** (este último reutiliza el
+  presupuesto jerárquico de ADR 0002). `maxCandidates` por defecto = **3 intentos totales** por tarea (incluye respaldos
+  y verificación; **no** significa consultar 3 modelos en cada tarea: la mayoría resuelve con el primero). Al alcanzar el
+  tope de costo o de intentos, el runtime **se detiene e informa** (no sigue gastando en silencio), igual que hoy con el
+  presupuesto agotado. El perfil por defecto (decisión 3) es **equilibrado**, con perfiles seleccionables de **ahorro**,
+  **equilibrado** y **máxima calidad**, siempre acotados por los límites de la empresa.
 - El enrutamiento respeta DataGuard (ADR 0008): el cliente llega envuelto desde `gateway.resolve`; el `privacyScope` se
   mantiene estable por conversación/ejecución aunque cambie el modelo.
 - No se introduce ningún camino al proveedor fuera de `LlmGateway`/`HttpClientService`. La política es JSON validado
@@ -194,20 +214,28 @@ por presupuesto; nunca es el modo por defecto.
   cruzada mide ambos modelos, compatibilidad con `routing = null`); e2e de un agente con política de visión sobre un
   documento y de un flujo con triage barato + razonamiento fuerte.
 
-## Preguntas abiertas (decisión de negocio)
+## Decisiones de negocio (resueltas 2026-10-25)
 
-1. **Nivel de configuración:** ¿solo por agente, o también una política por defecto por workspace/unidad corporativa
-   (gobierno central del enrutamiento)?
-2. **Traza de rol/razón:** ¿se añaden columnas a `UsageRecord` (D5) y se exponen en la consola de consumo, o basta el
-   `notice`? Afecta a RX-12 y a una migración.
-3. **Objetivo por defecto:** ¿`balanced`, `cost` o `quality` cuando el cliente no elige?
-4. **Topes:** valor por defecto de `maxCandidates` y del tope de costo por tarea.
-5. **Triage con LLM:** ¿se habilita la estrategia opcional de un modelo `FAST` que clasifica (opción 2), con su costo, o
-   se restringe el enrutamiento a señales deterministas?
-6. **Verificación cruzada:** ¿política por defecto del veredicto (bloquear / reintentar / solo advertir) y se exige que
-   el verificador sea de **otro fabricante**? ¿Se expone como función premium por su costo?
-7. **Dependencia de L18:** ¿se construye el runtime multi-agente (agentes como herramientas) como prerequisito, o se
-   entrega primero solo el patrón redactor+verificador de un agente?
+El dueño del producto resolvió las siete preguntas abiertas. Rigen el diseño de arriba y el plan de implementación.
+
+1. **Nivel de configuración → gobierno central desde el inicio.** El administrador define modelos permitidos y límites
+   por empresa/unidad, y una política de enrutamiento por defecto a ese nivel. Cada dueño configura su agente **dentro de
+   esas condiciones**. (Ver D2, primer nivel.)
+2. **Traza de rol/razón → registro obligatorio con columnas.** Se guarda modelo, motivo, costo, tiempo, intentos y
+   resultado por paso. El **motivo es una regla/código auditable, nunca el razonamiento interno del modelo**. Se expone
+   en la consola de consumo y en RX-12. (Ver D5.)
+3. **Objetivo por defecto → equilibrado.** Con perfiles seleccionables de ahorro, equilibrado y máxima calidad, sujetos
+   a los límites de la empresa. (Ver D7.)
+4. **Topes → presupuesto por tarea + límite mensual por empresa.** `maxCandidates` por defecto = **3 intentos totales**
+   (no consultar 3 modelos en cada tarea). Al alcanzar el límite, detener e informar. (Ver D7.)
+5. **Triage con LLM → no en la primera versión.** Solo reglas explícitas por tipo de tarea, capacidades requeridas y
+   disponibilidad. Se evalúa después si un clasificador mejora los resultados. (Ver D2/D3, señales deterministas.)
+6. **Verificación → advertir en tareas informativas; revisión humana antes de acciones sensibles** cuando detecte
+   problemas. El verificador contrasta con las fuentes. Otro fabricante es **configurable** y respeta los permisos de
+   datos de la empresa. Función premium por su costo. (Ver D4.)
+7. **Primera entrega → redactor + verificador**, con trazabilidad y presupuesto compartido. La orquestación completa de
+   agentes (agentes como herramientas) queda para una fase posterior, tras validar esta entrega. (Ver plan de
+   implementación: fases 1–4 primero; la multi-agente por rol se habilita en una fase posterior.)
 
 ## Plan de implementación
 
