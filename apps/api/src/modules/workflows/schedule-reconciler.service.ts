@@ -2,6 +2,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import type { Redis } from 'ioredis';
+import { IncumplimientosService } from '../results/incumplimientos.service';
 import { RoutinesService } from '../routines/routines.service';
 import { WORKFLOW_QUEUE } from './queue/workflow-queue.constants';
 import { reconcileSource, type ReconcileStats, type ScheduleSource } from './schedule-reconciler';
@@ -32,6 +33,7 @@ export class ScheduleReconcilerService implements OnApplicationBootstrap {
     private readonly workflows: WorkflowsService,
     private readonly routines: RoutinesService,
     @InjectQueue(WORKFLOW_QUEUE) private readonly queue: Queue,
+    private readonly incumplimientos: IncumplimientosService,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
@@ -40,6 +42,12 @@ export class ScheduleReconcilerService implements OnApplicationBootstrap {
     } catch (err) {
       // No impide el arranque: la API sigue sirviendo y el próximo arranque vuelve a intentarlo.
       this.logger.error(`No se pudieron reconciliar los programadores: ${(err as Error).message}`);
+    }
+    try {
+      // E4/RF31: barrido inicial de vencimientos de tareas/contratos (luego lo repite el job `JOB_RESULTS_SWEEP`).
+      await this.incumplimientos.barrer();
+    } catch (err) {
+      this.logger.error(`No se pudo barrer incumplimientos al arrancar: ${(err as Error).message}`);
     }
   }
 

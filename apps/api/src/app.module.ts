@@ -28,6 +28,7 @@ import { LlmModule } from './modules/llm/llm.module';
 import { KnowledgeModule } from './modules/knowledge/knowledge.module';
 import { McpServerModule } from './modules/mcp-server/mcp-server.module';
 import { OAuthModule } from './modules/oauth/oauth.module';
+import { ResultsModule } from './modules/results/results.module';
 import { RoutinesModule } from './modules/routines/routines.module';
 import { SkillsModule } from './modules/skills/skills.module';
 import { TrainingModule } from './modules/training/training.module';
@@ -88,6 +89,7 @@ import { WorkspacesModule } from './modules/workspaces/workspaces.module';
     KnowledgeModule,
     TrainingModule,
     WorkflowsModule,
+    ResultsModule,
     RoutinesModule,
     McpServerModule,
     HealthModule,

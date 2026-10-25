@@ -2,6 +2,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { Module, type Provider } from '@nestjs/common';
 import { AgentsModule } from '../agents/agents.module';
 import { ConnectorsModule } from '../connectors/connectors.module';
+import { ResultsModule } from '../results/results.module';
 import { RoutinesModule } from '../routines/routines.module';
 import { WorkflowProcessor } from './queue/workflow.processor';
 import { WORKFLOW_QUEUE } from './queue/workflow-queue.constants';
@@ -15,7 +16,13 @@ import { WorkflowsService } from './workflows.service';
 const workers: Provider[] = process.env.WORKER_ENABLED === 'false' ? [] : [WorkflowProcessor];
 
 @Module({
-  imports: [BullModule.registerQueue({ name: WORKFLOW_QUEUE }), ConnectorsModule, AgentsModule, RoutinesModule],
+  imports: [
+    BullModule.registerQueue({ name: WORKFLOW_QUEUE }),
+    ConnectorsModule,
+    AgentsModule,
+    RoutinesModule,
+    ResultsModule,
+  ],
   controllers: [WorkflowsController, ExecutionsController, WebhooksController],
   providers: [WorkflowsService, WorkflowRunnerService, RetentionService, ScheduleReconcilerService, ...workers],
   exports: [WorkflowsService, RetentionService, ScheduleReconcilerService],

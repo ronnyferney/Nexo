@@ -305,6 +305,11 @@ model Workspace {
   sedes                     Sede[]
   centrosCosto              CentroCosto[]
   asignaciones              AsignacionOrganizacional[]
+  objetivos                 Objetivo[]
+  tareas                    Tarea[]
+  contratosResultado        ContratoResultado[]
+  evidencias                Evidencia[]
+  incumplimientos           Incumplimiento[]
 }
 
 /// Catálogo de cargos (RF03): perfil reutilizable del empleado digital con propósito, funciones, entregables,
@@ -609,12 +614,17 @@ model Execution {
   workflow    Workflow        @relation(fields: [workflowId], references: [id], onDelete: Cascade)
   workspaceId String
   workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// Vínculo opcional y aditivo a la tarea cuyo trabajo ejecuta este flujo (E4/RF08). `null` = ejecución sin tarea
+  /// (comportamiento previo intacto). Una tarea puede tener varias ejecuciones (segmentos del handoff llegan en E5).
+  tareaId     String?
+  tarea       Tarea?          @relation(fields: [tareaId], references: [id], onDelete: SetNull)
   startedAt   DateTime?
   finishedAt  DateTime?
   createdAt   DateTime        @default(now())
 
   @@index([workspaceId, createdAt])
   @@index([workflowId])
+  @@index([tareaId])
 }
 
 // ===================== Gobierno de IA (ADR 0002) =====================
@@ -1332,4 +1342,236 @@ model UserGroupMember {
 
   @@id([groupId, userId])
   @@index([userId])
+}
+
+// ===================== Trabajo por resultados (ADR 0012 · E4) =====================
+// Núcleo de la gestión obligatoria por resultados (RF07, RF08, RF29, RF30, RF31). Entidades aditivas y multi-tenant:
+// toda consulta filtra por `workspaceId` (de `@CurrentAuth()`). Las referencias a `User`/`Agent`/`OrgUnit` son blandas
+// (se validan en servicio y NO conceden acceso, igual que la estructura empresarial E1). La comunicación entre agentes,
+// el handoff y los canales (E5: MensajeAgente, ContratoTransferencia, Canal, HiloCanal) son una cédula aparte.
+
+/// Estado OPERATIVO de la tarea (ciclo del trabajo como DAG). Ortogonal al estado del resultado (RF08, solicitud §4).
+enum EstadoTarea {
+  PENDIENTE
+  EN_EJECUCION
+  ESPERANDO_APROBACION
+  BLOQUEADA
+  EN_REVISION
+  COMPLETADA
+  FALLIDA_CANCELADA
+}
+
+/// Estado del RESULTADO (verificable, RF29/RF31). COMPLETADA como DAG no implica ACEPTADO como resultado.
+enum EstadoResultado {
+  PROPUESTO
+  COMPROMETIDO
+  EN_PRODUCCION
+  PENDIENTE_VALIDACION
+  ACEPTADO
+  DEVUELTO_INCUMPLIDO
+}
+
+/// Un producto intermedio (un correo redactado) no satisface un resultado de negocio (un recaudo confirmado), RF29.
+enum TipoResultado {
+  PRODUCTO_INTERMEDIO
+  RESULTADO_NEGOCIO
+}
+
+/// Modo de verificación del resultado (RF30/ADR 0010 D4). ASISTIDA reutiliza la verificación cruzada, no la reimplementa.
+enum ModoValidacion {
+  DETERMINISTA
+  HUMANA
+  ASISTIDA
+}
+
+enum VeredictoValidacion {
+  ACEPTA
+  DEVUELVE
+}
+
+/// Objetivo (RF07): indicador, línea base, meta y plazo con dueño humano y responsable digital. Agrupa tareas.
+/// Lo autoriza un humano (el sistema solo propone). Vínculo opcional a una unidad/empresa/línea por `orgUnitId`.
+model Objetivo {
+  id                 String    @id @default(cuid())
+  workspaceId        String
+  workspace          Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// Empresa / área / línea de negocio a la que pertenece (referencia blanda, validada en servicio).
+  orgUnitId          String?
+  codigo             String
+  nombre             String
+  indicador          String?
+  lineaBase          String?
+  meta               String?
+  /// Fecha de negocio comprometida.
+  plazo              DateTime?
+  /// Dueño humano (referencia blanda a `User`; no concede acceso).
+  duenoUserId        String?
+  /// Responsable digital (referencia blanda a `Agent`).
+  responsableAgentId String?
+  /// Vigencia e historia (QA16): una reorganización no altera objetivos pasados.
+  validFrom          DateTime  @default(now())
+  validTo            DateTime?
+  tareas             Tarea[]
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([workspaceId, codigo])
+  @@index([workspaceId, orgUnitId])
+}
+
+/// Tarea (RF08): unidad de trabajo con criterio de aceptación, responsable (agente/equipo), dueño humano, prioridad,
+/// fecha límite y estado operativo. Distingue producto intermedio de resultado de negocio. Lleva campos de delegación
+/// (cadena `parentTareaId`, `profundidadDelegacion`, `correlationId`) para el control de ciclos de E5 (RF10).
+model Tarea {
+  id                    String             @id @default(cuid())
+  workspaceId           String
+  workspace             Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  orgUnitId             String?
+  objetivoId            String?
+  objetivo              Objetivo?          @relation(fields: [objetivoId], references: [id], onDelete: SetNull)
+  titulo                String
+  descripcion           String?
+  criterioAceptacion    String?
+  entradas              Json               @default("{}")
+  /// Responsable digital ejecutor (referencia blanda a `Agent`). El verificador debe ser distinto (RF30).
+  responsableAgentId    String?
+  equipoId              String?
+  /// Dueño humano (referencia blanda a `User`).
+  duenoUserId           String?
+  prioridad             Int                @default(3)
+  fechaLimite           DateTime?
+  estado                EstadoTarea        @default(PENDIENTE)
+  tipoResultado         TipoResultado      @default(PRODUCTO_INTERMEDIO)
+  /// Delegación y control de ciclos (RF10; la validación dura llega con el handoff de E5).
+  parentTareaId         String?
+  profundidadDelegacion Int                @default(0)
+  correlationId         String?
+  validFrom             DateTime           @default(now())
+  validTo               DateTime?
+  contratoResultado     ContratoResultado?
+  executions            Execution[]
+  evidencias            Evidencia[]
+  incumplimientos       Incumplimiento[]
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  @@index([workspaceId, estado])
+  @@index([workspaceId, objetivoId])
+  @@index([workspaceId, fechaLimite])
+  @@index([parentTareaId])
+}
+
+/// Contrato de resultado (RF29): el resultado esperado como objeto verificable. Una descripción libre no lo reemplaza.
+/// Un contrato COMPROMETIDO es inmutable: un cambio crea una versión nueva. La `reglaValidacion` es declarativa
+/// (se evalúa con el motor de reglas puro del flujo, NUNCA con `eval`/`new Function`).
+model ContratoResultado {
+  id                 String                @id @default(cuid())
+  workspaceId        String
+  workspace          Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tareaId            String?               @unique
+  tarea              Tarea?                @relation(fields: [tareaId], references: [id], onDelete: SetNull)
+  resultadoEsperado  String
+  alcance            String?
+  entradas           Json                  @default("{}")
+  responsableAgentId String?
+  duenoUserId        String?
+  fecha              DateTime?
+  presupuestoUsd     Decimal?              @db.Decimal(18, 8)
+  indicador          String?
+  /// Regla determinista declarativa: { combinator?: 'and'|'or', rules: [{ left, operator, right }] } (motor de flujos).
+  reglaValidacion    Json                  @default("{}")
+  /// Tipos/fuentes de evidencia obligatorios para aceptar.
+  evidenciaExigida   Json                  @default("[]")
+  tipoResultado      TipoResultado         @default(RESULTADO_NEGOCIO)
+  nivelRiesgo        Int                   @default(1)
+  estado             EstadoResultado       @default(PROPUESTO)
+  version            Int                   @default(1)
+  /// Tras comprometer queda inmutable (nueva versión para cambios).
+  comprometidoAt     DateTime?
+  validaciones       ValidacionResultado[]
+  evidencias         Evidencia[]
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  @@index([workspaceId, estado])
+}
+
+/// Validación del resultado (RF30). Invariante de aplicación (garantizado en servicio): el verificador es distinto
+/// del ejecutor. Una devolución conserva versión y motivo (código auditable, nunca el razonamiento del modelo).
+model ValidacionResultado {
+  id                  String              @id @default(cuid())
+  workspaceId         String
+  contratoResultadoId String
+  contrato            ContratoResultado   @relation(fields: [contratoResultadoId], references: [id], onDelete: Cascade)
+  modo                ModoValidacion
+  /// Verificador: distinto del ejecutor (`Tarea.responsableAgentId`) y, si es humano, del dueño ejecutor.
+  verificadorAgentId  String?
+  validadorUserId     String?
+  reglaAplicada       Json?
+  veredicto           VeredictoValidacion
+  motivo              String?
+  evidenciaIds        String[]            @default([])
+  /// Versión del contrato evaluada (la devolución conserva versión y motivo).
+  version             Int                 @default(1)
+  createdAt           DateTime            @default(now())
+
+  @@index([workspaceId, contratoResultadoId])
+}
+
+/// Evidencia (prueba del resultado): REFERENCIA autorizada a la fuente (id externo, ejecución, enlace), no copia de
+/// datos sensibles (RF35). Lleva propietario y vigencia. Puede colgar de la tarea o del contrato.
+model Evidencia {
+  id                  String             @id @default(cuid())
+  workspaceId         String
+  workspace           Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contratoResultadoId String?
+  contrato            ContratoResultado? @relation(fields: [contratoResultadoId], references: [id], onDelete: SetNull)
+  tareaId             String?
+  tarea               Tarea?             @relation(fields: [tareaId], references: [id], onDelete: SetNull)
+  tipo                String
+  descripcion         String?
+  /// Referencia autorizada a la fuente: { connectorOpId?, externalId?, executionId?, url? }.
+  referencia          Json               @default("{}")
+  hash                String?
+  /// Propietario de la evidencia (referencia blanda a `User`).
+  propietarioUserId   String?
+  /// Vigencia de la evidencia (null = sin límite).
+  vigenteHasta        DateTime?
+  createdAt           DateTime           @default(now())
+
+  @@index([workspaceId, contratoResultadoId])
+  @@index([workspaceId, tareaId])
+}
+
+/// Incumplimiento + plan de recuperación (RF31): alerta, responsable, plazo, y LÍMITES explícitos de reintentos,
+/// gasto y ciclos, con escalamiento al siguiente nivel digital. Al agotar el límite se declara (nunca queda activo
+/// indefinidamente ocultando un resultado no logrado). Lo detecta el cron de reconciliación existente.
+model Incumplimiento {
+  id                String    @id @default(cuid())
+  workspaceId       String
+  workspace         Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tareaId           String
+  tarea             Tarea     @relation(fields: [tareaId], references: [id], onDelete: Cascade)
+  causa             String
+  /// Responsable humano del plan (referencia blanda a `User`).
+  responsableUserId String?
+  /// Escalamiento al siguiente nivel digital (referencia blanda a `Agent`).
+  escalaAgentId     String?
+  planRecuperacion  String?
+  plazo             DateTime?
+  maxReintentos     Int       @default(0)
+  maxCostoUsd       Decimal?  @db.Decimal(18, 8)
+  maxCiclos         Int       @default(0)
+  intentos          Int       @default(0)
+  ciclos            Int       @default(0)
+  /// `true` cuando el plan se resolvió (recuperado) o se declaró agotado el límite: el proceso deja de estar activo.
+  resuelto          Boolean   @default(false)
+  /// Cómo se cerró: null (abierto), `RECUPERADO`, `LIMITE_AGOTADO`, `PLAZO_VENCIDO`.
+  resolucion        String?
+  resueltoAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([workspaceId, tareaId])
+  @@index([workspaceId, resuelto])
 }

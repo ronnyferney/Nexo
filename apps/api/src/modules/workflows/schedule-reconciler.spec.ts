@@ -93,10 +93,12 @@ describe('ScheduleReconcilerService', () => {
     const rt = memorySource([e('r1', '0 9 * * *', 'UTC')], []);
     const workflows = { scheduleSource: () => wf.source };
     const routines = { scheduleSource: () => rt.source };
+    const incumplimientos = { barrer: jest.fn().mockResolvedValue({ abiertos: 0, declarados: 0 }) };
     const service = new ScheduleReconcilerService(
       workflows as never,
       routines as never,
       { client: Promise.resolve(client) } as never,
+      incumplimientos as never,
     );
     return { service, client, wf, rt };
   }
@@ -126,10 +128,12 @@ describe('ScheduleReconcilerService', () => {
 
   it('un error al arrancar no tumba la aplicación', async () => {
     const client = { set: jest.fn().mockRejectedValue(new Error('redis caído')), eval: jest.fn() };
+    const incumplimientos = { barrer: jest.fn().mockResolvedValue({ abiertos: 0, declarados: 0 }) };
     const service = new ScheduleReconcilerService(
       {} as never,
       {} as never,
       { client: Promise.resolve(client) } as never,
+      incumplimientos as never,
     );
     await expect(service.onApplicationBootstrap()).resolves.toBeUndefined();
   });
