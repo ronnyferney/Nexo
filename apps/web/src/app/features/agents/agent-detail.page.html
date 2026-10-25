@@ -15,7 +15,21 @@
         <a class="btn ghost icon" routerLink="/agents" title="Volver a agentes" aria-label="Volver a agentes"><nx-icon name="arrowLeft" /></a>
         <div class="icon-tile"><nx-icon name="bot" /></div>
         <div class="who">
-          <h1>{{ a.name }}</h1>
+          @if (editingName()) {
+            <div class="name-edit">
+              <input class="input name-input" [(ngModel)]="form.name" aria-label="Nombre del agente" maxlength="120"
+                (keydown.enter)="commitRenaming()" (keydown.escape)="cancelRenaming()" />
+              <button class="btn sm primary" [disabled]="!form.name.trim() || saving()" (click)="commitRenaming()">Guardar</button>
+              <button class="btn sm ghost" [disabled]="saving()" (click)="cancelRenaming()">Cancelar</button>
+            </div>
+          } @else {
+            <div class="name-row">
+              <h1>{{ a.name }}</h1>
+              @if (canEditAgent()) {
+                <button class="btn ghost icon sm rename" title="Renombrar agente" aria-label="Renombrar agente" (click)="startRenaming()"><nx-icon name="pencil" [size]="15" /></button>
+              }
+            </div>
+          }
           <div class="meta-badges">
             @if (a.visibility; as v) {
               <span class="badge" [title]="visibilityMeta[v].description"><nx-icon [name]="visibilityMeta[v].icon" [size]="12" />{{ visibilityMeta[v].label }}</span>

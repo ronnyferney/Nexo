@@ -243,6 +243,8 @@ export class AgentDetailPage implements OnInit {
   readonly launchBusy = signal(false);
   readonly duplicating = signal(false);
   readonly saving = signal(false);
+  /** Edición inline del nombre desde el título del encabezado. */
+  readonly editingName = signal(false);
   readonly maxFallbacks = MAX_FALLBACKS;
   readonly efforts: { id: Effort; label: string }[] = [
     { id: 'low', label: 'Bajo — rápido y económico' },
@@ -659,6 +661,30 @@ export class AgentDetailPage implements OnInit {
       this.toast.error(errorMessage(e));
     } finally {
       this.saving.set(false);
+    }
+  }
+
+  /** Abre la edición inline del nombre desde el título (sincroniza el campo con el valor guardado). */
+  startRenaming() {
+    if (!this.canEditAgent()) return;
+    this.form.name = this.agent()?.name ?? this.form.name;
+    this.editingName.set(true);
+  }
+
+  /** Cierra la edición inline descartando el cambio de nombre. */
+  cancelRenaming() {
+    this.form.name = this.agent()?.name ?? this.form.name;
+    this.editingName.set(false);
+  }
+
+  /** Confirma el nuevo nombre: guarda si cambió (reusa el flujo de guardado) y cierra la edición. */
+  async commitRenaming() {
+    const name = this.form.name.trim();
+    if (!name) return;
+    this.editingName.set(false);
+    if (name !== (this.agent()?.name ?? '')) {
+      this.form.name = name;
+      await this.save();
     }
   }
 

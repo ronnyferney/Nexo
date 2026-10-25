@@ -83,6 +83,13 @@
 .head-info { min-width: 0; }
 .head-info .who { min-width: 0; }
 .head-info p { overflow-wrap: anywhere; }
+.name-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.name-row h1 { min-width: 0; overflow-wrap: anywhere; }
+.name-row .rename { opacity: 0; transition: opacity 0.12s ease; flex: none; }
+.name-row:hover .rename, .name-row .rename:focus-visible { opacity: 1; }
+.name-edit { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.name-edit .name-input { font-size: 20px; font-weight: 700; max-width: 440px; }
+@media (hover: none) { .name-row .rename { opacity: 1; } }
 .studio { min-width: 0; }
 .tab { display: inline-flex; align-items: center; gap: 6px; padding: 10px 11px; }
 .tab .count { font-size: 11px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--surface-2); color: var(--muted); display: inline-grid; place-items: center; }
