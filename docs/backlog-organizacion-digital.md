@@ -22,7 +22,8 @@ son la base del resto. Lo que NEXO **ya tiene** se marca para reutilizar y reduc
 | **E2 · Empleado digital** | Catálogo de cargos, expediente, cargo+responsable humano titular/suplente, estados de ciclo de vida, versiones, publicación/retiro | RF02, RF03, RF04, RF05, RF06 | P0 | Construye |
 | **E3 · Jerarquía de dirección digital** | Niveles (empleado→líder→jefe→director→gerente→superempleado), autoridad, delegación, supervisión y reemplazo | RF32, RF33, RF34, RF39, RF40 | P0 | Construye |
 | **E4 · Trabajo por resultados** | Objetivos, tareas y entregables, contrato de resultado, verificación/aceptación, incumplimientos | RF07, RF08, RF29, RF30, RF31 | P0 | Construye |
-| **E5 · Colaboración y comunicación** | Flujos con contratos, control de delegación, protocolo de mensajes entre agentes, coordinación transversal | RF09, RF10, RF35, RF36 | P0 | Modifica + Construye |
+| **E5 · Colaboración y comunicación** | Flujos con contratos, **continuidad de tarea (handoff entre agentes/grupos)**, control de delegación, protocolo de mensajes entre agentes, coordinación transversal | RF09, RF10, RF35, RF36 | P0 | Modifica + Construye |
+| **E14 · Canales de comunicación externa** | Correo, **llamadas telefónicas con agentes conversacionales al 100 %**, mensajería **WhatsApp** — como canales de los empleados digitales, bajo política y aprobación | RF16, RF17, RF35 (ext.) | P0 | Reutiliza (correo) + Construye (voz, WhatsApp) |
 | **E6 · Gobierno de acciones** | Motor de políticas, bandeja de aprobaciones (hash/invalidación/doble), suspensión de emergencia | RF11, RF12, RF13 | P0 | Construye |
 | **E7 · Durabilidad avanzada** | Idempotencia, deduplicación de eventos, reintentos/conciliación, bandeja de excepciones | RF17, RF18, RF20, RF21 | P0 | Modifica + Construye |
 | **E8 · Conocimiento y herramientas** | Conocimiento empresarial, memoria controlada, conectores, pasarela | RF14, RF15, RF16, RF17 | P0 | Reutiliza + Modifica |
@@ -95,6 +96,12 @@ ciclos, concurrencia, «un agente no crea agentes ni amplía su presupuesto»), 
 con idempotencia), RF36 (coordinación transversal: canales por misión/proceso/área, hilos, menciones; una solicitud se
 vuelve tarea autorizada). **QA:** QA11 (redelivery sin duplicar, escalamiento por falta de respuesta). **HU:** HU05,
 HU17.
+**Continuidad de tarea (handoff) — requisito del dueño del producto:** la comunicación entre agentes tiene como fin
+**estructurar mejor tareas y procesos**. Un agente puede llevar una tarea hasta un **punto de corte definido** y
+**otro agente o grupo de agentes continúa** desde ese estado, sin rehacer ni duplicar lo confirmado. Cada handoff es
+un **contrato de transferencia** (estado alcanzado, entregable parcial, contexto autorizado, criterio del siguiente
+paso, permisos y responsable entrante) sobre el estado persistido de la tarea (E4) y el motor durable (E7). El
+receptor **acepta o rechaza** el encargo (RF33) y la cadena conserva trazabilidad de quién hizo qué.
 
 ### E6 · Gobierno de acciones (P0) — Construye
 RF11 (motor de políticas server-side por monto/destinatario/tipo de dato/horario, versionado; un texto del modelo no
@@ -139,13 +146,36 @@ RNF01-09: disponibilidad 99,5 %, P95 ≤ 2 s, RPO/RTO, observabilidad correlacio
 retención por tipo de dato (**continúa** DataGuard D3-D6), exportación. **Reutiliza** el cifrado/rotación y el
 endurecimiento ya hechos.
 
+### E14 · Canales de comunicación externa (P0) — Reutiliza + Construye
+Requisito del dueño del producto para esta versión: los empleados digitales se comunican con el exterior por **correo**,
+**llamadas telefónicas con agentes conversacionales al 100 %** y **WhatsApp**. (Anula la exclusión de voz que tenía la
+v1.0 en P0.) Todos los canales pasan por la **pasarela de herramientas** (RF17), el **motor de políticas** (RF11) y la
+**bandeja de aprobaciones** (RF12): un mensaje o llamada saliente sensible requiere política/aprobación; el contenido
+entrante es **dato no confiable** (RF17, QA02). Cada canal es un `ConnectorAdapter`/canal nuevo (regla de extensibilidad
+de `CLAUDE.md`: protocolo nuevo = adaptador nuevo, nada de `if (type===…)` disperso).
+
+| Canal | Estado hoy | Qué se construye |
+|---|---|---|
+| **Correo** | 🟡 Reutiliza | Ya hay base de conectores de correo (p. ej. Microsoft 365 / Gmail como apps conectadas). Falta formalizarlo como **canal del empleado digital** con plantillas, destinatarios permitidos, aprobación de salientes y registro de recepción/respuesta como hechos distintos (RF35) |
+| **WhatsApp** | 🔴 Construye | Adaptador de **WhatsApp Business API** (plantillas aprobadas, ventana de sesión de 24 h, webhooks de entrega/lectura/respuesta firmados, idempotencia); saliente bajo política/aprobación |
+| **Llamadas telefónicas (voz conversacional 100 %)** | 🔴 Construye (mayor) | **Pipeline de voz en tiempo real**: telefonía (SIP/proveedor), STT (voz→texto), el runtime conversacional del agente, TTS (texto→voz) con barge-in/latencia baja; grabación y transcripción como evidencia; consentimiento y retención por política; límites de costo/duración. Es la pieza más grande de E14 y conviene aislarla en su propio servicio/worker |
+
+**Principios transversales de E14:** la conversación (voz/WhatsApp/correo) es una **representación** de registros operativos
+(mensajes, tareas, evidencias), no un canal para ampliar atribuciones; toda acción con efecto solicitada por un
+interlocutor externo se convierte en **tarea autorizada** y pasa por aprobación según riesgo; grabaciones y
+transcripciones se tratan como datos sensibles (DataGuard, retención, RNF07). **QA:** QA02 (inyección desde contenido
+externo), QA03 (aprobación de salientes), QA04 (idempotencia de entregas), QA12 (aislamiento). Depende de E4 (tareas),
+E6 (gobierno) y E7 (durabilidad).
+
 ## Orden de construcción propuesto (noches/etapas)
 
 Alineado a la sección 20 del documento (jerarquía + contratos de resultado en Fundaciones P0; comunicación en Ejecución
 P0; comunidad + superempleado + consolidación en Operación P0).
 
 1. **Fundaciones P0** → E1 (estructura) + E2 (empleado digital) + E3 (jerarquía) + E13 auditoría.
-2. **Ejecución P0** → E4 (trabajo por resultados) + E5 (comunicación) + E6 (gobierno) + E7 (durabilidad) + E8 (ajustes).
+2. **Ejecución P0** → E4 (trabajo por resultados) + E5 (comunicación y **handoff** entre agentes) + E6 (gobierno) +
+   E7 (durabilidad) + E8 (ajustes) + **E14 (canales externos)**: correo primero (reutiliza), luego WhatsApp, y la
+   **voz conversacional** como pista propia por su tamaño (telefonía + STT/TTS en tiempo real).
 3. **Operación P0** → E9 (imputación) + E10 (KPIs) + E11 (comunidad) + E12 (consolas).
 4. **Expansión P1 / Optimización P2** → objetivos e indicadores avanzados, diseñador visual, planificación dinámica,
    superempleado ejecutor (reutiliza la orquestación multi-modelo del ADR 0010).
