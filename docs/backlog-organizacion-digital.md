@@ -76,6 +76,12 @@ RF02 (organigrama y responsables), RF03 (catálogo de cargos), RF04 (expediente)
 `AgentVersion`), RF06 (publicación/retiro, **modifica** la puerta de salud+evaluación existente). Estados de ciclo de
 vida completos: Borrador→En validación→Publicado→Suspendido→Retirado (hoy solo DRAFT/LAUNCHED). Bloquear activar sin
 responsable; retiro reasigna y revoca. **QA:** HU02, HU03. **Primera entrega de esta noche** (ver abajo).
+**Parámetros de ejecución del agente (requisito del dueño del producto, RF04):** al configurar un agente se definen
+explícitamente sus parámetros de trabajo, entre ellos: (a) si se le asigna una **«estación virtual»** — una
+máquina/entorno de trabajo aislado donde ejecuta RPA y tareas de escritorio/navegador (ver E8); (b) si tiene **salida a
+internet** (habilitada/deshabilitada, con dominios permitidos por política); (c) horario, política de autonomía y
+presupuesto. Quedan en el expediente y en la versión inmutable (RF05), y el motor de políticas (E6) los hace cumplir:
+un agente sin internet no puede usar la herramienta web; uno sin estación virtual no puede lanzar RPA.
 
 ### E3 · Jerarquía de dirección digital (P0) — Construye
 RF32 (cargos jerárquicos), RF33 (autoridad y delegación), RF34 (supervisión y reemplazo), RF39 (superempleado),
@@ -133,6 +139,12 @@ y el **presupuesto** (RF26); el contenido traído del exterior es **dato no conf
 | **MCP (cliente)** | ✅ Reutiliza | Cliente MCP hacia servidores externos + el servidor MCP propio de NEXO |
 | **Acceso a internet** (navegar/consultar/buscar web) | 🟡 Modifica | Existe `HttpClientService` saliente con anti-SSRF/timeout/tamaño. Falta exponerlo como **herramienta de agente** gobernada: fetch/búsqueda web con listas de dominios permitidos por política, límites de tamaño/tasa, y tratamiento del resultado como contenido no confiable |
 | **RPA** (automatización de interfaces web/escritorio) | 🔴 Construye | Nuevo adaptador/worker de automatización (navegador headless y, si aplica, escritorio) para sistemas sin API: sesiones con credenciales de la bóveda, pasos auditables, captura de evidencia, idempotencia y conciliación (E7), bajo política y aprobación. Es la pieza más grande; aislarla en su propio worker. Relación con el pendiente P4 de `plan-de-mejora.md` |
+
+**Estación virtual (requisito del dueño del producto):** la RPA y las tareas de escritorio/navegador corren en una
+**estación virtual** — un entorno de trabajo aislado que se **asigna al agente** en su configuración (parámetro del
+expediente, E2/RF04). Modela `EstacionVirtual` (tipo navegador/escritorio, estado, sesión con credenciales de la bóveda,
+alcance de red = con/sin internet y dominios permitidos, aislamiento por workspace/empresa). Un agente sin estación
+asignada no puede lanzar RPA; la estación es efímera/auditable y su salida a internet la gobierna la política (E6).
 
 **Principio:** preferir **API/conector** sobre **RPA** cuando el sistema destino lo soporte (más robusto y barato); la RPA
 es el puente para sistemas heredados sin API. Toda capacidad de conexión respeta aislamiento multi-tenant y no recibe
