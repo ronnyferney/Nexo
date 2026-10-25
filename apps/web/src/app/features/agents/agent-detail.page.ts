@@ -687,6 +687,43 @@ export class AgentDetailPage implements OnInit {
     }
   }
 
+  /** Vistas del chat visibles según el permiso (Diagnóstico solo para quien puede editar). */
+  private chatViews(): ChatView[] {
+    return this.canEditAgent() ? ['conversation', 'activity', 'diagnostics'] : ['conversation', 'activity'];
+  }
+
+  /**
+   * Navegación por teclado del grupo de pestañas del chat (patrón ARIA «tablist»): flechas izquierda/derecha
+   * recorren las vistas, Inicio/Fin saltan a los extremos. Mueve el foco a la pestaña activada.
+   */
+  onChatViewKey(e: KeyboardEvent) {
+    const views = this.chatViews();
+    const current = views.indexOf(this.chatView());
+    let next = current;
+    switch (e.key) {
+      case 'ArrowRight':
+      case 'ArrowDown':
+        next = (current + 1) % views.length;
+        break;
+      case 'ArrowLeft':
+      case 'ArrowUp':
+        next = (current - 1 + views.length) % views.length;
+        break;
+      case 'Home':
+        next = 0;
+        break;
+      case 'End':
+        next = views.length - 1;
+        break;
+      default:
+        return;
+    }
+    e.preventDefault();
+    const view = views[next];
+    this.chatView.set(view);
+    setTimeout(() => document.getElementById(`chat-tab-${view}`)?.focus());
+  }
+
   openTabFromHealth(tab: string) {
     const t = this.tabs.find((x) => x.id === tab)?.id ?? 'profile';
     this.tab.set(t);

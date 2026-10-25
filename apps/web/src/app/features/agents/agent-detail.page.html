@@ -348,21 +348,22 @@
           </div>
         }
         <div class="chat-views" role="tablist" aria-label="Vistas del chat">
-          <button type="button" role="tab" [class.active]="chatView() === 'conversation'" [attr.aria-selected]="chatView() === 'conversation'" (click)="chatView.set('conversation')">Conversación</button>
-          <button type="button" role="tab" [class.active]="chatView() === 'activity'" [attr.aria-selected]="chatView() === 'activity'" (click)="chatView.set('activity')">
-            Actividad @if (activityBadge()) { <span class="badge">{{ activityBadge() }}</span> }
+          <button type="button" role="tab" id="chat-tab-conversation" aria-controls="chat-panel" [tabindex]="chatView() === 'conversation' ? 0 : -1" [class.active]="chatView() === 'conversation'" [attr.aria-selected]="chatView() === 'conversation'" (click)="chatView.set('conversation')" (keydown)="onChatViewKey($event)">Conversación</button>
+          <button type="button" role="tab" id="chat-tab-activity" aria-controls="chat-panel" [tabindex]="chatView() === 'activity' ? 0 : -1" [class.active]="chatView() === 'activity'" [attr.aria-selected]="chatView() === 'activity'" (click)="chatView.set('activity')" (keydown)="onChatViewKey($event)">
+            Actividad @if (activityBadge()) { <span class="badge" [attr.aria-label]="activityBadge() + ' elementos de actividad'">{{ activityBadge() }}</span> }
           </button>
           @if (canEditAgent()) {
-            <button type="button" role="tab" [class.active]="chatView() === 'diagnostics'" [attr.aria-selected]="chatView() === 'diagnostics'" (click)="chatView.set('diagnostics')">Diagnóstico</button>
+            <button type="button" role="tab" id="chat-tab-diagnostics" aria-controls="chat-panel" [tabindex]="chatView() === 'diagnostics' ? 0 : -1" [class.active]="chatView() === 'diagnostics'" [attr.aria-selected]="chatView() === 'diagnostics'" (click)="chatView.set('diagnostics')" (keydown)="onChatViewKey($event)">Diagnóstico</button>
           }
         </div>
-        <div class="messages" #scroller aria-live="polite">
+        <div class="messages" #scroller id="chat-panel" role="tabpanel" tabindex="0" [attr.aria-labelledby]="'chat-tab-' + chatView()" aria-live="polite">
           @switch (chatView()) {
             @case ('conversation') {
               @for (item of conversationItems(); track $index) {
                 @switch (item.kind) {
-                  @case ('user') { <div class="msg user">{{ item.text }}</div> }
+                  @case ('user') { <div class="msg user"><span class="sr-only">Usted: </span>{{ item.text }}</div> }
                   @case ('assistant') {
+                    <span class="sr-only">El agente respondió:</span>
                     <div class="msg assistant md" [innerHTML]="item.text | markdown"></div>
                     @if (item.final && item.response) {
                       <nx-agent-chat-feedback [agentId]="a.id" [conversationId]="conversationId" [userMessage]="item.userMessage!" [agentResponse]="item.response" />
