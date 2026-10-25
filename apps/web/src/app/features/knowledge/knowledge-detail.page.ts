@@ -13,7 +13,10 @@ import {
   type KnowledgeSourceType,
 } from '../../core/studio.models';
 import { ToastService } from '../../core/toast.service';
+import { EmptyStateComponent } from '../../shared/empty-state.component';
+import { ErrorStateComponent } from '../../shared/error-state.component';
 import { IconComponent } from '../../shared/icon.component';
+import { LoadingStateComponent } from '../../shared/loading-state.component';
 import { RelativeTimePipe } from '../../shared/relative-time.pipe';
 import { NumberPipe } from '../../shared/usd.pipe';
 
@@ -22,7 +25,16 @@ const SOURCE_ICONS: Record<KnowledgeSourceType, string> = { TEXT: 'pencil', URL:
 
 @Component({
   selector: 'nx-knowledge-detail',
-  imports: [FormsModule, RouterLink, IconComponent, RelativeTimePipe, NumberPipe],
+  imports: [
+    FormsModule,
+    RouterLink,
+    IconComponent,
+    RelativeTimePipe,
+    NumberPipe,
+    EmptyStateComponent,
+    ErrorStateComponent,
+    LoadingStateComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './knowledge-detail.page.html',
   styleUrl: './knowledge-detail.page.scss',

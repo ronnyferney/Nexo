@@ -4,7 +4,10 @@ import { RouterLink } from '@angular/router';
 import { errorMessage } from '../../core/api.service';
 import { TrainingApi } from '../../core/training.api';
 import type { Feedback, FeedbackStatus } from '../../core/training.models';
+import { EmptyStateComponent } from '../../shared/empty-state.component';
+import { ErrorStateComponent } from '../../shared/error-state.component';
 import { IconComponent } from '../../shared/icon.component';
+import { LoadingStateComponent } from '../../shared/loading-state.component';
 import { FeedbackReviewItemComponent } from '../agents/training/feedback-review-item.component';
 
 type StatusFilter = FeedbackStatus | 'ALL';
@@ -15,7 +18,15 @@ type StatusFilter = FeedbackStatus | 'ALL';
  */
 @Component({
   selector: 'nx-supervision',
-  imports: [FormsModule, RouterLink, IconComponent, FeedbackReviewItemComponent],
+  imports: [
+    FormsModule,
+    RouterLink,
+    IconComponent,
+    FeedbackReviewItemComponent,
+    EmptyStateComponent,
+    ErrorStateComponent,
+    LoadingStateComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page">
@@ -38,19 +49,19 @@ type StatusFilter = FeedbackStatus | 'ALL';
       <p class="muted small mb">Se muestra la retroalimentación de los agentes que usted puede editar: los suyos y los que le compartieron con permiso de edición.</p>
 
       @if (loading() && !items().length) {
-        <div class="card empty"><p>Cargando bandeja…</p></div>
+        <nx-loading-state text="Cargando bandeja…" />
       } @else if (error()) {
-        <div class="card empty"><nx-icon name="alert" [size]="28" /><h3>No se pudo cargar la bandeja</h3><p>{{ error() }}</p>
-          <button class="btn" (click)="load()">Reintentar</button></div>
+        <nx-error-state title="No se pudo cargar la bandeja" message="{{ error() }}" (retry)="load()" />
       } @else {
         <p class="muted small count" role="status">{{ visible().length }} {{ visible().length === 1 ? 'elemento' : 'elementos' }}</p>
         <div class="stack">
           @for (fb of visible(); track fb.id) {
             <nx-feedback-review-item [feedback]="fb" [canEdit]="true" [showAgent]="true" (reviewed)="onReviewed($event.feedback)" />
           } @empty {
-            <div class="card empty"><nx-icon name="inbox" [size]="36" /><h3>{{ status() === 'PENDING' ? 'Bandeja al día' : 'Sin resultados' }}</h3>
+            <nx-empty-state icon="inbox" [title]="status() === 'PENDING' ? 'Bandeja al día' : 'Sin resultados'">
               <p>{{ status() === 'PENDING' ? 'No hay retroalimentación pendiente de revisión.' : 'No hay retroalimentación con estos filtros.' }}
-                Las calificaciones 👎 y correcciones del chat de cada <a routerLink="/agents">agente</a> llegan aquí.</p></div>
+                Las calificaciones 👎 y correcciones del chat de cada <a routerLink="/agents">agente</a> llegan aquí.</p>
+            </nx-empty-state>
           }
         </div>
       }

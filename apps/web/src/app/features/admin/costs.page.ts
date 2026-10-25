@@ -3,7 +3,10 @@ import { FormsModule } from '@angular/forms';
 import { ApiService, errorMessage } from '../../core/api.service';
 import type { UsageGroupBy, UsageRecord, UsageSummary } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
+import { EmptyStateComponent } from '../../shared/empty-state.component';
+import { ErrorStateComponent } from '../../shared/error-state.component';
 import { IconComponent } from '../../shared/icon.component';
+import { LoadingStateComponent } from '../../shared/loading-state.component';
 import { RelativeTimePipe } from '../../shared/relative-time.pipe';
 import { formatUsd, NumberPipe, UsdPipe } from '../../shared/usd.pipe';
 
@@ -12,7 +15,16 @@ const PAGE_SIZE = 25;
 
 @Component({
   selector: 'nx-admin-costs',
-  imports: [FormsModule, IconComponent, RelativeTimePipe, UsdPipe, NumberPipe],
+  imports: [
+    FormsModule,
+    IconComponent,
+    RelativeTimePipe,
+    UsdPipe,
+    NumberPipe,
+    EmptyStateComponent,
+    ErrorStateComponent,
+    LoadingStateComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page">
@@ -40,8 +52,7 @@ const PAGE_SIZE = 25;
       </div>
 
       @if (error()) {
-        <div class="card empty"><nx-icon name="alert" [size]="28" /><h3>No se pudo cargar el resumen</h3><p>{{ error() }}</p>
-          <button class="btn" (click)="loadSummary()">Reintentar</button></div>
+        <nx-error-state title="No se pudo cargar el resumen" message="{{ error() }}" (retry)="loadSummary()" />
       } @else {
         <div class="kpis">
           @for (k of kpis(); track k.label) {
@@ -56,9 +67,9 @@ const PAGE_SIZE = 25;
           <div class="card-title"><h2>Costo por {{ groupLabel() }}</h2><span class="spacer"></span>
             @if (summary(); as s) { <span class="muted small">{{ day(s.from) }} – {{ day(s.to) }}</span> }</div>
           @if (loading()) {
-            <div class="empty"><p>Cargando…</p></div>
+            <nx-loading-state text="Cargando…" />
           } @else if (!groups().length) {
-            <div class="empty"><nx-icon name="chart" [size]="28" /><h3>Sin consumo en el rango</h3><p>Aún no hay llamadas a modelos registradas.</p></div>
+            <nx-empty-state icon="chart" title="Sin consumo en el rango" description="Aún no hay llamadas a modelos registradas." />
           } @else {
             @if (groupBy() === 'day') {
               <div class="vbars" role="img" [attr.aria-label]="'Costo diario, máximo ' + (maxCost() | usd)">
@@ -96,7 +107,7 @@ const PAGE_SIZE = 25;
         <div class="card-title" style="padding:16px 20px 0"><h2>Registros recientes</h2><span class="spacer"></span>
           <button class="btn sm" (click)="loadRecords(true)" [disabled]="recordsLoading()"><nx-icon name="refresh" [size]="14" />Actualizar</button></div>
         @if (recordsError()) {
-          <div class="empty"><p class="error-text">{{ recordsError() }}</p><button class="btn" (click)="loadRecords(true)">Reintentar</button></div>
+          <nx-error-state title="No se pudieron cargar los registros" message="{{ recordsError() }}" (retry)="loadRecords(true)" />
         } @else if (records().length) {
           <div class="table-wrap">
             <table class="table">
@@ -125,9 +136,9 @@ const PAGE_SIZE = 25;
             </div>
           }
         } @else if (recordsLoading()) {
-          <div class="empty"><p>Cargando registros…</p></div>
+          <nx-loading-state text="Cargando registros…" />
         } @else {
-          <div class="empty"><p>No hay registros de consumo todavía.</p></div>
+          <nx-empty-state icon="chart" title="Sin registros" description="No hay registros de consumo todavía." />
         }
       </div>
     </div>

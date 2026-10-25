@@ -1,9 +1,13 @@
 @if (loading() && !kb()) {
-  <div class="page"><div class="card empty"><p>Cargando base de conocimiento…</p></div></div>
+  <div class="page"><nx-loading-state text="Cargando base de conocimiento…" /></div>
 } @else if (error() && !kb()) {
   <div class="page">
-    <div class="card empty"><nx-icon name="alert" [size]="28" /><h3>No se pudo cargar la base</h3><p>{{ error() }}</p>
-      <div class="row" style="justify-content:center"><a class="btn" routerLink="/knowledge">Volver</a><button class="btn primary" (click)="load()">Reintentar</button></div></div>
+    <nx-error-state title="No se pudo cargar la base" message="{{ error() }}" [retryable]="false">
+      <div class="empty-actions">
+        <a class="btn" routerLink="/knowledge">Volver</a>
+        <button class="btn primary" (click)="load()"><nx-icon name="refresh" [size]="16" />Reintentar</button>
+      </div>
+    </nx-error-state>
   </div>
 }
 @if (kb(); as k) {
@@ -112,7 +116,7 @@
               </table>
             </div>
           } @else {
-            <div class="empty"><nx-icon name="file" [size]="30" /><h3>Sin documentos</h3><p>Agregue texto, una URL o un archivo para empezar.</p></div>
+            <nx-empty-state icon="file" title="Sin documentos" description="Agregue texto, una URL o un archivo para empezar." />
           }
         </div>
       </div>

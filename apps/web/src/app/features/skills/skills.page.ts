@@ -6,7 +6,10 @@ import type { Connector } from '../../core/models';
 import { StudioApi } from '../../core/studio.api';
 import type { Skill, SkillInput } from '../../core/studio.models';
 import { ToastService } from '../../core/toast.service';
+import { EmptyStateComponent } from '../../shared/empty-state.component';
+import { ErrorStateComponent } from '../../shared/error-state.component';
 import { IconComponent } from '../../shared/icon.component';
+import { LoadingStateComponent } from '../../shared/loading-state.component';
 import { RelativeTimePipe } from '../../shared/relative-time.pipe';
 import { NumberPipe } from '../../shared/usd.pipe';
 
@@ -15,7 +18,15 @@ const INSTRUCTIONS_SOFT_LIMIT = 20000;
 
 @Component({
   selector: 'nx-skills',
-  imports: [FormsModule, IconComponent, RelativeTimePipe, NumberPipe],
+  imports: [
+    FormsModule,
+    IconComponent,
+    RelativeTimePipe,
+    NumberPipe,
+    EmptyStateComponent,
+    ErrorStateComponent,
+    LoadingStateComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page">
@@ -27,14 +38,16 @@ const INSTRUCTIONS_SOFT_LIMIT = 20000;
       </div>
 
       @if (loading()) {
-        <div class="card empty"><p>Cargando skills…</p></div>
+        <nx-loading-state text="Cargando skills…" />
       } @else if (error()) {
-        <div class="card empty"><nx-icon name="alert" [size]="28" /><h3>No se pudieron cargar las skills</h3><p>{{ error() }}</p>
-          <button class="btn" (click)="load()">Reintentar</button></div>
+        <nx-error-state title="No se pudieron cargar las skills" message="{{ error() }}" (retry)="load()" />
       } @else if (!skills().length && selectedId() === null) {
-        <div class="card empty"><nx-icon name="sparkles" [size]="36" /><h3>Sin skills</h3>
-          <p>Una skill empaqueta instrucciones (p. ej. «Cómo cotizar un envío») y las operaciones de conector que necesita.</p>
-          @if (auth.canEdit()) { <button class="btn primary" (click)="startNew()"><nx-icon name="plus" />Crear la primera</button> }</div>
+        <nx-empty-state icon="sparkles" title="Sin skills"
+          description="Una skill empaqueta instrucciones (p. ej. «Cómo cotizar un envío») y las operaciones de conector que necesita.">
+          @if (auth.canEdit()) {
+            <div class="empty-actions"><button class="btn primary" (click)="startNew()"><nx-icon name="plus" [size]="16" />Crear la primera</button></div>
+          }
+        </nx-empty-state>
       } @else {
         <div class="master-detail">
           <div class="stack" role="list" aria-label="Skills">
@@ -118,7 +131,9 @@ const INSTRUCTIONS_SOFT_LIMIT = 20000;
               }
             </form>
           } @else {
-            <div class="card empty hide-sm"><nx-icon name="sparkles" [size]="32" /><h3>Seleccione una skill</h3><p>Verá sus instrucciones y operaciones asociadas.</p></div>
+            <div class="hide-sm">
+              <nx-empty-state icon="sparkles" title="Seleccione una skill" description="Verá sus instrucciones y operaciones asociadas." />
+            </div>
           }
         </div>
       }

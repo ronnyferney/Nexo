@@ -6,13 +6,25 @@ import { AuthService } from '../../core/auth.service';
 import { StudioApi } from '../../core/studio.api';
 import type { KnowledgeBase } from '../../core/studio.models';
 import { ToastService } from '../../core/toast.service';
+import { EmptyStateComponent } from '../../shared/empty-state.component';
+import { ErrorStateComponent } from '../../shared/error-state.component';
 import { IconComponent } from '../../shared/icon.component';
+import { LoadingStateComponent } from '../../shared/loading-state.component';
 import { RelativeTimePipe } from '../../shared/relative-time.pipe';
 import { NumberPipe } from '../../shared/usd.pipe';
 
 @Component({
   selector: 'nx-knowledge-list',
-  imports: [FormsModule, RouterLink, IconComponent, RelativeTimePipe, NumberPipe],
+  imports: [
+    FormsModule,
+    RouterLink,
+    IconComponent,
+    RelativeTimePipe,
+    NumberPipe,
+    EmptyStateComponent,
+    ErrorStateComponent,
+    LoadingStateComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page">
@@ -39,10 +51,9 @@ import { NumberPipe } from '../../shared/usd.pipe';
       }
 
       @if (loading()) {
-        <div class="card empty"><p>Cargando bases de conocimiento…</p></div>
+        <nx-loading-state text="Cargando bases de conocimiento…" />
       } @else if (error()) {
-        <div class="card empty"><nx-icon name="alert" [size]="28" /><h3>No se pudieron cargar las bases</h3><p>{{ error() }}</p>
-          <button class="btn" (click)="load()">Reintentar</button></div>
+        <nx-error-state title="No se pudieron cargar las bases" message="{{ error() }}" (retry)="load()" />
       } @else if (bases().length) {
         <div class="cards">
           @for (k of bases(); track k.id) {
@@ -59,8 +70,12 @@ import { NumberPipe } from '../../shared/usd.pipe';
           }
         </div>
       } @else {
-        <div class="card empty"><nx-icon name="book" [size]="36" /><h3>Sin bases de conocimiento</h3>
-          <p>Cree una base, cargue documentos (texto, URL o archivos) y asígnela a sus agentes.</p></div>
+        <nx-empty-state icon="book" title="Sin bases de conocimiento"
+          description="Cree una base, cargue documentos (texto, URL o archivos) y asígnela a sus agentes.">
+          @if (auth.canEdit() && !creating()) {
+            <div class="empty-actions"><button class="btn primary" (click)="creating.set(true)"><nx-icon name="plus" [size]="16" />Nueva base</button></div>
+          }
+        </nx-empty-state>
       }
     </div>
   `,

@@ -10,7 +10,10 @@ import type { Routine, RoutineRun } from '../../core/studio.models';
 import { ToastService } from '../../core/toast.service';
 import { canWriteAgent } from '../../shared/agent-permissions';
 import { describeCron } from '../../shared/cron';
+import { EmptyStateComponent } from '../../shared/empty-state.component';
+import { ErrorStateComponent } from '../../shared/error-state.component';
 import { IconComponent } from '../../shared/icon.component';
+import { LoadingStateComponent } from '../../shared/loading-state.component';
 import { RelativeTimePipe } from '../../shared/relative-time.pipe';
 import { StatusBadgeComponent } from '../../shared/status-badge.component';
 import { UsdPipe } from '../../shared/usd.pipe';
@@ -20,7 +23,18 @@ const DATE_TIME = new Intl.DateTimeFormat('es', { dateStyle: 'medium', timeStyle
 
 @Component({
   selector: 'nx-routines',
-  imports: [FormsModule, RouterLink, IconComponent, StatusBadgeComponent, RelativeTimePipe, UsdPipe, RoutineRunsComponent],
+  imports: [
+    FormsModule,
+    RouterLink,
+    IconComponent,
+    StatusBadgeComponent,
+    RelativeTimePipe,
+    UsdPipe,
+    RoutineRunsComponent,
+    EmptyStateComponent,
+    ErrorStateComponent,
+    LoadingStateComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page">
@@ -34,13 +48,13 @@ const DATE_TIME = new Intl.DateTimeFormat('es', { dateStyle: 'medium', timeStyle
       </div>
 
       @if (loading() && !routines().length) {
-        <div class="card empty"><p>Cargando rutinas…</p></div>
+        <nx-loading-state text="Cargando rutinas…" />
       } @else if (error()) {
-        <div class="card empty"><nx-icon name="alert" [size]="28" /><h3>No se pudieron cargar las rutinas</h3><p>{{ error() }}</p>
-          <button class="btn" (click)="load()">Reintentar</button></div>
+        <nx-error-state title="No se pudieron cargar las rutinas" message="{{ error() }}" (retry)="load()" />
       } @else if (!routines().length) {
-        <div class="card empty"><nx-icon name="calendar" [size]="36" /><h3>Sin rutinas</h3>
-          <p>Las rutinas se crean desde la pestaña «Rutinas» de cada <a routerLink="/agents">agente</a>.</p></div>
+        <nx-empty-state icon="calendar" title="Sin rutinas">
+          <p>Las rutinas se crean desde la pestaña «Rutinas» de cada <a routerLink="/agents">agente</a>.</p>
+        </nx-empty-state>
       } @else {
         <div class="card flush">
           <div class="table-wrap">

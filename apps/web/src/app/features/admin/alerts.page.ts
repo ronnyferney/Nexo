@@ -2,13 +2,24 @@ import { ChangeDetectionStrategy, Component, inject, OnInit, signal } from '@ang
 import { RouterLink } from '@angular/router';
 import { ApiService, errorMessage } from '../../core/api.service';
 import type { BudgetAlert } from '../../core/models';
+import { EmptyStateComponent } from '../../shared/empty-state.component';
+import { ErrorStateComponent } from '../../shared/error-state.component';
 import { IconComponent } from '../../shared/icon.component';
+import { LoadingStateComponent } from '../../shared/loading-state.component';
 import { RelativeTimePipe } from '../../shared/relative-time.pipe';
 import { UsdPipe } from '../../shared/usd.pipe';
 
 @Component({
   selector: 'nx-admin-alerts',
-  imports: [RouterLink, IconComponent, RelativeTimePipe, UsdPipe],
+  imports: [
+    RouterLink,
+    IconComponent,
+    RelativeTimePipe,
+    UsdPipe,
+    EmptyStateComponent,
+    ErrorStateComponent,
+    LoadingStateComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page">
@@ -19,10 +30,9 @@ import { UsdPipe } from '../../shared/usd.pipe';
 
       <div class="card" style="padding:0">
         @if (loading()) {
-          <div class="empty"><p>Cargando alertas…</p></div>
+          <nx-loading-state text="Cargando alertas…" />
         } @else if (error()) {
-          <div class="empty"><nx-icon name="alert" [size]="28" /><h3>No se pudieron cargar las alertas</h3><p>{{ error() }}</p>
-            <button class="btn" (click)="load()">Reintentar</button></div>
+          <nx-error-state title="No se pudieron cargar las alertas" message="{{ error() }}" (retry)="load()" />
         } @else if (alerts().length) {
           <div class="table-wrap">
             <table class="table">
@@ -42,8 +52,9 @@ import { UsdPipe } from '../../shared/usd.pipe';
             </table>
           </div>
         } @else {
-          <div class="empty"><nx-icon name="bell" [size]="28" /><h3>Sin alertas</h3>
-            <p>Ninguna unidad ha cruzado sus umbrales. Configure umbrales en <a routerLink="/admin/budgets">Presupuestos</a>.</p></div>
+          <nx-empty-state icon="bell" title="Sin alertas">
+            <p>Ninguna unidad ha cruzado sus umbrales. Configure umbrales en <a routerLink="/admin/budgets">Presupuestos</a>.</p>
+          </nx-empty-state>
         }
       </div>
     </div>
