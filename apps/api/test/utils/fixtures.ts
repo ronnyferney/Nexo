@@ -195,6 +195,8 @@ export const LONG_MESSAGE = 'Consumo de prueba para agotar el presupuesto. '.rep
  * WORKSPACE. Reproduce el modelo anterior a ADR 0007 en pruebas que comparten un agente entre roles.
  */
 export async function publishAgent(admin: Session, agentId: string): Promise<void> {
+  // RF02/RF06: no se puede publicar un empleado digital sin responsable humano titular.
+  await admin.api.patch(`/agents/${agentId}`, { responsableUserId: admin.userId }).expect(200);
   await admin.api.post(`/agents/${agentId}/launch`, { override: true, reason: 'Prueba E2E' }).expect(200);
   await admin.api.patch(`/agents/${agentId}/visibility`, { visibility: 'WORKSPACE' }).expect(200);
 }

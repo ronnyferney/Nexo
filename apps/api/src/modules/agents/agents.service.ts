@@ -194,6 +194,7 @@ export class AgentsService {
     const ownerId = this.requireUser(auth);
     const visibility = await this.initialVisibility(auth, dto.visibility);
     if (dto.costCenterId) await this.org.unit(auth.workspaceId, dto.costCenterId);
+    await this.assertExpediente(auth.workspaceId, dto);
     await this.assertModels(auth.workspaceId, dto);
     return this.prisma.agent.create({
       data: { ...agentData(dto), workspaceId: auth.workspaceId, ownerId, visibility, launchStatus: 'DRAFT' },
@@ -229,8 +230,37 @@ export class AgentsService {
   async update(workspaceId: string, id: string, dto: UpdateAgentDto) {
     const current = await this.get(workspaceId, id);
     if (dto.costCenterId) await this.org.unit(workspaceId, dto.costCenterId);
+    await this.assertExpediente(workspaceId, dto);
     await this.assertModels(workspaceId, dto, current);
     return this.prisma.agent.update({ where: { id }, data: agentData(dto) });
+  }
+
+  /**
+   * Valida el expediente del empleado digital (RF02/RF04): el cargo debe ser del workspace y el responsable titular
+   * y el suplente deben ser miembros del workspace. Solo valida lo que viene en el DTO (campos opcionales).
+   */
+  private async assertExpediente(
+    workspaceId: string,
+    dto: { cargoId?: string | null; responsableUserId?: string | null; suplenteUserId?: string | null },
+  ) {
+    if (dto.cargoId) {
+      const cargo = await this.prisma.cargo.findFirst({
+        where: { id: dto.cargoId, workspaceId },
+        select: { id: true },
+      });
+      if (!cargo) throw new BadRequestException('El cargo no existe en el workspace');
+    }
+    if (dto.responsableUserId) await this.assertMember(workspaceId, dto.responsableUserId, 'responsable titular');
+    if (dto.suplenteUserId) await this.assertMember(workspaceId, dto.suplenteUserId, 'suplente');
+  }
+
+  /** El usuario debe ser miembro del workspace (titular/suplente del expediente). */
+  private async assertMember(workspaceId: string, userId: string, label: string) {
+    const member = await this.prisma.membership.findUnique({
+      where: { userId_workspaceId: { userId, workspaceId } },
+      select: { id: true },
+    });
+    if (!member) throw new BadRequestException(`El ${label} debe ser miembro del workspace`);
   }
 
   /**

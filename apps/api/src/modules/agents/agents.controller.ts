@@ -120,6 +120,34 @@ export class AgentsController {
     return this.lifecycle.unlaunch(a, await this.access.assert(a, id, 'EDIT'));
   }
 
+  /** Borrador → En validación (RF05). */
+  @HttpCode(200)
+  @Post(':id/submit-validation')
+  async submitForValidation(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
+    return this.lifecycle.submitForValidation(a, await this.access.assert(a, id, 'EDIT'));
+  }
+
+  /** Publicado → Suspendido (RF06): bloquea rutinas y MCP, conserva el expediente. */
+  @HttpCode(200)
+  @Post(':id/suspend')
+  async suspend(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
+    return this.lifecycle.suspend(a, await this.access.assert(a, id, 'EDIT'));
+  }
+
+  /** Suspendido → Publicado (RF06): reactivación. */
+  @HttpCode(200)
+  @Post(':id/reactivate')
+  async reactivate(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
+    return this.lifecycle.reactivate(a, await this.access.assert(a, id, 'EDIT'));
+  }
+
+  /** Cualquiera → Retirado (RF06): revoca ejecución, conserva el expediente. */
+  @HttpCode(200)
+  @Post(':id/retire')
+  async retire(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
+    return this.lifecycle.retire(a, await this.access.assert(a, id, 'EDIT'));
+  }
+
   @Patch(':id/visibility')
   async setVisibility(@CurrentAuth() a: AuthContext, @Param('id') id: string, @Body() dto: SetVisibilityDto) {
     return this.lifecycle.setVisibility(a, await this.access.assert(a, id, 'EDIT'), dto.visibility);

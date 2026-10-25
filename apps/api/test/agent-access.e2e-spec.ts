@@ -353,6 +353,8 @@ describe('Visibilidad y permisos de agentes · salud y lanzamiento (ADR 0006 D3/
 
     it('salud determinista: agente vacío 40, con perfil 73, con casos 83 y con evaluación 95', async () => {
       agentId = (await createAgent(editorA, { name: 'Agente a lanzar' })).id;
+      // RF02/RF06: un empleado digital necesita responsable humano titular para poder lanzarse.
+      await editorA.api.patch(`/agents/${agentId}`, { responsableUserId: editorA.userId }).expect(200);
       const empty = (await editorA.api.get(`/agents/${agentId}/health`).expect(200)).body as Health;
       expect(empty).toMatchObject({ agentId, score: 40, level: 'NEEDS_WORK' });
       expect(empty.checks.find((c) => c.id === 'profile.role')).toMatchObject({ passed: false, severity: 'CRITICAL' });
@@ -413,6 +415,7 @@ describe('Visibilidad y permisos de agentes · salud y lanzamiento (ADR 0006 D3/
 
     it('override: solo ADMIN/OWNER y con razón obligatoria (queda registrada)', async () => {
       const id = (await createAgent(editorA, { name: 'Lanzamiento forzado' })).id;
+      await editorA.api.patch(`/agents/${id}`, { responsableUserId: editorA.userId }).expect(200);
       await editorA.api.post(`/agents/${id}/launch`, { override: true, reason: 'Urgente' }).expect(403);
       await admin.api.post(`/agents/${id}/launch`, { override: true }).expect(400);
       await admin.api.post(`/agents/${id}/launch`, { override: true, reason: '   ' }).expect(400);
@@ -571,6 +574,7 @@ describe('Visibilidad y permisos de agentes · salud y lanzamiento (ADR 0006 D3/
       const published = (await createAgent(owner, { name: 'MCP publicado' })).id;
       await publishAgent(owner, published);
       const launchedTeam = (await createAgent(owner, { name: 'MCP equipo lanzado' })).id;
+      await owner.api.patch(`/agents/${launchedTeam}`, { responsableUserId: owner.userId }).expect(200);
       await owner.api.post(`/agents/${launchedTeam}/launch`, { override: true, reason: 'E2E' }).expect(200);
       await owner.api.patch(`/agents/${launchedTeam}/visibility`, { visibility: 'TEAM' }).expect(200);
       await createAgent(owner, { name: 'MCP borrador' });

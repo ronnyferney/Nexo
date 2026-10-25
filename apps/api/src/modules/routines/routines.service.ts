@@ -8,7 +8,7 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
-import type { AgentRoutine, RoutineRun } from '@prisma/client';
+import type { AgentRoutine, LaunchStatus, RoutineRun } from '@prisma/client';
 import { Queue, QueueEvents } from 'bullmq';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { schedulerEntries, type ScheduleSource } from '../workflows/schedule-reconciler';
@@ -66,10 +66,14 @@ const WITH_AGENT = { agent: { select: { name: true } } } as const;
  */
 export function routineBlockReason(agent: {
   visibility: 'PRIVATE' | 'TEAM' | 'WORKSPACE';
-  launchStatus: 'DRAFT' | 'LAUNCHED';
+  launchStatus: LaunchStatus;
   ownerId: string | null;
 }): string | null {
+  // Suspendido o retirado: nunca ejecuta rutinas, aunque sea un agente personal (RF06).
+  if (agent.launchStatus === 'SUSPENDIDO') return 'El agente está suspendido: no ejecuta rutinas';
+  if (agent.launchStatus === 'RETIRADO') return 'El agente está retirado: no ejecuta rutinas';
   if (agent.launchStatus === 'LAUNCHED') return null;
+  // Borrador o en validación: solo un agente personal (PRIVATE con dueño) ejecuta rutinas a nombre del dueño.
   if (agent.visibility === 'PRIVATE' && agent.ownerId) return null;
   return 'El agente no está lanzado: las rutinas de agentes de equipo o empresa solo se ejecutan cuando el agente está lanzado';
 }

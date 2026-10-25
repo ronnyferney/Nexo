@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import type { LaunchStatus, Prisma } from '@prisma/client';
 import type { AuthContext } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AgentAccessService } from '../agent-access/agent-access.service';
@@ -13,6 +13,36 @@ import type { DuplicateAgentDto, LaunchAgentDto, SetSharesDto } from './dto/agen
 
 const HEALTH_SUMMARY_LIMIT = 200;
 const pct = (n: number) => `${Math.round(n * 100)}%`;
+
+/** Etiquetas en español del ciclo de vida del empleado digital (RF05). */
+export const LIFECYCLE_LABELS: Record<LaunchStatus, string> = {
+  DRAFT: 'Borrador',
+  EN_VALIDACION: 'En validación',
+  LAUNCHED: 'Publicado',
+  SUSPENDIDO: 'Suspendido',
+  RETIRADO: 'Retirado',
+};
+
+/**
+ * Transiciones permitidas del ciclo de vida (RF05/RF06): Borrador→En validación→Publicado; Publicado→Suspendido;
+ * Suspendido→Publicado (reactivar); cualquiera→Retirado. RETIRADO es terminal y conserva el expediente. Volver a
+ * Borrador (unlaunch) es posible desde En validación, Publicado o Suspendido.
+ */
+export const LIFECYCLE_TRANSITIONS: Record<LaunchStatus, LaunchStatus[]> = {
+  DRAFT: ['EN_VALIDACION', 'LAUNCHED', 'RETIRADO'],
+  EN_VALIDACION: ['DRAFT', 'LAUNCHED', 'RETIRADO'],
+  LAUNCHED: ['SUSPENDIDO', 'DRAFT', 'RETIRADO'],
+  SUSPENDIDO: ['LAUNCHED', 'DRAFT', 'RETIRADO'],
+  RETIRADO: [],
+};
+
+/** Lanza 409 si la transición de estado no está permitida (mensaje en español). */
+export function assertTransition(from: LaunchStatus, to: LaunchStatus): void {
+  if (from === to) return;
+  if (!LIFECYCLE_TRANSITIONS[from].includes(to)) {
+    throw new ConflictException(`No se puede pasar de "${LIFECYCLE_LABELS[from]}" a "${LIFECYCLE_LABELS[to]}"`);
+  }
+}
 
 /**
  * Ciclo de vida y gobierno del agente: visibilidad, shares, transferencia, duplicado y exploración (ADR 0007) y
@@ -271,6 +301,13 @@ export class AgentLifecycleService {
    */
   async launch(auth: AuthContext, { agent }: AgentAccess, dto: LaunchAgentDto) {
     if (agent.launchStatus === 'LAUNCHED') return this.view(auth, agent.id);
+    if (agent.launchStatus === 'SUSPENDIDO') {
+      throw new ConflictException('El agente está suspendido: use reactivar para volver a publicarlo');
+    }
+    // Solo publica desde Borrador o En validación (RF05/RF06).
+    assertTransition(agent.launchStatus, 'LAUNCHED');
+    // RF02/RF06: un empleado digital no puede publicarse sin responsable humano (no se omite con override).
+    this.assertResponsable(agent);
     const blockers = await this.launchBlockers(auth.workspaceId, agent.id, targetScoreOf(agent));
     let overrideReason: string | null = null;
     if (blockers.length) {
@@ -294,6 +331,7 @@ export class AgentLifecycleService {
    * siempre está lanzado, y deslanzar debe poder retirarlo de producción de inmediato sin pasos extra.
    */
   async unlaunch(auth: AuthContext, { agent }: AgentAccess) {
+    assertTransition(agent.launchStatus, 'DRAFT');
     await this.prisma.agent.update({
       where: { id: agent.id },
       data: {
@@ -304,6 +342,67 @@ export class AgentLifecycleService {
       },
     });
     return this.view(auth, agent.id);
+  }
+
+  /** Borrador → En validación (RF05): deja el expediente listo para la revisión antes de publicar. */
+  async submitForValidation(auth: AuthContext, { agent }: AgentAccess) {
+    if (agent.launchStatus === 'EN_VALIDACION') return this.view(auth, agent.id);
+    assertTransition(agent.launchStatus, 'EN_VALIDACION');
+    await this.prisma.agent.update({ where: { id: agent.id }, data: { launchStatus: 'EN_VALIDACION' } });
+    return this.view(auth, agent.id);
+  }
+
+  /**
+   * Publicado → Suspendido (RF06): bloquea nuevas tareas, rutinas y publicación por MCP, pero conserva el expediente
+   * y la evidencia. No reevalúa la puerta de calidad; se reactiva con `reactivate`.
+   */
+  async suspend(auth: AuthContext, { agent }: AgentAccess) {
+    if (agent.launchStatus === 'SUSPENDIDO') return this.view(auth, agent.id);
+    assertTransition(agent.launchStatus, 'SUSPENDIDO');
+    await this.prisma.agent.update({ where: { id: agent.id }, data: { launchStatus: 'SUSPENDIDO' } });
+    this.logger.log(`Agente ${agent.id} suspendido por ${auth.via === 'jwt' ? auth.userId : 'api-key'}`);
+    return this.view(auth, agent.id);
+  }
+
+  /** Suspendido → Publicado (RF06): reactivación por un actor autorizado (EDIT). Conserva la puerta de responsable. */
+  async reactivate(auth: AuthContext, { agent }: AgentAccess) {
+    if (agent.launchStatus === 'LAUNCHED') return this.view(auth, agent.id);
+    if (agent.launchStatus !== 'SUSPENDIDO') {
+      throw new ConflictException('Solo se puede reactivar un agente suspendido');
+    }
+    this.assertResponsable(agent);
+    await this.prisma.agent.update({
+      where: { id: agent.id },
+      data: { launchStatus: 'LAUNCHED', launchedAt: new Date() },
+    });
+    this.logger.log(`Agente ${agent.id} reactivado por ${auth.via === 'jwt' ? auth.userId : 'api-key'}`);
+    return this.view(auth, agent.id);
+  }
+
+  /**
+   * Cualquiera → Retirado (RF06): revoca la ejecución (ni rutinas ni MCP) y conserva el expediente. Estado terminal.
+   * Si estaba publicado en toda la empresa, lo baja a TEAM para sacarlo de producción de inmediato.
+   */
+  async retire(auth: AuthContext, { agent }: AgentAccess) {
+    if (agent.launchStatus === 'RETIRADO') return this.view(auth, agent.id);
+    assertTransition(agent.launchStatus, 'RETIRADO');
+    await this.prisma.agent.update({
+      where: { id: agent.id },
+      data: {
+        launchStatus: 'RETIRADO',
+        launchedAt: null,
+        ...(agent.visibility === 'WORKSPACE' ? { visibility: 'TEAM' as const } : {}),
+      },
+    });
+    this.logger.log(`Agente ${agent.id} retirado por ${auth.via === 'jwt' ? auth.userId : 'api-key'}`);
+    return this.view(auth, agent.id);
+  }
+
+  /** RF02/RF06: no se publica un empleado digital sin responsable humano titular. */
+  private assertResponsable(agent: { responsableUserId: string | null }): void {
+    if (!agent.responsableUserId) {
+      throw new ConflictException('Asigne un responsable humano titular antes de publicar el agente');
+    }
   }
 
   async healthOf(auth: AuthContext, agentId: string): Promise<AgentHealth> {

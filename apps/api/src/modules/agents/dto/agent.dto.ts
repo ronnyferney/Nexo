@@ -177,6 +177,20 @@ export class CreateAgentDto {
   @IsOptional()
   @IsString()
   costCenterId?: string | null;
+  @ApiPropertyOptional({ description: 'Cargo del catálogo que desempeña el empleado digital (RF03/RF04)' })
+  @IsOptional()
+  @IsString()
+  cargoId?: string | null;
+  @ApiPropertyOptional({
+    description: 'Responsable humano titular del agente (RF02). Obligatorio para publicar (RF06)',
+  })
+  @IsOptional()
+  @IsString()
+  responsableUserId?: string | null;
+  @ApiPropertyOptional({ description: 'Responsable humano suplente del agente (RF02)' })
+  @IsOptional()
+  @IsString()
+  suplenteUserId?: string | null;
   @ApiPropertyOptional({ type: AgentProfileDto })
   @IsOptional()
   @ValidateNested()

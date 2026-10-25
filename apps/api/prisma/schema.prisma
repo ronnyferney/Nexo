@@ -96,9 +96,25 @@ enum SharePermission {
   EDIT
 }
 
+/// Ciclo de vida del empleado digital (RF05/RF06). Ampliación aditiva y retrocompatible de DRAFT/LAUNCHED:
+/// DRAFT=Borrador, EN_VALIDACION=En validación, LAUNCHED=Publicado, SUSPENDIDO=Suspendido, RETIRADO=Retirado.
+/// Solo LAUNCHED publica por MCP y ejecuta rutinas (ADR 0006); el resto de estados no.
 enum LaunchStatus {
   DRAFT
+  EN_VALIDACION
   LAUNCHED
+  SUSPENDIDO
+  RETIRADO
+}
+
+/// Nivel jerárquico de un cargo (RF03, base de la jerarquía de dirección digital E3/RF32).
+enum NivelJerarquico {
+  EMPLEADO
+  LIDER
+  JEFE
+  DIRECTOR
+  GERENTE
+  SUPEREMPLEADO
 }
 
 /// Política de DataGuard hacia los modelos de IA (ADR 0008 D2).
@@ -177,23 +193,25 @@ enum TriggerType {
 }
 
 model User {
-  id                  String               @id @default(cuid())
-  email               String               @unique
-  name                String
-  passwordHash        String
+  id                   String               @id @default(cuid())
+  email                String               @unique
+  name                 String
+  passwordHash         String
   /// Cuándo demostró controlar el correo (enlace de verificación o de invitación). Null = sin verificar: puede usar su
   /// propio workspace, pero no unirse a otros sin el token de una invitación ni ser administrador de la plataforma.
-  emailVerifiedAt     DateTime?
+  emailVerifiedAt      DateTime?
   /// Versión de las sesiones: va en el JWT (`tv`); incrementarla invalida todos los tokens emitidos antes.
-  tokenVersion        Int                  @default(0)
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
-  memberships         Membership[]
-  groupMemberships    UserGroupMember[]
-  invitationsSent     Invitation[]         @relation("InvitationInviter")
-  invitationsAccepted Invitation[]         @relation("InvitationAcceptor")
-  apiKeysCreated      ApiKey[]             @relation("ApiKeyCreator")
-  passwordResets      PasswordResetToken[]
+  tokenVersion         Int                  @default(0)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  memberships          Membership[]
+  groupMemberships     UserGroupMember[]
+  invitationsSent      Invitation[]         @relation("InvitationInviter")
+  invitationsAccepted  Invitation[]         @relation("InvitationAcceptor")
+  apiKeysCreated       ApiKey[]             @relation("ApiKeyCreator")
+  passwordResets       PasswordResetToken[]
+  responsibleForAgents Agent[]              @relation("AgentResponsible")
+  substituteForAgents  Agent[]              @relation("AgentSubstitute")
 }
 
 /// Invitación a un workspace (C1): la membresía solo se crea cuando el dueño del correo acepta con el token de un solo
@@ -254,6 +272,35 @@ model Workspace {
   agentRoutines             AgentRoutine[]
   edgeAgents                EdgeAgent[]
   invitations               Invitation[]
+  cargos                    Cargo[]
+}
+
+/// Catálogo de cargos (RF03): perfil reutilizable del empleado digital con propósito, funciones, entregables,
+/// indicadores, límites y nivel jerárquico. Un cargo describe la posición, no a la persona ni al agente concreto.
+model Cargo {
+  id          String          @id @default(cuid())
+  workspaceId String
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  nombre      String
+  /// Propósito o misión del cargo.
+  proposito   String?
+  /// Funciones principales del cargo.
+  funciones   String[]        @default([])
+  /// Entregables o productos esperados.
+  entregables String[]        @default([])
+  /// Indicadores con los que se mide el desempeño del cargo.
+  indicadores String[]        @default([])
+  /// Límites: lo que el cargo NO debe hacer.
+  limites     String[]        @default([])
+  /// Nivel jerárquico (base de la jerarquía de dirección digital E3/RF32).
+  nivel       NivelJerarquico @default(EMPLEADO)
+  /// Un cargo inactivo deja de ofrecerse para asignar, sin romper los agentes que ya lo tienen.
+  activo      Boolean         @default(true)
+  agents      Agent[]
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([workspaceId])
 }
 
 model Membership {
@@ -400,6 +447,14 @@ model Agent {
   /// Centro de costo cuando el agente corre sin usuario (flujos, webhooks, MCP).
   costCenterId         String?
   costCenter           OrgUnit?           @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+  /// Expediente del empleado digital (RF02/RF04). Cargo que desempeña (perfil reutilizable), responsable humano
+  /// titular y suplente. Un agente no puede publicarse sin responsable (RF06).
+  cargoId              String?
+  cargo                Cargo?             @relation(fields: [cargoId], references: [id], onDelete: SetNull)
+  responsableUserId    String?
+  responsableUser      User?              @relation("AgentResponsible", fields: [responsableUserId], references: [id], onDelete: SetNull)
+  suplenteUserId       String?
+  suplenteUser         User?              @relation("AgentSubstitute", fields: [suplenteUserId], references: [id], onDelete: SetNull)
   workspaceId          String
   workspace            Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   tools                AgentTool[]

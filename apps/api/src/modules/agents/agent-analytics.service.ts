@@ -27,6 +27,9 @@ interface AgentRow {
   visibility: AgentVisibility;
   launchStatus: LaunchStatus;
   launchedAt: Date | null;
+  cargoId: string | null;
+  responsableUserId: string | null;
+  suplenteUserId: string | null;
   costCenter: { name: string } | null;
 }
 
@@ -62,6 +65,9 @@ export class AgentAnalyticsService {
         visibility: true,
         launchStatus: true,
         launchedAt: true,
+        cargoId: true,
+        responsableUserId: true,
+        suplenteUserId: true,
         costCenter: { select: { name: true } },
       },
       orderBy: { updatedAt: 'desc' },
@@ -161,7 +167,7 @@ export class AgentAnalyticsService {
       window: { from: curFrom.toISOString(), to: now.toISOString(), days: DASHBOARD_WINDOW_DAYS },
       kpis: {
         totalAgents: agents.length,
-        // "En pruebas" no existe como estado del agente (ciclo de vida: DRAFT/LAUNCHED). Dato faltante.
+        // El tablero aún no desglosa los estados nuevos (En validación/Suspendido/Retirado): queda para E12. Dato faltante.
         testing: null,
         active,
         activeDelta: launchedIn(curFrom, now) - launchedIn(prevFrom, curFrom),
@@ -193,6 +199,10 @@ export class AgentAnalyticsService {
           icon: a.icon,
           visibility: a.visibility,
           status: a.launchStatus,
+          // Expediente del empleado digital (RF02/RF04): cargo y responsables humanos.
+          cargoId: a.cargoId,
+          responsableUserId: a.responsableUserId,
+          suplenteUserId: a.suplenteUserId,
           health: h ? { score: h.score, level: h.level } : null,
           executions: u?.calls ?? 0,
           users: u?.users ?? 0,

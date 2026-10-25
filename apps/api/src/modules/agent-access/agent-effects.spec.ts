@@ -11,6 +11,22 @@ describe('Efectos de la visibilidad y el lanzamiento (ADR 0006 D4 / ADR 0007 D4-
     expect(routineBlockReason({ visibility: 'PRIVATE', launchStatus: 'DRAFT', ownerId: null })).toMatch(/lanzado/);
   });
 
+  it('rutinas: En validación sigue las reglas de Borrador; Suspendido/Retirado nunca ejecutan (RF06)', () => {
+    // En validación: igual que borrador (solo personal con dueño ejecuta).
+    expect(routineBlockReason({ visibility: 'PRIVATE', launchStatus: 'EN_VALIDACION', ownerId: 'u' })).toBeNull();
+    expect(routineBlockReason({ visibility: 'TEAM', launchStatus: 'EN_VALIDACION', ownerId: 'u' })).toMatch(
+      /no está lanzado/,
+    );
+    // Suspendido y retirado bloquean SIEMPRE, incluso un agente personal con dueño.
+    expect(routineBlockReason({ visibility: 'PRIVATE', launchStatus: 'SUSPENDIDO', ownerId: 'u' })).toMatch(
+      /suspendido/,
+    );
+    expect(routineBlockReason({ visibility: 'WORKSPACE', launchStatus: 'SUSPENDIDO', ownerId: 'u' })).toMatch(
+      /suspendido/,
+    );
+    expect(routineBlockReason({ visibility: 'PRIVATE', launchStatus: 'RETIRADO', ownerId: 'u' })).toMatch(/retirado/);
+  });
+
   it('conversaciones privadas: propias; heredadas solo para ADMIN/OWNER; API keys ninguna', () => {
     expect(conversationOwnerFilter({ userId: 'u', workspaceId: 'w', role: 'EDITOR', via: 'jwt' })).toEqual({
       userId: 'u',
