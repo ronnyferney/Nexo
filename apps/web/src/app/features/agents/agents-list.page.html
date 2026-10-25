@@ -1,0 +1,245 @@
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>Agentes de IA</h1>
+      <p>Asistentes con instrucciones, modelo y herramientas conectadas a sus sistemas</p>
+    </div>
+    <div class="row wrap">
+      <a class="btn" routerLink="/agents/explore"><nx-icon name="search" />Explorar agentes</a>
+      @if (canCreate()) {
+        <a class="btn primary brand" routerLink="/agents/new"><nx-icon name="plus" />Crear agente</a>
+      }
+    </div>
+  </div>
+
+  @if (error()) {
+    <nx-error-state message="{{ error() }}" title="No se pudieron cargar los agentes" (retry)="load()" />
+  } @else if (loading() && !data()) {
+    <nx-loading-state text="Cargando el tablero de agentes…" />
+  } @else if (data(); as d) {
+    <!-- KPIs del tablero (ventana de {{ d.window.days }} días) -->
+    <div class="kpis" style="margin-bottom:24px">
+      <div class="card kpi-card">
+        <div class="icon-tile"><nx-icon name="bot" /></div>
+        <div>
+          <div class="muted small">Agentes totales</div>
+          <div class="kpi-value">{{ d.kpis.totalAgents | num }}</div>
+          @if (d.kpis.testing !== null) {
+            <div class="muted small">{{ d.kpis.testing | num }} en pruebas</div>
+          } @else {
+            <div class="muted small">{{ d.kpis.published | num }} publicados</div>
+          }
+        </div>
+      </div>
+
+      <div class="card kpi-card">
+        <div class="icon-tile"><nx-icon name="rocket" /></div>
+        <div>
+          <div class="muted small">Activos</div>
+          <div class="kpi-value">{{ d.kpis.active | num }}</div>
+          @if (deltaCount(d.kpis.activeDelta); as dl) {
+            <div class="delta {{ dl.tone }}">
+              @if (dl.icon) { <nx-icon [name]="dl.icon" [size]="13" /> }
+              {{ dl.text }} <span class="muted">en {{ d.window.days }} días</span>
+            </div>
+          }
+        </div>
+      </div>
+
+      <div class="card kpi-card">
+        <div class="icon-tile"><nx-icon name="zap" /></div>
+        <div>
+          <div class="muted small">Ejecuciones ({{ d.window.days }} d)</div>
+          <div class="kpi-value">{{ d.kpis.executions | num }}</div>
+          @if (deltaPct(d.kpis.executionsDeltaPct); as dl) {
+            <div class="delta {{ dl.tone }}">
+              @if (dl.icon) { <nx-icon [name]="dl.icon" [size]="13" /> }
+              {{ dl.text }}
+            </div>
+          } @else {
+            <div class="muted small">Sin datos de comparación</div>
+          }
+        </div>
+      </div>
+
+      <div class="card kpi-card">
+        <div class="icon-tile"><nx-icon name="wallet" /></div>
+        <div>
+          <div class="muted small">Costo estimado ({{ d.window.days }} d)</div>
+          <div class="kpi-value">{{ d.kpis.costUsd | usd }}</div>
+          @if (deltaPct(d.kpis.costDeltaPct, false); as dl) {
+            <div class="delta {{ dl.tone }}">
+              @if (dl.icon) { <nx-icon [name]="dl.icon" [size]="13" /> }
+              {{ dl.text }}
+            </div>
+          } @else {
+            <div class="muted small">Sin datos de comparación</div>
+          }
+        </div>
+      </div>
+
+      <div class="card kpi-card">
+        <div class="icon-tile" [class.alert]="d.kpis.alerts > 0"><nx-icon name="alert" /></div>
+        <div>
+          <div class="muted small">Alertas de salud</div>
+          <div class="kpi-value">{{ d.kpis.alerts | num }}</div>
+          <div class="muted small">requieren revisión</div>
+        </div>
+      </div>
+    </div>
+
+    @if (auth.isAdmin()) {
+      <div class="callout info" style="margin-bottom:16px">
+        <nx-icon name="shield" [size]="16" />
+        <span>Vista de gobierno: ve la configuración, el costo y la salud de todos los agentes del workspace, pero no el
+          contenido de las conversaciones ajenas.</span>
+      </div>
+    }
+
+    <!-- Pestañas por estado con contadores -->
+    <div class="tabs scroll" role="tablist" aria-label="Estado de los agentes">
+      @for (t of tabs(); track t.id) {
+        <button type="button" class="tab" role="tab" [class.active]="t.id === tab()"
+          [attr.aria-selected]="t.id === tab()" (click)="selectTab(t.id)">
+          {{ t.label }} <span class="badge">{{ t.count | num }}</span>
+        </button>
+      }
+    </div>
+
+    <!-- Búsqueda, filtros y alternador de vista -->
+    <div class="toolbar">
+      <div class="field-search">
+        <nx-icon name="search" [size]="15" />
+        <input class="input" type="search" placeholder="Buscar por nombre, descripción o área"
+          aria-label="Buscar agentes" [ngModel]="query()" (ngModelChange)="onQuery($event)" />
+      </div>
+
+      <label class="sr-only" for="filtro-area">Filtrar por área</label>
+      <select id="filtro-area" class="input compact" [ngModel]="area() ?? ''" (ngModelChange)="onArea($event)">
+        <option value="">Todas las áreas</option>
+        @for (a of areas(); track a) { <option [value]="a">{{ a }}</option> }
+      </select>
+
+      <label class="sr-only" for="filtro-estado">Filtrar por estado</label>
+      <select id="filtro-estado" class="input compact" [ngModel]="status()" (ngModelChange)="onStatus($event)">
+        <option value="">Todos los estados</option>
+        <option value="LAUNCHED">Lanzado</option>
+        <option value="DRAFT">Borrador</option>
+      </select>
+
+      @if (hasFilters()) {
+        <button type="button" class="btn ghost sm" (click)="clearFilters()"><nx-icon name="x" [size]="14" />Limpiar</button>
+      }
+
+      <span class="spacer"></span>
+
+      <div class="segmented" role="group" aria-label="Modo de vista">
+        <button type="button" [class.active]="view() === 'cards'" [attr.aria-pressed]="view() === 'cards'"
+          title="Ver en tarjetas" (click)="view.set('cards')"><nx-icon name="dashboard" [size]="15" />Tarjetas</button>
+        <button type="button" [class.active]="view() === 'list'" [attr.aria-pressed]="view() === 'list'"
+          title="Ver en lista" (click)="view.set('list')"><nx-icon name="list" [size]="15" />Lista</button>
+      </div>
+    </div>
+
+    @if (!filtered().length) {
+      @if (hasFilters() || tab() !== 'all') {
+        <nx-empty-state icon="search" title="Sin resultados"
+          description="Ningún agente coincide con los filtros aplicados." actionLabel="Limpiar filtros" actionIcon="x"
+          (action)="clearFilters()" />
+      } @else {
+        <nx-empty-state icon="bot" title="Sin agentes"
+          description="Aún no hay agentes en el workspace. Cree uno o duplique un agente desde Explorar.">
+          @if (canCreate()) {
+            <div class="empty-actions">
+              <a class="btn primary" routerLink="/agents/new"><nx-icon name="plus" [size]="16" />Crear agente</a>
+            </div>
+          }
+        </nx-empty-state>
+      }
+    } @else if (view() === 'cards') {
+      <div class="cards">
+        @for (a of paged(); track a.id) {
+          <div class="card agent-card">
+            <div class="card-title">
+              <div class="icon-tile"><nx-icon name="bot" /></div>
+              <div style="min-width:0">
+                <h3><a [routerLink]="['/agents', a.id]">{{ a.name }}</a></h3>
+                <div class="chips">
+                  <nx-visibility-badge [visibility]="a.visibility" />
+                  <nx-launch-badge [status]="a.status" />
+                  @if (a.health; as h) { <nx-health-badge [score]="h.score" [level]="h.level" /> }
+                </div>
+              </div>
+            </div>
+            <p class="muted small desc">{{ a.description || 'Sin descripción aún' }}</p>
+            <dl class="metrics">
+              <div><dt>Ejecuciones</dt><dd>{{ a.executions | num }}</dd></div>
+              <div><dt>Usuarios</dt><dd>{{ a.users | num }}</dd></div>
+              <div><dt>Costo</dt><dd>{{ a.costUsd | usd }}</dd></div>
+              <div><dt>Área</dt><dd>{{ a.area || '—' }}</dd></div>
+            </dl>
+            <div class="row wrap actions">
+              <a class="btn sm" [routerLink]="['/agents', a.id]" [queryParams]="{ tab: 'preview' }">
+                <nx-icon name="play" [size]="14" />Probar
+              </a>
+              <a class="btn sm" [routerLink]="['/agents', a.id]"><nx-icon name="settings" [size]="14" />Configurar</a>
+            </div>
+          </div>
+        }
+      </div>
+    } @else {
+      <div class="table-scroll">
+        <table class="table">
+          <thead>
+            <tr>
+              <th scope="col">Agente</th>
+              <th scope="col">Estado</th>
+              <th scope="col">Salud</th>
+              <th scope="col" class="num">Ejecuciones</th>
+              <th scope="col" class="num">Usuarios</th>
+              <th scope="col" class="num">Costo</th>
+              <th scope="col">Área</th>
+              <th scope="col"><span class="sr-only">Acciones</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (a of paged(); track a.id) {
+              <tr>
+                <td>
+                  <a class="agent-link" [routerLink]="['/agents', a.id]">{{ a.name }}</a>
+                  <div class="chips"><nx-visibility-badge [visibility]="a.visibility" /></div>
+                </td>
+                <td><nx-launch-badge [status]="a.status" /></td>
+                <td>@if (a.health; as h) { <nx-health-badge [score]="h.score" [level]="h.level" /> } @else { <span class="muted small">—</span> }</td>
+                <td class="num">{{ a.executions | num }}</td>
+                <td class="num">{{ a.users | num }}</td>
+                <td class="num">{{ a.costUsd | usd }}</td>
+                <td>{{ a.area || '—' }}</td>
+                <td>
+                  <div class="row">
+                    <a class="btn sm icon" title="Probar en el chat" aria-label="Probar en el chat"
+                      [routerLink]="['/agents', a.id]" [queryParams]="{ tab: 'preview' }"><nx-icon name="play" [size]="14" /></a>
+                    <a class="btn sm icon" title="Configurar" aria-label="Configurar"
+                      [routerLink]="['/agents', a.id]"><nx-icon name="settings" [size]="14" /></a>
+                  </div>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+
+    @if (filtered().length && pageCount() > 1) {
+      <div class="pager">
+        <button type="button" class="btn sm" [disabled]="page() === 1" (click)="prevPage()">
+          <nx-icon name="arrowLeft" [size]="14" />Anterior
+        </button>
+        <span class="muted small">Página {{ page() }} de {{ pageCount() }}</span>
+        <button type="button" class="btn sm" [disabled]="page() === pageCount()" (click)="nextPage()">
+          Siguiente
+        </button>
+      </div>
+    }
+  }
+</div>

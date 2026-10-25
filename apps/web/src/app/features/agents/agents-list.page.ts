@@ -1,195 +1,167 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, input, OnInit, signal, untracked } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { RouterLink } from '@angular/router';
 import { AgentsScopeApi } from '../../core/agents-scope.api';
-import { AccessApi } from '../../core/access.api';
-import type { AgentHealthSummary } from '../../core/access.models';
-import type { AgentScope, ScopedAgent } from '../../core/agents-scope.models';
+import type { AgentDashboard, DashboardAgent } from '../../core/agents-scope.models';
 import { errorMessage } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { HealthBadgeComponent, LaunchBadgeComponent, VisibilityBadgeComponent } from '../../shared/agent-badges.component';
+import { EmptyStateComponent } from '../../shared/empty-state.component';
+import { ErrorStateComponent } from '../../shared/error-state.component';
 import { IconComponent } from '../../shared/icon.component';
-import { RelativeTimePipe } from '../../shared/relative-time.pipe';
+import { LoadingStateComponent } from '../../shared/loading-state.component';
+import { NumberPipe, UsdPipe } from '../../shared/usd.pipe';
+import {
+  type AgentFilter,
+  buildStatusTabs,
+  clampPage,
+  distinctAreas,
+  filterAgents,
+  formatDeltaCount,
+  formatDeltaPct,
+  pageCount,
+  pageSlice,
+  type StatusTab,
+} from './agents-dashboard.util';
 
-interface ScopeTab {
-  id: AgentScope;
-  label: string;
-  empty: string;
-}
+const PAGE_SIZE = 9;
+type ViewMode = 'cards' | 'list';
+type StatusFilter = '' | 'LAUNCHED' | 'DRAFT';
 
-const TABS: ScopeTab[] = [
-  {
-    id: 'available',
-    label: 'Disponibles para mí',
-    empty: 'Todavía no hay agentes para usted: cree uno o pida que le compartan uno (a usted, a su unidad o a su grupo).',
-  },
-  { id: 'mine', label: 'Mis agentes', empty: 'Aún no tiene agentes propios. Cree uno o duplique un agente desde Explorar.' },
-  { id: 'shared', label: 'Compartidos conmigo', empty: 'Nadie ha compartido agentes con usted, sus unidades o sus grupos.' },
-  { id: 'workspace', label: 'De la empresa', empty: 'La empresa todavía no tiene agentes publicados para todos.' },
-];
-const GOVERNANCE_TAB: ScopeTab = {
-  id: 'all',
-  label: 'Todos (gobierno)',
-  empty: 'El workspace no tiene agentes.',
-};
-
-/** Lista de agentes por ámbito (ADR 0007): propios, compartidos, de la empresa y, para ADMIN/OWNER, todos. */
+/**
+ * Tablero del catálogo de agentes (RX-11): KPIs, pestañas por estado con contadores, búsqueda, filtros de área y
+ * estado, vista de tarjetas o lista y paginación cliente sobre el arreglo de `GET /agents/dashboard`. Conserva el
+ * acceso a Crear agente, Explorar y la navegación a cada agente (configurar / probar en el chat).
+ */
 @Component({
   selector: 'nx-agents-list',
-  imports: [FormsModule, RouterLink, IconComponent, RelativeTimePipe, VisibilityBadgeComponent, LaunchBadgeComponent, HealthBadgeComponent],
+  imports: [
+    FormsModule,
+    RouterLink,
+    IconComponent,
+    UsdPipe,
+    NumberPipe,
+    VisibilityBadgeComponent,
+    LaunchBadgeComponent,
+    HealthBadgeComponent,
+    EmptyStateComponent,
+    ErrorStateComponent,
+    LoadingStateComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `
-    <div class="page">
-      <div class="page-header">
-        <div><h1>Agentes de IA</h1><p>Asistentes con instrucciones, modelo y herramientas conectadas a sus sistemas</p></div>
-        <div class="row wrap">
-          <a class="btn" routerLink="/agents/explore"><nx-icon name="search" />Explorar agentes</a>
-          @if (canCreate()) {
-            <a class="btn primary brand" routerLink="/agents/new"><nx-icon name="plus" />Crear agente</a>
-          }
-        </div>
-      </div>
-
-      <div class="tabs scroll" role="tablist" aria-label="Ámbito de los agentes">
-        @for (t of tabs(); track t.id) {
-          <button type="button" class="tab" role="tab" [class.active]="t.id === activeScope()" [attr.aria-selected]="t.id === activeScope()"
-            (click)="select(t.id)">{{ t.label }}</button>
-        }
-      </div>
-
-      @if (activeScope() === 'all') {
-        <div class="callout info" style="margin-bottom:16px">
-          <nx-icon name="shield" [size]="16" />
-          <span>Vista de gobierno: ve la configuración, el costo y la salud de todos los agentes, pero no el contenido de las conversaciones ajenas.</span>
-        </div>
-      }
-
-      @if (agents().length > 6 || query) {
-        <div class="row" style="margin-bottom:16px">
-          <input class="input" style="max-width:320px" type="search" placeholder="Buscar por nombre, descripción o dueño" aria-label="Buscar agentes"
-            [(ngModel)]="query" (ngModelChange)="queryChanged($event)" />
-        </div>
-      }
-
-      @if (error()) {
-        <div class="card empty"><nx-icon name="alert" [size]="28" /><h3>No se pudieron cargar los agentes</h3><p>{{ error() }}</p>
-          <button class="btn" (click)="reload()">Reintentar</button></div>
-      } @else if (loading() && !agents().length) {
-        <div class="card empty"><p>Cargando…</p></div>
-      } @else if (filtered().length) {
-        <div class="cards">
-          @for (a of filtered(); track a.id) {
-            <a class="card hover agent-card" [routerLink]="['/agents', a.id]" style="color:inherit">
-              <div class="card-title"><div class="icon-tile"><nx-icon name="bot" /></div>
-                <div style="min-width:0"><h3>{{ a.name }}</h3>
-                  <div class="chips">
-                    <nx-visibility-badge [visibility]="a.visibility" />
-                    <nx-launch-badge [status]="a.launchStatus" />
-                    @if (health().get(a.id); as h) { <nx-health-badge [score]="h.score" [level]="h.level" /> }
-                  </div>
-                </div></div>
-              <p class="muted small">{{ a.description || (a.systemPrompt ? a.systemPrompt.slice(0, 110) + '…' : 'Sin instrucciones aún') }}</p>
-              <div class="row small muted wrap">
-                @if (a.owner) { <span><nx-icon name="user" [size]="13" /> {{ isMine(a) ? 'Usted' : a.owner.name }}</span> }
-                <span class="badge primary">{{ a.model }}</span>
-                <span class="spacer"></span><span>{{ a.updatedAt | ago }}</span>
-              </div>
-            </a>
-          }
-        </div>
-      } @else if (query) {
-        <div class="card empty"><nx-icon name="search" [size]="36" /><h3>Sin resultados</h3><p>Ningún agente coincide con «{{ query }}».</p></div>
-      } @else {
-        <div class="card empty"><nx-icon name="bot" [size]="36" /><h3>Sin agentes</h3><p>{{ currentTab().empty }}</p>
-          @if ((activeScope() === 'mine' || activeScope() === 'available') && canCreate()) {
-            <a class="btn primary" routerLink="/agents/new"><nx-icon name="plus" />Crear agente</a>
-          }
-        </div>
-      }
-    </div>
-  `,
+  templateUrl: './agents-list.page.html',
+  styleUrl: './agents-list.page.scss',
 })
 export class AgentsListPage implements OnInit {
   private readonly api = inject(AgentsScopeApi);
-  private readonly access = inject(AccessApi);
-  private readonly router = inject(Router);
   protected readonly auth = inject(AuthService);
 
-  /** Pestaña activa desde `?scope=` (enlazable). */
-  readonly scope = input<string>();
+  // Helpers puros usados en la plantilla.
+  protected readonly deltaPct = formatDeltaPct;
+  protected readonly deltaCount = formatDeltaCount;
 
-  readonly agents = signal<ScopedAgent[]>([]);
-  readonly health = signal<Map<string, AgentHealthSummary>>(new Map());
+  readonly data = signal<AgentDashboard | null>(null);
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
   readonly allowPersonalAgents = signal(false);
-  private readonly search = signal('');
-  query = '';
-  private requestId = 0;
 
-  readonly tabs = computed(() => (this.auth.isAdmin() ? [...TABS, GOVERNANCE_TAB] : TABS));
-  readonly activeScope = computed<AgentScope>(() => {
-    const s = this.scope();
-    return this.tabs().some((t) => t.id === s) ? (s as AgentScope) : 'available';
+  readonly view = signal<ViewMode>('cards');
+  readonly tab = signal<StatusTab>('all');
+  readonly query = signal('');
+  readonly area = signal<string | null>(null);
+  readonly status = signal<StatusFilter>('');
+  readonly page = signal(1);
+
+  readonly agents = computed(() => this.data()?.agents ?? []);
+  readonly tabs = computed(() => {
+    const counts = this.data()?.counts;
+    return counts ? buildStatusTabs(counts) : [];
   });
-  readonly currentTab = computed(() => this.tabs().find((t) => t.id === this.activeScope()) ?? TABS[0]);
+  readonly areas = computed(() => distinctAreas(this.agents()));
+
+  private readonly activeFilter = computed<AgentFilter>(() => ({
+    tab: this.tab(),
+    query: this.query(),
+    area: this.area(),
+    status: this.status(),
+  }));
+  readonly filtered = computed(() => filterAgents(this.agents(), this.activeFilter()));
+  readonly pageCount = computed(() => pageCount(this.filtered().length, PAGE_SIZE));
+  readonly paged = computed(() => pageSlice(this.filtered(), this.page(), PAGE_SIZE));
+  readonly hasFilters = computed(() => !!this.query().trim() || !!this.area() || !!this.status());
+
   /** EDITOR+ siempre; VIEWER solo si el workspace permite agentes personales (ADR 0007 D3). */
   readonly canCreate = computed(() => this.auth.canEdit() || this.allowPersonalAgents());
-  readonly filtered = computed(() => {
-    const q = this.search().trim().toLowerCase();
-    if (!q) return this.agents();
-    return this.agents().filter((a) =>
-      [a.name, a.description ?? '', a.owner?.name ?? ''].some((v) => v.toLowerCase().includes(q)),
-    );
-  });
 
   constructor() {
+    // Al cambiar los filtros o el conjunto, la página vuelve a un rango válido (sin quedar en una página vacía).
     effect(() => {
-      const scope = this.activeScope();
-      untracked(() => void this.load(scope));
+      const total = this.filtered().length;
+      const clamped = clampPage(this.page(), total, PAGE_SIZE);
+      if (clamped !== this.page()) this.page.set(clamped);
     });
   }
 
   ngOnInit() {
-    // Una sola llamada de salud para todas las pestañas; si falla, las tarjetas se muestran sin puntaje.
-    this.access.healthSummary().then((list) => this.health.set(new Map(list.map((h) => [h.agentId, h]))), () => undefined);
+    void this.load();
     if (!this.auth.canEdit()) {
-      this.api.workspaceSettings().then((s) => this.allowPersonalAgents.set(!!s?.allowPersonalAgents), () => undefined);
+      this.api.workspaceSettings().then(
+        (s) => this.allowPersonalAgents.set(!!s?.allowPersonalAgents),
+        () => undefined,
+      );
     }
   }
 
-  select(scope: AgentScope) {
-    void this.router.navigate([], { queryParams: { scope: scope === 'available' ? null : scope }, queryParamsHandling: 'merge', replaceUrl: true });
-  }
-
-  reload() {
-    void this.load(this.activeScope());
-  }
-
-  queryChanged(value: string) {
-    this.search.set(value ?? '');
-  }
-
-  isMine(a: ScopedAgent) {
-    const me = this.auth.me();
-    return a.myPermission === 'OWNER' || (!!me && (a.ownerId ?? a.owner?.id) === me.id);
-  }
-
-  private async load(scope: AgentScope) {
-    const id = ++this.requestId;
+  async load() {
     this.loading.set(true);
     this.error.set(null);
-    this.agents.set([]);
     try {
-      const list = await this.api.agents(scope);
-      if (id === this.requestId) this.agents.set(list);
+      this.data.set(await this.api.dashboard());
     } catch (e) {
-      if (id === this.requestId) {
-        this.agents.set([]);
-        this.error.set(errorMessage(e));
-      }
+      this.data.set(null);
+      this.error.set(errorMessage(e));
     } finally {
-      if (id === this.requestId) this.loading.set(false);
+      this.loading.set(false);
     }
+  }
+
+  selectTab(id: StatusTab) {
+    this.tab.set(id);
+    this.page.set(1);
+  }
+
+  onQuery(value: string) {
+    this.query.set(value ?? '');
+    this.page.set(1);
+  }
+
+  onArea(value: string) {
+    this.area.set(value || null);
+    this.page.set(1);
+  }
+
+  onStatus(value: StatusFilter) {
+    this.status.set(value);
+    this.page.set(1);
+  }
+
+  clearFilters() {
+    this.query.set('');
+    this.area.set(null);
+    this.status.set('');
+    this.page.set(1);
+  }
+
+  prevPage() {
+    this.page.update((p) => Math.max(1, p - 1));
+  }
+
+  nextPage() {
+    this.page.update((p) => Math.min(this.pageCount(), p + 1));
+  }
+
+  /** `trackBy` de la lista de agentes. */
+  trackId(_: number, a: DashboardAgent) {
+    return a.id;
   }
 }

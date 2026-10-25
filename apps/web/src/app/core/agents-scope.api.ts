@@ -2,7 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../environments/environment';
-import type { AgentScope, ExploreAgent, ScopedAgent, WorkspaceSettings } from './agents-scope.models';
+import type { AgentDashboard, AgentScope, ExploreAgent, ScopedAgent, WorkspaceSettings } from './agents-scope.models';
 
 /**
  * Lista por ámbito, galería Explorar y ajustes del workspace (ADR 0007).
@@ -18,6 +18,9 @@ export class AgentsScopeApi {
       this.http.get<ScopedAgent[]>(`${this.base}/agents`, { params: scope && scope !== 'available' ? { scope } : {} }),
     );
   explore = () => firstValueFrom(this.http.get<ExploreAgent[]>(`${this.base}/agents/explore`));
+
+  /** Tablero del catálogo de agentes (RX-11): KPIs, recuentos por pestaña y métricas por agente (ventana de 30 días). */
+  dashboard = () => firstValueFrom(this.http.get<AgentDashboard>(`${this.base}/agents/dashboard`));
 
   workspaceSettings = () => firstValueFrom(this.http.get<WorkspaceSettings>(`${this.base}/workspace/settings`));
   updateWorkspaceSettings = (data: Partial<WorkspaceSettings>) =>

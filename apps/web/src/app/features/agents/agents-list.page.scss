@@ -1,0 +1,158 @@
+:host {
+  display: block;
+}
+
+/* Variación (delta) de un KPI: flecha + texto con tono semántico. */
+.delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 2px;
+
+  &.success {
+    color: var(--success);
+  }
+  &.danger {
+    color: var(--danger);
+  }
+  &.muted {
+    color: var(--muted);
+  }
+  .muted {
+    font-weight: 400;
+  }
+}
+
+.icon-tile.alert {
+  background: var(--danger-50);
+  color: var(--danger);
+}
+
+/* Barra de búsqueda, filtros y alternador de vista. */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.field-search {
+  position: relative;
+  flex: 1 1 260px;
+  min-width: 200px;
+  max-width: 360px;
+
+  nx-icon {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--muted);
+    pointer-events: none;
+  }
+  .input {
+    padding-left: 32px;
+  }
+}
+
+.input.compact {
+  width: auto;
+  min-width: 150px;
+}
+
+/* Tarjeta de agente. */
+.agent-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.agent-card h3 {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  a {
+    color: inherit;
+    text-decoration: none;
+
+    &:hover {
+      color: var(--primary);
+      text-decoration: underline;
+    }
+  }
+}
+
+.agent-card .desc {
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 2.4em;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px 16px;
+  margin: 0;
+
+  dt {
+    font-size: 11.5px;
+    color: var(--muted);
+  }
+  dd {
+    margin: 0;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.agent-card .actions {
+  margin-top: auto;
+}
+
+/* Vista de lista. */
+.table-scroll {
+  overflow-x: auto;
+}
+
+.agent-link {
+  font-weight: 600;
+  color: inherit;
+  text-decoration: none;
+
+  &:hover {
+    color: var(--primary);
+    text-decoration: underline;
+  }
+}
+
+.table .chips {
+  margin-top: 4px;
+}
+
+/* Paginación. */
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+@media (max-width: 480px) {
+  .metrics {
+    grid-template-columns: 1fr;
+  }
+  .input.compact {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+}
