@@ -13,7 +13,7 @@
     <div class="page-header">
       <div class="row head-info">
         <a class="btn ghost icon" routerLink="/agents" title="Volver a agentes" aria-label="Volver a agentes"><nx-icon name="arrowLeft" /></a>
-        <div class="icon-tile"><nx-icon name="bot" /></div>
+        <div class="icon-tile"><nx-icon [name]="a.icon ?? 'bot'" /></div>
         <div class="who">
           @if (editingName()) {
             <div class="name-edit">
@@ -138,6 +138,13 @@
                     }
                   </div>
                   <div class="field"><label for="agent-desc">Descripción (visible para clientes MCP)</label><input id="agent-desc" class="input" [disabled]="!canEditAgent()" [(ngModel)]="form.description" /></div>
+                  <div class="field">
+                    <label id="agent-icon-label">Ícono</label>
+                    <span class="hint">Se muestra en la lista de agentes y en este encabezado. «Sin ícono» usa el predeterminado.</span>
+                    <div role="group" aria-labelledby="agent-icon-label">
+                      <nx-icon-picker [(icon)]="icon" [disabled]="!canEditAgent()" />
+                    </div>
+                  </div>
                 </nx-agent-section>
                 <nx-agent-profile [(profile)]="profile" [(systemPrompt)]="systemPrompt" [disabled]="!canEditAgent()" />
               </div>

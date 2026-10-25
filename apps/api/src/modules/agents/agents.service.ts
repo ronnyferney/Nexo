@@ -41,9 +41,11 @@ function agentData<T extends UpdateAgentDto>(input: T & { visibility?: unknown }
   // La visibilidad tiene reglas propias (create/setVisibility): nunca se copia tal cual.
   const { visibility, ...dto } = input;
   void visibility;
-  const { profile, fallbackModels, targetScore, routing, ...rest } = dto;
+  const { profile, fallbackModels, targetScore, routing, icon, ...rest } = dto;
   return {
     ...rest,
+    // `icon` es el nombre de un ícono del design system; cadena vacía o null limpia el ícono.
+    ...(icon !== undefined ? { icon: icon ? icon : null } : {}),
     ...(targetScore !== undefined ? { targetScore } : {}),
     ...(profile !== undefined ? { profile: normalizeProfile(profile) as Prisma.InputJsonValue } : {}),
     ...(fallbackModels !== undefined ? { fallbackModels: [...new Set(fallbackModels.map((f) => f.trim()))] } : {}),

@@ -90,6 +90,7 @@ function agent(fallbackModels: string[]): AgentWithTools {
     id: 'a1',
     name: 'Agente',
     description: null,
+    icon: null,
     provider: 'p1',
     model: 'm1',
     systemPrompt: 'Base',

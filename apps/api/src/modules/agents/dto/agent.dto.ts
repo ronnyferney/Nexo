@@ -159,6 +159,15 @@ export class RoutingPolicyDto {
 export class CreateAgentDto {
   @ApiProperty() @IsString() @MinLength(2) @MaxLength(80) name!: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(500) description?: string;
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Nombre de un ícono del design system (p. ej. "inbox"); null = sin ícono',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  @Matches(/^[A-Za-z0-9]+$/, { message: 'El ícono solo puede contener letras y números, sin espacios' })
+  icon?: string | null;
   @ApiPropertyOptional({ default: 'anthropic' }) @IsOptional() @IsString() provider?: string;
   @ApiPropertyOptional({ default: 'claude-opus-5-5' }) @IsOptional() @IsString() model?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(50_000) systemPrompt?: string;

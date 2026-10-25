@@ -92,6 +92,9 @@ const ICONS: Record<string, string> = {
 /** Indica si el mapa de íconos contiene `name`. */
 export const hasIcon = (name: string | null | undefined): boolean => !!name && name in ICONS;
 
+/** Nombres de íconos disponibles (claves del mapa), para la biblioteca/selector de íconos. */
+export const ICON_NAMES: readonly string[] = Object.keys(ICONS);
+
 @Component({
   selector: 'nx-icon',
   changeDetection: ChangeDetectionStrategy.OnPush,

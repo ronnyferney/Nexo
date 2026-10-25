@@ -171,7 +171,7 @@
         @for (a of paged(); track a.id) {
           <div class="card agent-card">
             <div class="card-title">
-              <div class="icon-tile"><nx-icon name="bot" /></div>
+              <div class="icon-tile"><nx-icon [name]="a.icon ?? 'bot'" /></div>
               <div style="min-width:0">
                 <h3><a [routerLink]="['/agents', a.id]">{{ a.name }}</a></h3>
                 <div class="chips">
@@ -216,7 +216,7 @@
             @for (a of paged(); track a.id) {
               <tr>
                 <td>
-                  <a class="agent-link" [routerLink]="['/agents', a.id]">{{ a.name }}</a>
+                  <a class="agent-link" [routerLink]="['/agents', a.id]"><nx-icon [name]="a.icon ?? 'bot'" [size]="15" />{{ a.name }}</a>
                   <div class="chips"><nx-visibility-badge [visibility]="a.visibility" /></div>
                 </td>
                 <td><nx-launch-badge [status]="a.status" /></td>

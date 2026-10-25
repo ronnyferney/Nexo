@@ -14,6 +14,7 @@ import { TIER_LABELS, treeOrder } from '../../shared/budget';
 import { ShareAudienceComponent } from '../../shared/agent-badges.component';
 import { canManageAgentOwnership, canWriteAgent } from '../../shared/agent-permissions';
 import { IconComponent } from '../../shared/icon.component';
+import { IconPickerComponent } from '../../shared/icon-picker.component';
 import { formatUsd, NumberPipe } from '../../shared/usd.pipe';
 import { MarkdownPipe } from '../../shared/markdown.pipe';
 import {
@@ -78,6 +79,7 @@ const MAX_FALLBACKS = 3;
     FormsModule,
     RouterLink,
     IconComponent,
+    IconPickerComponent,
     NumberPipe,
     MarkdownPipe,
     AgentProfileComponent,
@@ -266,6 +268,8 @@ export class AgentDetailPage implements OnInit {
     costCenterId: null as string | null,
   };
   readonly profile = signal<AgentProfile>(normalizeProfile(EMPTY_PROFILE));
+  /** Ícono del agente (nombre del mapa de `IconComponent`); `null` = ícono por defecto (`bot`). */
+  readonly icon = signal<string | null>(null);
   readonly systemPrompt = signal('');
   readonly fallbacks = signal<string[]>([]);
   /** Política de enrutamiento multi-modelo (ADR 0010); `null` = principal + respaldos. Se guarda con «Guardar». */
@@ -455,6 +459,7 @@ export class AgentDetailPage implements OnInit {
       costCenterId: agent.costCenterId ?? null,
     };
     this.profile.set(normalizeProfile(agent.profile));
+    this.icon.set(agent.icon ?? null);
     this.systemPrompt.set(agent.systemPrompt ?? '');
     this.fallbacks.set([...(agent.fallbackModels ?? [])]);
     this.routing.set(agent.routing ? structuredClone(agent.routing) : null);
@@ -473,6 +478,7 @@ export class AgentDetailPage implements OnInit {
       ...this.form,
       systemPrompt: this.systemPrompt(),
       description: this.form.description || undefined,
+      icon: this.icon(),
       profile: {
         role: p.role.trim(),
         goals: clean(p.goals),

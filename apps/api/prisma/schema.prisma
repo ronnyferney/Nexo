@@ -373,6 +373,8 @@ model Agent {
   id                   String             @id @default(cuid())
   name                 String
   description          String?
+  /// Nombre de un ícono del design system (p. ej. "inbox"); null = sin ícono (la web muestra "bot").
+  icon                 String?
   provider             String             @default("anthropic")
   model                String             @default("claude-opus-5-5")
   systemPrompt         String             @default("")

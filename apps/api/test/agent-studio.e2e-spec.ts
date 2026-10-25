@@ -184,6 +184,44 @@ describe('Estudio de agentes · perfil, skills, conocimiento, ejemplos y respald
         .post('/agents', { ...base, routing: { objective: 'cost', verify: { enabled: true, onIssue: 'explota' } } })
         .expect(400);
     });
+
+    it('guarda el ícono del agente, GET lo devuelve, PATCH lo cambia y null lo limpia', async () => {
+      const res = await owner.api
+        .post('/agents', { name: 'Agente con ícono', provider: 'mock', model: 'mock-echo', icon: 'inbox' })
+        .expect(201);
+      const id = (res.body as { id: string }).id;
+      expect((res.body as { icon: unknown }).icon).toBe('inbox');
+
+      const got = (await owner.api.get(`/agents/${id}`).expect(200)).body as { icon: unknown };
+      expect(got.icon).toBe('inbox');
+
+      await owner.api.patch(`/agents/${id}`, { icon: 'shield' }).expect(200);
+      const patched = (await owner.api.get(`/agents/${id}`).expect(200)).body as { icon: unknown };
+      expect(patched.icon).toBe('shield');
+
+      await owner.api.patch(`/agents/${id}`, { icon: null }).expect(200);
+      const cleared = (await owner.api.get(`/agents/${id}`).expect(200)).body as { icon: unknown };
+      expect(cleared.icon).toBeNull();
+    });
+
+    it('rechaza íconos inválidos (con espacios o demasiado largos)', async () => {
+      const base = { name: 'Ícono inválido', provider: 'mock', model: 'mock-echo' };
+      await owner.api.post('/agents', { ...base, icon: 'con espacio' }).expect(400);
+      await owner.api.post('/agents', { ...base, icon: 'x'.repeat(41) }).expect(400);
+      await owner.api.post('/agents', { ...base, icon: 'guion-medio' }).expect(400);
+    });
+
+    it('el tablero de agentes incluye el ícono en la proyección por agente', async () => {
+      const res = await owner.api
+        .post('/agents', { name: 'Agente tablero', provider: 'mock', model: 'mock-echo', icon: 'chart' })
+        .expect(201);
+      const id = (res.body as { id: string }).id;
+      const dashboard = (await owner.api.get('/agents/dashboard').expect(200)).body as {
+        agents: { id: string; icon: string | null }[];
+      };
+      const row = dashboard.agents.find((a) => a.id === id);
+      expect(row?.icon).toBe('chart');
+    });
   });
 
   describe('Skills', () => {

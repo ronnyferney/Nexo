@@ -23,6 +23,7 @@ interface AgentRow {
   id: string;
   name: string;
   description: string | null;
+  icon: string | null;
   visibility: AgentVisibility;
   launchStatus: LaunchStatus;
   launchedAt: Date | null;
@@ -57,6 +58,7 @@ export class AgentAnalyticsService {
         id: true,
         name: true,
         description: true,
+        icon: true,
         visibility: true,
         launchStatus: true,
         launchedAt: true,
@@ -188,6 +190,7 @@ export class AgentAnalyticsService {
           id: a.id,
           name: a.name,
           description: a.description,
+          icon: a.icon,
           visibility: a.visibility,
           status: a.launchStatus,
           health: h ? { score: h.score, level: h.level } : null,

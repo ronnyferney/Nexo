@@ -37,6 +37,8 @@ export interface DashboardAgent {
   id: string;
   name: string;
   description: string | null;
+  /** Nombre de un ícono del mapa de `IconComponent`; `null`/ausente ⇒ `bot` por defecto. */
+  icon?: string | null;
   visibility: AgentVisibility;
   status: LaunchStatus;
   health: { score: number; level: HealthLevel } | null;

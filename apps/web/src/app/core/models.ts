@@ -107,6 +107,8 @@ export interface Agent {
   id: string;
   name: string;
   description?: string | null;
+  /** Nombre de un ícono del mapa de `IconComponent`; `null`/ausente ⇒ `bot` por defecto. */
+  icon?: string | null;
   provider: string;
   model: string;
   systemPrompt: string;
