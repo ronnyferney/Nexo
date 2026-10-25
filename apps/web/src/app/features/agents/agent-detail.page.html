@@ -81,7 +81,7 @@
         <span>Vista de gobierno: puede revisar la configuración, el costo y la salud de este agente, pero no editarlo ni leer conversaciones ajenas.</span></div>
     }
 
-    <div class="layout">
+    <div class="layout" #layoutEl [class.resizing]="resizing()" [class.chat-full]="chatFullscreen()" [style.--studio-split]="studioRatio()">
       <div class="studio">
         @if (seesConfig()) {
           <nx-agent-health class="health-slot" [agentId]="a.id" [copilot]="canEditAgent()" (loaded)="health.set($event)"
@@ -319,11 +319,20 @@
         </div>
       </div>
 
+      <button type="button" class="resize-handle" role="separator" aria-orientation="vertical" aria-label="Ajustar el ancho de las columnas"
+        [attr.aria-valuenow]="(studioRatio() * 100).toFixed(0)" aria-valuemin="30" aria-valuemax="72"
+        (pointerdown)="startResize($event)" (keydown)="onResizeKey($event)"></button>
+
       <div class="card chat">
         <div class="chat-head">
           <nx-icon name="sparkles" /><strong>{{ canEditAgent() ? 'Probar agente' : 'Conversar' }}</strong><span class="spacer"></span>
           <span class="muted small hide-sm">{{ canEditAgent() ? 'Guarde los cambios antes de probar · ' : '' }}Sus conversaciones son privadas</span>
           <button class="btn sm" (click)="newConversation()"><nx-icon name="refresh" [size]="14" />Nueva</button>
+          <button type="button" class="btn sm icon" [attr.aria-pressed]="chatFullscreen()"
+            [attr.aria-label]="chatFullscreen() ? 'Salir de pantalla completa' : 'Chat a pantalla completa'"
+            [title]="chatFullscreen() ? 'Salir de pantalla completa (Esc)' : 'Pantalla completa'" (click)="toggleFullscreen()">
+            <nx-icon [name]="chatFullscreen() ? 'minimize' : 'maximize'" [size]="14" />
+          </button>
         </div>
         @if (usedAccounts().length) {
           <div class="acts-on" title="Cuentas conectadas que el agente usará al ejecutar sus herramientas">

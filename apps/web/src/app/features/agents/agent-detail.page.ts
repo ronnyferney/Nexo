@@ -18,9 +18,14 @@ import { formatUsd, NumberPipe } from '../../shared/usd.pipe';
 import { MarkdownPipe } from '../../shared/markdown.pipe';
 import {
   type ChatTurnState,
+  clampStudioRatio,
+  DEFAULT_STUDIO_RATIO,
   friendlyError,
   isActiveTurnState,
   isSecurityNotice,
+  parseStudioRatio,
+  STUDIO_RATIO_STEP,
+  studioRatioAt,
   toolSlug,
   turnStateLabel,
 } from './agent-chat.util';
@@ -100,6 +105,7 @@ export class AgentDetailPage implements OnInit {
   /** Pestaña inicial por query param (`?tab=routines`). */
   readonly initialTab = input<string | undefined>(undefined, { alias: 'tab' });
   private readonly scroller = viewChild<ElementRef<HTMLDivElement>>('scroller');
+  private readonly layoutEl = viewChild<ElementRef<HTMLDivElement>>('layoutEl');
   private readonly copilot = viewChild(CopilotPanelComponent);
   private readonly healthCard = viewChild(AgentHealthCardComponent);
 
@@ -124,6 +130,79 @@ export class AgentDetailPage implements OnInit {
     { id: 'preview', label: 'Vista previa' },
   ];
   readonly tab = signal<AgentTab>('profile');
+
+  // ----- Layout del estudio: columnas redimensionables y pantalla completa del chat (RX-6) -----
+  private static readonly RATIO_KEY = 'nx.agentStudio.ratio';
+  /** Fracción de ancho de la columna de configuración (0–1); el divisor arrastrable la ajusta. */
+  readonly studioRatio = signal(this.readStudioRatio());
+  /** El panel de prueba ocupa todo el ancho y oculta la configuración. */
+  readonly chatFullscreen = signal(false);
+  /** Arrastre del divisor en curso (bloquea la selección de texto y resalta el handle). */
+  readonly resizing = signal(false);
+  private releaseResize: (() => void) | null = null;
+
+  private readStudioRatio(): number {
+    try {
+      return parseStudioRatio(localStorage.getItem(AgentDetailPage.RATIO_KEY));
+    } catch {
+      return DEFAULT_STUDIO_RATIO;
+    }
+  }
+
+  private persistStudioRatio(ratio: number): void {
+    try {
+      localStorage.setItem(AgentDetailPage.RATIO_KEY, String(ratio));
+    } catch {
+      /* Sin persistencia (modo privado, cuota): la proporción solo vive en esta sesión. */
+    }
+  }
+
+  /** Comienza a arrastrar el divisor; escucha el puntero a nivel de ventana hasta soltarlo. */
+  startResize(ev: PointerEvent): void {
+    if (ev.button !== 0) return;
+    ev.preventDefault();
+    this.resizing.set(true);
+    const move = (e: PointerEvent) => this.resizeTo(e.clientX);
+    const up = () => {
+      this.releaseResize?.();
+      this.releaseResize = null;
+      this.resizing.set(false);
+      this.persistStudioRatio(this.studioRatio());
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    this.releaseResize = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+  }
+
+  private resizeTo(clientX: number): void {
+    const el = this.layoutEl()?.nativeElement;
+    if (el) this.studioRatio.set(studioRatioAt(clientX, el.getBoundingClientRect()));
+  }
+
+  /** Teclado sobre el divisor: flechas ajustan la proporción; Inicio/Fin van a los extremos. */
+  onResizeKey(e: KeyboardEvent): void {
+    const delta =
+      e.key === 'ArrowLeft'
+        ? -STUDIO_RATIO_STEP
+        : e.key === 'ArrowRight'
+          ? STUDIO_RATIO_STEP
+          : e.key === 'Home'
+            ? -1
+            : e.key === 'End'
+              ? 1
+              : 0;
+    if (!delta) return;
+    e.preventDefault();
+    this.studioRatio.update((r) => clampStudioRatio(r + delta));
+    this.persistStudioRatio(this.studioRatio());
+  }
+
+  toggleFullscreen(): void {
+    this.chatFullscreen.update((v) => !v);
+  }
 
   // ----- Permisos, visibilidad, salud y lanzamiento (ADR 0006 / 0007) -----
   readonly visibilityMeta = VISIBILITY_META;
@@ -591,6 +670,10 @@ export class AgentDetailPage implements OnInit {
 
   /** Atajo Alt+Mayús+A para abrir o cerrar el Copilot. */
   onShortcut(e: KeyboardEvent) {
+    if (e.key === 'Escape' && this.chatFullscreen()) {
+      this.chatFullscreen.set(false);
+      return;
+    }
     if (e.altKey && e.shiftKey && e.code === 'KeyA' && this.canEditAgent()) {
       e.preventDefault();
       this.copilotOpen.update((v) => !v);

@@ -1,4 +1,11 @@
-.layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.layout { display: grid; grid-template-columns: minmax(300px, calc(var(--studio-split, .55) * 100%)) 10px minmax(340px, 1fr); gap: 12px; align-items: start; }
+.layout.resizing { user-select: none; cursor: col-resize; }
+.layout.chat-full { grid-template-columns: 1fr; }
+.layout.chat-full .studio, .layout.chat-full .resize-handle { display: none; }
+.resize-handle { align-self: stretch; height: calc(100vh - 140px); position: sticky; top: 20px; width: 10px; padding: 0; margin: 0; border: 0; background: none; cursor: col-resize; display: flex; align-items: center; justify-content: center; }
+.resize-handle::before { content: ''; width: 2px; height: 44px; border-radius: 2px; background: var(--border); transition: background .15s, height .15s; }
+.resize-handle:hover::before, .resize-handle:focus-visible::before, .layout.resizing .resize-handle::before { background: var(--primary-solid); height: 72px; }
+.resize-handle:focus-visible { outline: 2px solid var(--primary-solid); outline-offset: 2px; border-radius: 6px; }
 .chat { display: flex; flex-direction: column; height: calc(100vh - 140px); position: sticky; top: 20px; padding: 0; overflow: hidden; }
 .chat-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
 .chat-views { display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--border); }
@@ -72,7 +79,7 @@
 .turn-status .dots span:nth-child(2) { animation-delay: .2s; }
 .turn-status .dots span:nth-child(3) { animation-delay: .4s; }
 @keyframes blink { 0%, 80%, 100% { opacity: 0.2; } 40% { opacity: 1; } }
-@media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } .chat { position: static; height: 640px; } }
+@media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } .chat { position: static; height: 640px; } .resize-handle { display: none; } }
 .head-info { min-width: 0; }
 .head-info .who { min-width: 0; }
 .head-info p { overflow-wrap: anywhere; }

@@ -36,6 +36,33 @@ export function turnStateLabel(state: ChatTurnState, toolName?: string): string 
   }
 }
 
+/**
+ * Proporción del estudio del agente: fracción (0–1) del ancho que ocupa la columna de configuración frente al panel
+ * de prueba. Se acota para respetar los anchos mínimos de ambas columnas (RX-6, chat redimensionable).
+ */
+export const MIN_STUDIO_RATIO = 0.3;
+export const MAX_STUDIO_RATIO = 0.72;
+export const DEFAULT_STUDIO_RATIO = 0.55;
+/** Paso de teclado del divisor (flechas izquierda/derecha). */
+export const STUDIO_RATIO_STEP = 0.03;
+
+/** Acota la proporción al rango permitido; cae al valor por defecto si no es un número finito. */
+export function clampStudioRatio(ratio: number): number {
+  if (!Number.isFinite(ratio)) return DEFAULT_STUDIO_RATIO;
+  return Math.min(MAX_STUDIO_RATIO, Math.max(MIN_STUDIO_RATIO, ratio));
+}
+
+/** Proporción resultante de arrastrar el divisor a `clientX`, dado el rectángulo del contenedor del layout. */
+export function studioRatioAt(clientX: number, rect: { left: number; width: number }): number {
+  if (!rect.width) return DEFAULT_STUDIO_RATIO;
+  return clampStudioRatio((clientX - rect.left) / rect.width);
+}
+
+/** Lee la proporción guardada (texto de localStorage) y la acota; valor por defecto si falta o es inválida. */
+export function parseStudioRatio(raw: string | null | undefined): number {
+  return clampStudioRatio(raw == null ? NaN : Number(raw));
+}
+
 /** Un aviso del backend es de seguridad (DataGuard) si empieza con este prefijo; el resto son informativos. */
 export const SECURITY_NOTICE_PREFIX = 'Protección de datos';
 

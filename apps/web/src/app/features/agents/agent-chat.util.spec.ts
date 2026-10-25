@@ -1,4 +1,16 @@
-import { friendlyError, isActiveTurnState, isSecurityNotice, toolSlug, turnStateLabel } from './agent-chat.util';
+import {
+  clampStudioRatio,
+  DEFAULT_STUDIO_RATIO,
+  friendlyError,
+  isActiveTurnState,
+  isSecurityNotice,
+  MAX_STUDIO_RATIO,
+  MIN_STUDIO_RATIO,
+  parseStudioRatio,
+  studioRatioAt,
+  toolSlug,
+  turnStateLabel,
+} from './agent-chat.util';
 
 describe('agent-chat.util', () => {
   describe('isSecurityNotice', () => {
@@ -67,6 +79,40 @@ describe('agent-chat.util', () => {
     it('cae en un mensaje genérico para causas desconocidas', () => {
       expect(friendlyError('algo raro pasó')).toBe('No fue posible completar la solicitud.');
       expect(friendlyError('')).toBe('No fue posible completar la solicitud.');
+    });
+  });
+
+  describe('clampStudioRatio', () => {
+    it('acota al rango permitido', () => {
+      expect(clampStudioRatio(0.1)).toBe(MIN_STUDIO_RATIO);
+      expect(clampStudioRatio(0.95)).toBe(MAX_STUDIO_RATIO);
+      expect(clampStudioRatio(0.5)).toBe(0.5);
+    });
+
+    it('cae al valor por defecto con entradas no finitas', () => {
+      expect(clampStudioRatio(NaN)).toBe(DEFAULT_STUDIO_RATIO);
+      expect(clampStudioRatio(Infinity)).toBe(DEFAULT_STUDIO_RATIO);
+    });
+  });
+
+  describe('studioRatioAt', () => {
+    it('calcula la fracción según la posición del puntero y la acota', () => {
+      expect(studioRatioAt(500, { left: 0, width: 1000 })).toBe(0.5);
+      expect(studioRatioAt(50, { left: 0, width: 1000 })).toBe(MIN_STUDIO_RATIO);
+      expect(studioRatioAt(990, { left: 0, width: 1000 })).toBe(MAX_STUDIO_RATIO);
+    });
+
+    it('devuelve el valor por defecto si el contenedor no tiene ancho', () => {
+      expect(studioRatioAt(100, { left: 0, width: 0 })).toBe(DEFAULT_STUDIO_RATIO);
+    });
+  });
+
+  describe('parseStudioRatio', () => {
+    it('lee y acota el valor guardado', () => {
+      expect(parseStudioRatio('0.5')).toBe(0.5);
+      expect(parseStudioRatio('0.05')).toBe(MIN_STUDIO_RATIO);
+      expect(parseStudioRatio(null)).toBe(DEFAULT_STUDIO_RATIO);
+      expect(parseStudioRatio('abc')).toBe(DEFAULT_STUDIO_RATIO);
     });
   });
 
