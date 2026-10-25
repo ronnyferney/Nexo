@@ -41,12 +41,16 @@ function agentData<T extends UpdateAgentDto>(input: T & { visibility?: unknown }
   // La visibilidad tiene reglas propias (create/setVisibility): nunca se copia tal cual.
   const { visibility, ...dto } = input;
   void visibility;
-  const { profile, fallbackModels, targetScore, ...rest } = dto;
+  const { profile, fallbackModels, targetScore, routing, ...rest } = dto;
   return {
     ...rest,
     ...(targetScore !== undefined ? { targetScore } : {}),
     ...(profile !== undefined ? { profile: normalizeProfile(profile) as Prisma.InputJsonValue } : {}),
     ...(fallbackModels !== undefined ? { fallbackModels: [...new Set(fallbackModels.map((f) => f.trim()))] } : {}),
+    // `routing` es la política de enrutamiento (ADR 0010); null la limpia (columna NULL = comportamiento actual).
+    ...(routing !== undefined
+      ? { routing: routing === null ? Prisma.DbNull : (routing as unknown as Prisma.InputJsonValue) }
+      : {}),
   };
 }
 

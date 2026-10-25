@@ -23,6 +23,8 @@ import type { ResolvedModel } from '../llm/llm-gateway.service';
 import { ConnectionUnavailableException } from '../llm/llm-errors';
 import { LlmGatewayService } from '../llm/llm-gateway.service';
 import type { AgentEvent, Effort, LlmRunResult, ToolCall, ToolOutcome, ToolSpec } from '../llm/llm-provider';
+import { ModelRouterService } from '../llm/model-router.service';
+import type { RoutingPolicy, RoutingRule, RoutingSignals } from '../llm/routing.types';
 import { costUsd } from '../llm/pricing';
 import { composeSystemPrompt, LOAD_SKILL_TOOL, SAVE_KNOWLEDGE_TOOL, SEARCH_KNOWLEDGE_TOOL } from './prompt-composer';
 
@@ -116,6 +118,51 @@ export function parseModelRef(ref: string): { providerId: string; model: string 
 }
 
 /**
+ * Lee la política de enrutamiento almacenada (`Agent.routing`, Json validado al escribir por el DTO) de forma
+ * defensiva: `null`/forma inválida ⇒ `null` (modo no enrutado). No usa `eval`; solo copia campos reconocidos.
+ */
+export function toRoutingPolicy(raw: unknown): RoutingPolicy | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  if (o.objective !== 'cost' && o.objective !== 'quality' && o.objective !== 'balanced') return null;
+  const policy: RoutingPolicy = { objective: o.objective };
+  if (Array.isArray(o.rules)) policy.rules = o.rules as RoutingRule[];
+  if (typeof o.maxCandidates === 'number' && o.maxCandidates > 0) policy.maxCandidates = o.maxCandidates;
+  return policy;
+}
+
+/**
+ * Señales **deterministas** de la tarea disponibles hoy en el runtime (ADR 0010 D2, decisión 5: sin clasificador LLM):
+ * el contexto estimado (system + mensaje + historial, ≈ 4 caracteres por token) y la modalidad detectada en los bloques
+ * nativos del historial (imágenes/documentos). La capacidad por skill/paso se añadirá cuando esos canales la declaren.
+ */
+export function taskSignals(prepared: PreparedAgent, opts: AgentRunOptions): RoutingSignals {
+  const historyChars = opts.history ? JSON.stringify(opts.history).length : 0;
+  const chars = prepared.system.length + opts.message.length + historyChars;
+  const signals: RoutingSignals = { estimatedContextTokens: Math.ceil(chars / 4) };
+  const modality = detectModality(opts.history);
+  if (modality.hasImages) signals.hasImages = true;
+  if (modality.hasDocuments) signals.hasDocuments = true;
+  return signals;
+}
+
+/** Busca bloques de contenido `image`/`document` en el historial nativo (única entrada estructurada disponible hoy). */
+function detectModality(history: unknown[] | undefined): { hasImages: boolean; hasDocuments: boolean } {
+  let hasImages = false;
+  let hasDocuments = false;
+  for (const msg of history ?? []) {
+    const content = (msg as { content?: unknown } | null)?.content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content) {
+      const type = (block as { type?: unknown } | null)?.type;
+      if (type === 'image') hasImages = true;
+      else if (type === 'document') hasDocuments = true;
+    }
+  }
+  return { hasImages, hasDocuments };
+}
+
+/**
  * ¿El error de `client.run` justifica probar el siguiente modelo de respaldo? Solo los errores del proveedor
  * (HTTP, red, sobrecarga, respuesta inválida). Los errores de la plataforma (`HttpException`: presupuesto agotado,
  * modelo no permitido, configuración) y la cancelación del usuario se propagan tal cual.
@@ -149,6 +196,7 @@ export class AgentRuntimeService {
     private readonly budgets: BudgetsService,
     private readonly prisma: PrismaService,
     private readonly knowledge: KnowledgeService,
+    private readonly router: ModelRouterService,
   ) {}
 
   /** System prompt y herramientas del agente, en orden estable (favorece la caché de prompts). */
@@ -316,24 +364,50 @@ export class AgentRuntimeService {
     const orgUnitId = await this.org.resolveCostCenter(ws, opts.context.userId, agent.costCenterId);
     const prepared = await this.prepare(agent);
 
-    const plan = await this.budgets.plan(ws, orgUnitId, agent.provider, agent.model);
-    if (plan.notice) opts.onEvent?.({ type: 'notice', message: plan.notice });
-    const fallbacks = (agent.fallbackModels ?? []).map(parseModelRef).filter((r) => r !== null);
+    // Cadena de candidatos a resolver. En modo enrutado (ADR 0010) la ordena el ModelRouterService sobre el catálogo
+    // del workspace; sin política (`agent.routing` == null) es la cadena estática de hoy (principal + fallbackModels).
+    // En ambos casos cada candidato pasa por `budgets.plan` (permisos/presupuesto/degradación) y `gateway.resolve`
+    // (DataGuard). El router solo ordena: no evade presupuesto ni permisos.
+    const { chain, routed } = await this.candidateChain(agent, prepared, opts);
+    // `list` es la lista de respaldos que recorre el bucle. En modo enrutado toda la cadena del router se consume como
+    // respaldos (se omite con aviso el candidato no permitido; el presupuesto agotado detiene la cadena, igual que
+    // `fallbackModels`); sin política, el principal `Agent.model` se planifica y resuelve aparte, como hasta hoy.
+    let list: { providerId: string; model: string }[];
     let primary: ResolvedModel;
-    let start: { index: number; chainIds: string[] } | null = null;
-    try {
-      primary = await this.gateway.resolve(ws, plan.providerId, plan.model);
-    } catch (err) {
-      // Principal no disponible (sesión cerrada, deshabilitado, modelo eliminado): se arranca con el primer respaldo.
-      if (!(err instanceof ConnectionUnavailableException)) throw err;
-      const next = await this.nextFallback(ws, orgUnitId, fallbacks, 0, opts);
-      if (!next) throw err;
-      opts.onEvent?.({
-        type: 'notice',
-        message: `El modelo ${plan.model} no está disponible (${err.message}); se usa ${label(next.resolved)}.`,
-      });
+    let start: { index: number; chainIds: string[] } | null;
+    let planChainIds: string[] = [];
+    if (routed) {
+      list = chain;
+      const next = await this.nextFallback(ws, orgUnitId, list, 0, opts);
+      if (!next) {
+        throw new ConnectionUnavailableException(
+          'El enrutamiento no dejó ningún modelo disponible dentro de los permisos y el presupuesto del agente.',
+          'disabled',
+        );
+      }
       primary = next.resolved;
       start = { index: next.index, chainIds: next.chainIds };
+    } else {
+      const [head, ...rest] = chain;
+      list = rest;
+      const plan = await this.budgets.plan(ws, orgUnitId, head.providerId, head.model);
+      if (plan.notice) opts.onEvent?.({ type: 'notice', message: plan.notice });
+      planChainIds = plan.chainIds;
+      start = null;
+      try {
+        primary = await this.gateway.resolve(ws, plan.providerId, plan.model);
+      } catch (err) {
+        // Principal no disponible (sesión cerrada, deshabilitado, modelo eliminado): se arranca con el primer respaldo.
+        if (!(err instanceof ConnectionUnavailableException)) throw err;
+        const next = await this.nextFallback(ws, orgUnitId, list, 0, opts);
+        if (!next) throw err;
+        opts.onEvent?.({
+          type: 'notice',
+          message: `El modelo ${plan.model} no está disponible (${err.message}); se usa ${label(next.resolved)}.`,
+        });
+        primary = next.resolved;
+        start = { index: next.index, chainIds: next.chainIds };
+      }
     }
 
     let history = opts.history ?? [];
@@ -345,7 +419,7 @@ export class AgentRuntimeService {
       history = [];
     }
 
-    let current = { resolved: primary, chainIds: start?.chainIds ?? plan.chainIds, history };
+    let current = { resolved: primary, chainIds: start?.chainIds ?? planChainIds, history };
     let failed = label(primary);
     for (let i = start ? start.index + 1 : 0; ; i++) {
       try {
@@ -353,7 +427,7 @@ export class AgentRuntimeService {
       } catch (err) {
         if (!isProviderFailure(err, opts.signal)) throw err;
         this.logger.warn(`Modelo ${failed} falló para el agente ${agent.id}: ${(err as Error).message}`);
-        const next = await this.nextFallback(ws, orgUnitId, fallbacks, i, opts);
+        const next = await this.nextFallback(ws, orgUnitId, list, i, opts);
         if (!next) throw err;
         i = next.index;
         opts.onEvent?.({ type: 'notice', message: `El modelo ${failed} falló; se usa ${label(next.resolved)}.` });
@@ -365,6 +439,54 @@ export class AgentRuntimeService {
         failed = label(next.resolved);
       }
     }
+  }
+
+  /**
+   * Cadena ordenada de candidatos `{providerId, model}` a resolver. Sin política de enrutamiento (`agent.routing` ==
+   * null) devuelve la cadena estática de siempre: principal `Agent.model` + `Agent.fallbackModels` (comportamiento
+   * idéntico a hoy, ADR 0010 D6). Con política, invoca al `ModelRouterService` sobre el catálogo del workspace y las
+   * señales deterministas de la tarea, emite un `notice` por cada aviso y por la decisión (con los códigos auditables de
+   * motivo, nunca el razonamiento del modelo), y devuelve la lista ordenada. Si el router no halla candidatos (p. ej.
+   * contexto insuficiente), se vuelve a la cadena estática del agente para no dejarlo sin modelo.
+   */
+  private async candidateChain(
+    agent: AgentWithTools,
+    prepared: PreparedAgent,
+    opts: AgentRunOptions,
+  ): Promise<{ chain: { providerId: string; model: string }[]; routed: boolean }> {
+    const staticChain: { providerId: string; model: string }[] = [
+      { providerId: agent.provider, model: agent.model },
+      ...(agent.fallbackModels ?? [])
+        .map(parseModelRef)
+        .filter((r): r is { providerId: string; model: string } => r !== null),
+    ];
+    const policy = toRoutingPolicy(agent.routing);
+    if (!policy) return { chain: staticChain, routed: false };
+
+    const candidates = await this.gateway.routingCandidates(agent.workspaceId);
+    const decision = this.router.route({ policy, candidates, task: taskSignals(prepared, opts) });
+    for (const notice of decision.notices) {
+      opts.onEvent?.({ type: 'notice', message: `Enrutamiento (${notice.code}): ${notice.message}` });
+    }
+    if (!decision.candidates.length) {
+      // Ningún candidato cumple la tarea: se vuelve a la configuración por defecto del agente para no dejarlo sin modelo.
+      opts.onEvent?.({
+        type: 'notice',
+        message: 'El enrutamiento no encontró candidatos; se usa la configuración por defecto del agente.',
+      });
+      return { chain: staticChain, routed: false };
+    }
+    const [top, ...backups] = decision.candidates;
+    opts.onEvent?.({
+      type: 'notice',
+      message:
+        `Enrutamiento: modelo principal ${top.ref} (motivos: ${top.reasons.join(', ')})` +
+        (backups.length ? `; respaldos: ${backups.map((c) => c.ref).join(', ')}.` : '.'),
+    });
+    const chain = decision.candidates
+      .map((c) => parseModelRef(c.ref))
+      .filter((r): r is { providerId: string; model: string } => r !== null);
+    return { chain, routed: true };
   }
 
   /**

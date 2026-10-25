@@ -383,6 +383,8 @@ model Agent {
   profile              Json               @default("{}")
   /// Cadena de respaldo "<providerId>:<modelId>" (máx. 3).
   fallbackModels       String[]           @default([])
+  /// Política de enrutamiento multi-modelo (ADR 0010). null = comportamiento actual (principal + fallbackModels).
+  routing              Json?
   /// Meta de calidad del bucle de mejora (0..1, ADR 0004).
   targetScore          Float              @default(0.85)
   /// Ciclo de vida de producción (ADR 0006): solo los agentes LAUNCHED se publican por MCP y ejecutan rutinas.

@@ -129,6 +129,34 @@ describe('Estudio de agentes · perfil, skills, conocimiento, ejemplos y respald
       await owner.api.post('/agents', { ...base, fallbackModels: ['sin-formato'] }).expect(400);
       await owner.api.post('/agents', { ...base, fallbackModels: ['a:1', 'b:2', 'c:3', 'd:4'] }).expect(400);
     });
+
+    it('guarda la política de enrutamiento (ADR 0010), GET la devuelve y PATCH con null la limpia', async () => {
+      const routing = {
+        objective: 'cost',
+        rules: [{ when: { hasImages: true }, prefer: { specialties: ['VISION'], models: ['mock:mock-echo'] } }],
+        maxCandidates: 3,
+      };
+      const res = await owner.api
+        .post('/agents', { name: 'Agente enrutado', provider: 'mock', model: 'mock-echo', routing })
+        .expect(201);
+      const id = (res.body as { id: string }).id;
+      const got = (await owner.api.get(`/agents/${id}`).expect(200)).body as { routing: unknown };
+      expect(got.routing).toEqual(routing);
+
+      await owner.api.patch(`/agents/${id}`, { routing: null }).expect(200);
+      const cleared = (await owner.api.get(`/agents/${id}`).expect(200)).body as { routing: unknown };
+      expect(cleared.routing).toBeNull();
+    });
+
+    it('rechaza políticas de enrutamiento mal formadas', async () => {
+      const base = { name: 'Routing inválido', provider: 'mock', model: 'mock-echo' };
+      await owner.api.post('/agents', { ...base, routing: { objective: 'barato' } }).expect(400);
+      await owner.api.post('/agents', { ...base, routing: { maxCandidates: 3 } }).expect(400);
+      await owner.api
+        .post('/agents', { ...base, routing: { objective: 'cost', rules: [{ prefer: { models: ['sin-formato'] } }] } })
+        .expect(400);
+      await owner.api.post('/agents', { ...base, routing: { objective: 'cost', maxCandidates: 99 } }).expect(400);
+    });
   });
 
   describe('Skills', () => {

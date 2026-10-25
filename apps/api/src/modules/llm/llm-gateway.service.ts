@@ -26,6 +26,8 @@ import {
   type CatalogModel,
   type ModelPricing,
 } from './pricing';
+import type { ModelSpecialty } from './providers/provider-catalog.types';
+import type { RoutingCandidate } from './routing.types';
 
 export interface CatalogEntry {
   id: string;
@@ -226,6 +228,59 @@ export class LlmGatewayService {
       models: c.models.map((m) => strip(toCatalogModel(m))),
     }));
     return [...system, ...custom];
+  }
+
+  /**
+   * Catálogo del workspace mapeado a candidatos de enrutamiento (ADR 0010 D3). Expone la metadata que el
+   * `ModelRouterService` necesita y que el catálogo público no lleva (`specialties`, `contextTokens`, `needsPricing`),
+   * ya persistida en `LlmModel`. Incluye los modelos de la conexión de sistema «Incluido por Nexo» (cuando está
+   * configurada para el workspace, con metadata de propósito general por defecto) y los modelos habilitados de las
+   * conexiones utilizables del administrador. **No** incluye la conexión de sistema Mock (proveedor de desarrollo): no
+   * se enruta tráfico real al simulador. El router solo ordena sobre esta lista; el runtime filtra después por
+   * presupuesto/permisos vía `budgets.plan` + `resolve`, así que aquí no se aplica gobierno de costos.
+   */
+  async routingCandidates(workspaceId: string): Promise<RoutingCandidate[]> {
+    const candidates: RoutingCandidate[] = [];
+    // Conexión de plataforma: disponible solo si hay clave y el workspace no tiene el cupo en cero.
+    if (this.anthropicKey && this.platformQuotaUsd(workspaceId) !== 0) {
+      for (const m of SYSTEM_ANTHROPIC_MODELS) {
+        candidates.push({
+          providerId: SYSTEM_PROVIDERS.anthropic,
+          modelId: m.id,
+          tier: m.tier,
+          // Los modelos de sistema no declaran especialidades ni ventana verificada: propósito general sin descartar.
+          specialties: ['GENERAL'],
+          contextTokens: null,
+          inputUsdPerMTok: m.inputUsdPerMTok,
+          outputUsdPerMTok: m.outputUsdPerMTok,
+          needsPricing: false,
+        });
+      }
+    }
+    const connections = await this.prisma.llmConnection.findMany({
+      where: { workspaceId, enabled: true },
+      include: { models: { where: { enabled: true }, orderBy: { modelId: 'asc' } } },
+      orderBy: { name: 'asc' },
+    });
+    for (const c of connections) {
+      // Misma noción de «configurada» que `catalog()`: una conexión con la sesión cerrada o sin clave no es utilizable.
+      const configured =
+        (c.kind !== 'ANTHROPIC' && c.credentialType !== 'OAUTH') || !!c.apiKeyCipher || !!connectionKeyless(c);
+      if (!configured) continue;
+      for (const m of c.models) {
+        candidates.push({
+          providerId: c.id,
+          modelId: m.modelId,
+          tier: m.tier,
+          specialties: m.specialties?.length ? (m.specialties as ModelSpecialty[]) : ['GENERAL'],
+          contextTokens: m.contextTokens ?? null,
+          inputUsdPerMTok: num(m.inputUsdPerMTok)!,
+          outputUsdPerMTok: num(m.outputUsdPerMTok)!,
+          needsPricing: m.needsPricing,
+        });
+      }
+    }
+    return candidates;
   }
 
   /**

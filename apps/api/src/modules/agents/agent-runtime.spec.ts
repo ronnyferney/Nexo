@@ -7,6 +7,8 @@ import type { OrgService } from '../governance/org.service';
 import type { KnowledgeService } from '../knowledge/knowledge.service';
 import type { LlmGatewayService, ResolvedModel } from '../llm/llm-gateway.service';
 import type { AgentEvent, LlmClient, LlmRunRequest, LlmRunResult } from '../llm/llm-provider';
+import { ModelRouterService } from '../llm/model-router.service';
+import type { RoutingCandidate } from '../llm/routing.types';
 import type { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AgentRuntimeService, isProviderFailure, parseModelRef, type AgentWithTools } from './agent-runtime.service';
 
@@ -30,10 +32,12 @@ const fail =
 function setup(
   models: Record<string, { kind: LlmKind; behavior: Behavior }>,
   planOverrides: Record<string, unknown> = {},
+  routingCandidates: RoutingCandidate[] = [],
 ) {
   const calls: { key: string; req: LlmRunRequest }[] = [];
   const planned: string[] = [];
   const gateway = {
+    routingCandidates: jest.fn(async () => routingCandidates),
     resolve: jest.fn(async (_ws: string, providerId: string, model: string): Promise<ResolvedModel> => {
       const key = `${providerId}:${model}`;
       const entry = models[key];
@@ -74,8 +78,9 @@ function setup(
     budgets as unknown as BudgetsService,
     { connectorOperation: { findMany: async () => [] } } as unknown as PrismaService,
     { search: async () => [] } as unknown as KnowledgeService,
+    new ModelRouterService(),
   );
-  return { runtime, calls, planned };
+  return { runtime, calls, planned, gateway };
 }
 
 function agent(fallbackModels: string[]): AgentWithTools {
@@ -97,12 +102,29 @@ function agent(fallbackModels: string[]): AgentWithTools {
     visibility: 'WORKSPACE',
     ownerId: null,
     costCenterId: null,
+    routing: null,
     workspaceId: 'ws',
     createdAt: new Date(),
     updatedAt: new Date(),
     tools: [],
   };
   return a;
+}
+
+/** Candidato de catálogo para las pruebas de enrutamiento (valores por defecto de propósito general, con tarifa). */
+function candidate(ref: string, over: Partial<RoutingCandidate> = {}): RoutingCandidate {
+  const [providerId, modelId] = ref.split(':');
+  return {
+    providerId,
+    modelId,
+    tier: 'STANDARD',
+    specialties: ['GENERAL'],
+    contextTokens: null,
+    inputUsdPerMTok: 1,
+    outputUsdPerMTok: 2,
+    needsPricing: false,
+    ...over,
+  };
 }
 
 describe('AgentRuntimeService · cadena de respaldo', () => {
@@ -192,6 +214,119 @@ describe('AgentRuntimeService · cadena de respaldo', () => {
     expect(parseModelRef('ollama:llama3:8b')).toEqual({ providerId: 'ollama', model: 'llama3:8b' });
     expect(parseModelRef('sin-modelo:')).toBeNull();
     expect(parseModelRef(':m')).toBeNull();
+  });
+});
+
+describe('AgentRuntimeService · enrutamiento multi-modelo (ADR 0010)', () => {
+  const routed = (routing: unknown): AgentWithTools => ({ ...agent([]), routing: routing as never });
+  const noticeMessages = (events: AgentEvent[]) =>
+    events.filter((e) => e.type === 'notice').map((e) => (e as { message: string }).message);
+
+  it('routing = null: no invoca al router y usa el principal + fallbackModels de siempre', async () => {
+    const { runtime, calls, planned, gateway } = setup({
+      'p1:m1': { kind: 'MOCK', behavior: ok('estático') },
+    });
+    const r = await runtime.run(agent(['p2:m2']), { message: 'hola', context: { source: 'CHAT' } });
+    expect(r).toMatchObject({ text: 'estático', providerId: 'p1', model: 'm1' });
+    expect(gateway.routingCandidates).not.toHaveBeenCalled();
+    expect(planned).toEqual(['p1:m1']);
+    expect(calls.map((c) => c.key)).toEqual(['p1:m1']);
+  });
+
+  it('ordena por objetivo (cost) y resuelve el candidato más económico, con notice auditable', async () => {
+    const { runtime, calls, planned, gateway } = setup({ 'p1:cheap': { kind: 'MOCK', behavior: ok('barato') } }, {}, [
+      candidate('p1:premium', { tier: 'PREMIUM', inputUsdPerMTok: 4, outputUsdPerMTok: 20 }),
+      candidate('p1:cheap', { tier: 'ECONOMY', inputUsdPerMTok: 0.1, outputUsdPerMTok: 0.5 }),
+      candidate('p1:mid', { tier: 'STANDARD' }),
+    ]);
+    const events: AgentEvent[] = [];
+    const r = await runtime.run(routed({ objective: 'cost' }), {
+      message: 'hola',
+      context: { source: 'CHAT' },
+      onEvent: (e) => events.push(e),
+    });
+    expect(gateway.routingCandidates).toHaveBeenCalledWith('ws');
+    expect(r).toMatchObject({ text: 'barato', providerId: 'p1', model: 'cheap' });
+    // El principal enrutado pasa por budgets.plan y gateway.resolve, igual que un respaldo.
+    expect(planned[0]).toBe('p1:cheap');
+    expect(calls[0].key).toBe('p1:cheap');
+    const notices = noticeMessages(events);
+    expect(notices.some((m) => m.includes('modelo principal p1:cheap') && m.includes('OBJETIVO_COSTO'))).toBe(true);
+  });
+
+  it('omite con aviso un candidato enrutado no permitido y usa el siguiente (gobierno de costos)', async () => {
+    const { runtime, calls, planned } = setup(
+      { 'p1:mid': { kind: 'MOCK', behavior: ok('permitido') } },
+      { 'p1:cheap': new ForbiddenException('modelo no permitido por la unidad') },
+      [
+        candidate('p1:cheap', { tier: 'ECONOMY', inputUsdPerMTok: 0.1, outputUsdPerMTok: 0.5 }),
+        candidate('p1:mid', { tier: 'STANDARD' }),
+      ],
+    );
+    const events: AgentEvent[] = [];
+    const r = await runtime.run(routed({ objective: 'cost' }), {
+      message: 'hola',
+      context: { source: 'CHAT' },
+      onEvent: (e) => events.push(e),
+    });
+    expect(r).toMatchObject({ providerId: 'p1', model: 'mid' });
+    expect(planned).toEqual(['p1:cheap', 'p1:mid']);
+    expect(calls.map((c) => c.key)).toEqual(['p1:mid']);
+    expect(noticeMessages(events).some((m) => m.includes('cheap no está disponible'))).toBe(true);
+  });
+
+  it('el presupuesto agotado detiene la cadena enrutada (no sigue gastando)', async () => {
+    const budget = new BudgetExceededException('Raíz', '2026-10');
+    const { runtime, calls } = setup(
+      { 'p1:mid': { kind: 'MOCK', behavior: ok('no debería') } },
+      { 'p1:cheap': budget },
+      [
+        candidate('p1:cheap', { tier: 'ECONOMY', inputUsdPerMTok: 0.1, outputUsdPerMTok: 0.5 }),
+        candidate('p1:mid', { tier: 'STANDARD' }),
+      ],
+    );
+    await expect(
+      runtime.run(routed({ objective: 'cost' }), { message: 'h', context: { source: 'CHAT' } }),
+    ).rejects.toBe(budget);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('la regla por capacidad (VISION) prefiere el modelo adecuado cuando la entrada trae imágenes', async () => {
+    const { runtime, calls } = setup({ 'p1:vista': { kind: 'MOCK', behavior: ok('con visión') } }, {}, [
+      candidate('p1:texto', { tier: 'ECONOMY', inputUsdPerMTok: 0.1, outputUsdPerMTok: 0.5 }),
+      candidate('p1:vista', { tier: 'PREMIUM', specialties: ['VISION'], inputUsdPerMTok: 4, outputUsdPerMTok: 20 }),
+    ]);
+    // El historial nativo trae un bloque de imagen: señal determinista de modalidad.
+    const r = await runtime.run(routed({ objective: 'cost' }), {
+      message: 'describe',
+      history: [{ role: 'user', content: [{ type: 'image' }] }],
+      context: { source: 'CHAT' },
+    });
+    // Aun con objetivo cost, el filtro por capacidad deja solo el modelo con VISION.
+    expect(r).toMatchObject({ model: 'vista' });
+    expect(calls.map((c) => c.key)).toEqual(['p1:vista']);
+  });
+
+  it('sin candidatos válidos (contexto insuficiente) vuelve a la configuración por defecto del agente', async () => {
+    const { runtime, planned } = setup({ 'p1:m1': { kind: 'MOCK', behavior: ok('por defecto') } }, {}, [
+      candidate('p1:corto', { contextTokens: 1 }),
+    ]);
+    const events: AgentEvent[] = [];
+    const r = await runtime.run(
+      // El contexto estimado del mensaje largo supera la ventana del único candidato (1 token): se descarta todo.
+      { ...agent(['p2:m2']), routing: { objective: 'cost' } },
+      { message: 'hola '.repeat(200), context: { source: 'CHAT' }, onEvent: (e) => events.push(e) },
+    );
+    expect(r).toMatchObject({ providerId: 'p1', model: 'm1' });
+    expect(planned[0]).toBe('p1:m1');
+    expect(noticeMessages(events).some((m) => m.includes('no encontró candidatos'))).toBe(true);
+  });
+
+  it('un routing con forma inválida se ignora (se comporta como null)', async () => {
+    const { runtime, gateway, planned } = setup({ 'p1:m1': { kind: 'MOCK', behavior: ok('ok') } });
+    await runtime.run(routed({ objetivo: 'malformado' }), { message: 'hola', context: { source: 'CHAT' } });
+    expect(gateway.routingCandidates).not.toHaveBeenCalled();
+    expect(planned).toEqual(['p1:m1']);
   });
 });
 

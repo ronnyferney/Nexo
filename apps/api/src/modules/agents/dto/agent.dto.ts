@@ -56,6 +56,72 @@ export class AgentProfileDto {
 /** `"<providerId>:<modelId>"`; el modelo puede contener ":" (p. ej. `ollama:llama3:8b`). */
 export const MODEL_REF = /^[A-Za-z0-9_-]{1,64}:\S{1,128}$/;
 
+/** Política de enrutamiento multi-modelo (ADR 0010 D2). JSON validado; nunca `eval`. */
+export const ROUTING_OBJECTIVES = ['cost', 'quality', 'balanced'] as const;
+export const ROUTING_SPECIALTIES = ['CODE', 'REASONING', 'VISION', 'FAST', 'GENERAL'] as const;
+export const ROUTING_TIERS = ['PREMIUM', 'STANDARD', 'ECONOMY'] as const;
+
+/** Condición de una regla: la primera cuyo `when` encaja gana. `when` vacío aplica siempre. */
+export class RoutingRuleWhenDto {
+  @ApiPropertyOptional({ enum: ROUTING_SPECIALTIES })
+  @IsOptional()
+  @IsIn(ROUTING_SPECIALTIES)
+  capability?: (typeof ROUTING_SPECIALTIES)[number];
+  @ApiPropertyOptional() @IsOptional() @IsBoolean() hasImages?: boolean;
+  @ApiPropertyOptional() @IsOptional() @IsInt() @Min(1) minContextTokens?: number;
+}
+
+/** Preferencia que una regla empuja al frente. */
+export class RoutingRulePreferDto {
+  @ApiPropertyOptional({ enum: ROUTING_SPECIALTIES, isArray: true })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(5)
+  @IsIn(ROUTING_SPECIALTIES, { each: true })
+  specialties?: (typeof ROUTING_SPECIALTIES)[number][];
+  @ApiPropertyOptional({ enum: ROUTING_TIERS })
+  @IsOptional()
+  @IsIn(ROUTING_TIERS)
+  tier?: (typeof ROUTING_TIERS)[number];
+  @ApiPropertyOptional({ type: [String], description: 'Referencias "<providerId>:<modelId>" preferidas' })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsString({ each: true })
+  @Matches(MODEL_REF, { each: true, message: 'Cada modelo debe tener el formato "<providerId>:<modelId>"' })
+  models?: string[];
+}
+
+export class RoutingRuleDto {
+  @ApiProperty({ type: RoutingRuleWhenDto })
+  @ValidateNested()
+  @Type(() => RoutingRuleWhenDto)
+  when!: RoutingRuleWhenDto;
+  @ApiProperty({ type: RoutingRulePreferDto })
+  @ValidateNested()
+  @Type(() => RoutingRulePreferDto)
+  prefer!: RoutingRulePreferDto;
+}
+
+export class RoutingPolicyDto {
+  @ApiProperty({ enum: ROUTING_OBJECTIVES, description: 'Cómo desempatar entre candidatos válidos' })
+  @IsIn(ROUTING_OBJECTIVES)
+  objective!: (typeof ROUTING_OBJECTIVES)[number];
+  @ApiPropertyOptional({ type: [RoutingRuleDto], description: 'Reglas de preferencia en orden de prioridad' })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => RoutingRuleDto)
+  rules?: RoutingRuleDto[];
+  @ApiPropertyOptional({ description: 'Tope de intentos totales por tarea (por defecto 3)' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  maxCandidates?: number;
+}
+
 export class CreateAgentDto {
   @ApiProperty() @IsString() @MinLength(2) @MaxLength(80) name!: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(500) description?: string;
@@ -80,6 +146,15 @@ export class CreateAgentDto {
   @IsString({ each: true })
   @Matches(MODEL_REF, { each: true, message: 'Cada respaldo debe tener el formato "<providerId>:<modelId>"' })
   fallbackModels?: string[];
+  @ApiPropertyOptional({
+    type: RoutingPolicyDto,
+    nullable: true,
+    description: 'Política de enrutamiento multi-modelo (ADR 0010). null = principal + fallbackModels.',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => RoutingPolicyDto)
+  routing?: RoutingPolicyDto | null;
   @ApiPropertyOptional({ default: 0.85, description: 'Meta de puntaje de evaluación 0..1 (ADR 0004)' })
   @IsOptional()
   @IsNumber()
