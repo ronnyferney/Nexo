@@ -59,6 +59,50 @@ export interface AgentToolBinding {
   connector: { id: string; name: string; type: ConnectorType };
 }
 
+// ===== Política de enrutamiento multi-modelo (ADR 0010 D2) =====
+// Espeja `RoutingPolicyDto` del backend (`apps/api/.../agents/dto/agent.dto.ts`). JSON validado; nunca `eval`.
+
+/** Cómo desempatar entre candidatos válidos. */
+export type RoutingObjective = 'cost' | 'quality' | 'balanced';
+/** Capacidad declarada del modelo en el catálogo (`LlmModel.specialties`). */
+export type RoutingSpecialty = 'CODE' | 'REASONING' | 'VISION' | 'FAST' | 'GENERAL';
+/** Reutiliza los niveles de precio del catálogo (`ModelTier`). */
+export type RoutingTier = ModelTier;
+
+/** Condición de una regla: la primera cuyo `when` encaja gana; `when` vacío aplica siempre. */
+export interface RoutingRuleWhen {
+  capability?: RoutingSpecialty;
+  hasImages?: boolean;
+  minContextTokens?: number;
+}
+
+/** Preferencia que una regla empuja al frente de los candidatos. */
+export interface RoutingRulePrefer {
+  specialties?: RoutingSpecialty[];
+  tier?: RoutingTier;
+  /** Referencias `"<providerId>:<modelId>"` preferidas. */
+  models?: string[];
+}
+
+export interface RoutingRule {
+  when: RoutingRuleWhen;
+  prefer: RoutingRulePrefer;
+}
+
+/** `Agent.routing`; `null` = comportamiento actual (principal + `fallbackModels`). */
+export interface RoutingPolicy {
+  objective: RoutingObjective;
+  /** Reglas de preferencia en orden de prioridad (máx. 20). */
+  rules?: RoutingRule[];
+  /** Tope de intentos totales por tarea (1..5, por defecto 3). */
+  maxCandidates?: number;
+  /**
+   * Verificación cruzada (ADR 0010 D4, Fase 3): se construye en paralelo y NO se edita en este editor.
+   * Se preserva tal cual venga del servidor al guardar. Forma libre a propósito mientras no exista su contrato.
+   */
+  verify?: unknown;
+}
+
 export interface Agent {
   id: string;
   name: string;
@@ -74,6 +118,8 @@ export interface Agent {
   profile?: Partial<import('./studio.models').AgentProfile> | null;
   /** Cadena de respaldo `"<providerId>:<modelId>"`, máx. 3 (ADR 0003 D1). */
   fallbackModels?: string[];
+  /** Política de enrutamiento multi-modelo (ADR 0010); `null`/ausente = principal + `fallbackModels`. */
+  routing?: RoutingPolicy | null;
   tools?: AgentToolBinding[];
   skills?: import('./studio.models').AgentSkillRef[];
   knowledgeBases?: import('./studio.models').AgentKnowledgeRef[];

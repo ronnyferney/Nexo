@@ -6,7 +6,7 @@ import { type AgentHealth, PERMISSION_LABELS, VISIBILITY_META } from '../../core
 import { ApiService, errorMessage } from '../../core/api.service';
 import type { CopilotApplyNavigationState, CopilotApplyResult, CopilotProposal } from '../../core/copilot.models';
 import { AuthService } from '../../core/auth.service';
-import type { Agent, CatalogModel, Connector, Effort, Operation, OrgUnitOption, ProviderInfo } from '../../core/models';
+import type { Agent, CatalogModel, Connector, Effort, Operation, OrgUnitOption, ProviderInfo, RoutingPolicy } from '../../core/models';
 import { StudioApi } from '../../core/studio.api';
 import { type AgentProfile, EMPTY_PROFILE, type KnowledgeBase, normalizeProfile, type Skill } from '../../core/studio.models';
 import { ToastService } from '../../core/toast.service';
@@ -36,6 +36,8 @@ import { AgentProfileComponent } from './agent-profile.component';
 import { AgentSectionComponent, type SectionStatus } from './agent-section.component';
 import { AgentPromptPreviewComponent } from './agent-prompt-preview.component';
 import { AgentRoutinesComponent } from './agent-routines.component';
+import { AgentRoutingEditorComponent } from './agent-routing-editor.component';
+import { normalizeRoutingPolicy } from './agent-routing.util';
 import { AgentTrainingComponent } from './training/agent-training.component';
 import { CopilotPanelComponent } from '../copilot/copilot-panel.component';
 import { AgentHealthCardComponent } from './agent-health-card.component';
@@ -82,6 +84,7 @@ const MAX_FALLBACKS = 3;
     AgentSectionComponent,
     AgentExamplesComponent,
     AgentRoutinesComponent,
+    AgentRoutingEditorComponent,
     AgentPromptPreviewComponent,
     AgentTrainingComponent,
     AgentChatFeedbackComponent,
@@ -263,6 +266,8 @@ export class AgentDetailPage implements OnInit {
   readonly profile = signal<AgentProfile>(normalizeProfile(EMPTY_PROFILE));
   readonly systemPrompt = signal('');
   readonly fallbacks = signal<string[]>([]);
+  /** Política de enrutamiento multi-modelo (ADR 0010); `null` = principal + respaldos. Se guarda con «Guardar». */
+  readonly routing = signal<RoutingPolicy | null>(null);
   /** Meta de calidad del bucle de mejora (0.5–1); se guarda con el `PATCH /agents/:id` de «Guardar». */
   readonly targetScore = signal(DEFAULT_TARGET_SCORE);
   readonly toolSelection = signal(new Map<string, boolean>()); // operationId -> requiresApproval
@@ -450,6 +455,7 @@ export class AgentDetailPage implements OnInit {
     this.profile.set(normalizeProfile(agent.profile));
     this.systemPrompt.set(agent.systemPrompt ?? '');
     this.fallbacks.set([...(agent.fallbackModels ?? [])]);
+    this.routing.set(agent.routing ? structuredClone(agent.routing) : null);
     this.targetScore.set(agent.targetScore ?? DEFAULT_TARGET_SCORE);
     this.toolSelection.set(new Map((agent.tools ?? []).map((t) => [t.operationId, t.requiresApproval])));
     this.skillSelection.set(new Set((agent.skills ?? []).map((s) => s.id)));
@@ -475,6 +481,8 @@ export class AgentDetailPage implements OnInit {
         language: p.language.trim(),
       },
       fallbackModels: this.fallbacks(),
+      // `null` = comportamiento actual; normaliza rangos y preserva `verify` (Fase 3) tal cual venga del servidor.
+      routing: normalizeRoutingPolicy(this.routing()),
       targetScore: this.targetScore(),
     };
   }
