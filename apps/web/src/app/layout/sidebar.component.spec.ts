@@ -40,9 +40,9 @@ describe('SidebarComponent', () => {
   it('renderiza la marca y la navegación principal accesible', () => {
     expect(el.querySelector('.brand')?.getAttribute('aria-label')).toContain('Nexo');
     expect(el.querySelector('nav')?.getAttribute('aria-label')).toBe('Navegación principal');
-    // Los 12 ítems del portal están siempre presentes.
+    // Los 13 ítems del portal están siempre presentes.
     const portalLinks = el.querySelectorAll('[aria-labelledby="nav-portal"] a');
-    expect(portalLinks.length).toBe(12);
+    expect(portalLinks.length).toBe(13);
   });
 
   it('oculta las secciones de administración y plataforma sin los roles correspondientes', () => {

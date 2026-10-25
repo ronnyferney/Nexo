@@ -6,6 +6,7 @@ import { AuthService } from './auth.service';
 import type { ConnectionUsage } from './llm-providers.models';
 import type {
   Agent,
+  AgentRunsPage,
   ApiKey,
   ApiKeyCreateInput,
   ApiKeyCreated,
@@ -110,6 +111,9 @@ export class ApiService {
   setAgentTools = (id: string, tools: { operationId: string; requiresApproval: boolean }[]) =>
     this.put<Agent>(`/agents/${id}/tools`, { tools });
   conversations = (id: string) => this.get<{ id: string; title: string; updatedAt: string }[]>(`/agents/${id}/conversations`);
+
+  /** Historial de tareas del agente (RX-14). Paginación por cursor; filtros opcionales por query. */
+  agentRuns = (params: Record<string, string> = {}) => this.get<AgentRunsPage>('/agent-runs', params);
 
   /** Chat con streaming SSE sobre fetch (EventSource no admite POST ni headers). */
   async chatStream(

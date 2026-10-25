@@ -483,6 +483,39 @@ export interface Execution {
   workflow?: { id: string; name: string };
 }
 
+// ===== Historial de tareas del agente (RX-14) =====
+
+export type AgentRunStatus = 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
+export type AgentRunSource = 'CHAT' | 'WORKFLOW' | 'MCP' | 'ROUTINE' | 'EVAL' | 'COPILOT';
+
+/** Una tarea ejecutada por un agente (`GET /agent-runs`). Muchas métricas pueden venir en `null`. */
+export interface AgentRun {
+  id: string;
+  agentId: string;
+  agentName: string;
+  source: AgentRunSource;
+  status: AgentRunStatus;
+  error: string | null;
+  model: string | null;
+  providerId: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  durationMs: number | null;
+  ttftMs: number | null;
+  costUsd: number | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  conversationId: string | null;
+  executionId: string | null;
+}
+
+/** Página de `GET /agent-runs`: paginación por cursor, sin total. */
+export interface AgentRunsPage {
+  items: AgentRun[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
 /** `GET /health/version` (público): versión desplegada de la plataforma, para soporte. */
 export interface BuildInfo {
   version: string;

@@ -146,6 +146,7 @@ export class SidebarComponent {
     { path: '/supervision', label: 'Supervisión', icon: 'inbox', exact: false },
     { path: '/workflows', label: 'Flujos', icon: 'flow', exact: false },
     { path: '/executions', label: 'Ejecuciones', icon: 'history', exact: false },
+    { path: '/agent-runs', label: 'Historial de tareas', icon: 'list', exact: false },
     { path: '/integrations', label: 'Apps conectadas', icon: 'puzzle', exact: false },
     { path: '/connectors', label: 'Conectores', icon: 'plug', exact: false },
     { path: '/my-usage', label: 'Mi consumo', icon: 'wallet', exact: false },
