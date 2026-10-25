@@ -439,9 +439,18 @@
         </div>
         <div class="composer">
           <label class="sr-only" for="chat-input">Mensaje</label>
-          <textarea id="chat-input" class="input" rows="1" [(ngModel)]="message" placeholder="Escriba un mensaje… (Enter para enviar)" (keydown.enter)="onEnter($any($event))"></textarea>
+          <textarea id="chat-input" class="input" rows="1" [(ngModel)]="message" placeholder="Escriba un mensaje… (Enter envía · Mayús+Enter salto de línea)" (keydown.enter)="onEnter($any($event))"></textarea>
           @if (streaming()) { <button class="btn icon" title="Detener" aria-label="Detener" (click)="stop()"><nx-icon name="stop" /></button> }
           @else { <button class="btn primary icon" title="Enviar" aria-label="Enviar" [disabled]="!message.trim()" (click)="send()"><nx-icon name="send" /></button> }
+        </div>
+        <div class="composer-foot muted small">
+          @if (canEditAgent() && dirty()) {
+            <span class="foot-warn"><nx-icon name="alert" [size]="12" />Cambios sin guardar — se prueba la versión guardada</span>
+          } @else {
+            <span><nx-icon name="beaker" [size]="12" />Entorno de prueba</span>
+          }
+          <span class="dot-sep">·</span><span>{{ a.provider }} · {{ a.model }}</span>
+          @if (streaming()) { <span class="dot-sep">·</span><span>Generando… pulse Detener para cancelar</span> }
         </div>
       </div>
     </div>

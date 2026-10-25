@@ -39,8 +39,12 @@
 .tool { align-self: stretch; border: 1px dashed var(--border); border-radius: 10px; padding: 10px 12px; font-size: 12.5px; }
 .tool summary { cursor: pointer; display: flex; gap: 8px; align-items: center; }
 .tool pre { margin-top: 8px; max-height: 220px; overflow: auto; background: var(--surface-2); padding: 8px; border-radius: 8px; }
-.composer { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--border); }
+.composer { display: flex; gap: 8px; padding: 12px 12px 6px; border-top: 1px solid var(--border); }
 .composer textarea { min-height: 44px; max-height: 160px; }
+.composer-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 0 12px 10px; }
+.composer-foot nx-icon { vertical-align: -1px; }
+.composer-foot .foot-warn { display: inline-flex; align-items: center; gap: 4px; color: var(--warning); }
+.composer-foot .dot-sep { opacity: .5; }
 .connector-group { border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
 .connector-group:not(.open) { padding-bottom: 0; }
 .tool-filter { display: flex; align-items: center; gap: 8px; padding: 2px 0 2px 10px; border: 1px solid var(--border); border-radius: 9px; }
