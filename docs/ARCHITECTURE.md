@@ -1,6 +1,6 @@
 # Arquitectura de Nexo
 
-Decisiones registradas en [`docs/adr/`](adr/) (0001–0009). Este documento describe la plataforma tal como está hoy.
+Decisiones registradas en [`docs/adr/`](adr/) (0001–0010; el 0010 está Propuesto). Este documento describe la plataforma tal como está hoy.
 
 ## Vista general
 
