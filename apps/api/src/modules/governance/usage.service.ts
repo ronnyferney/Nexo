@@ -52,8 +52,14 @@ export class UsageService {
         calls: Number(r.calls),
       }));
     } else {
-      const field = { orgUnit: 'orgUnitId', model: 'model', agent: 'agentId', user: 'userId' }[groupBy] as
-        'orgUnitId' | 'model' | 'agentId' | 'userId';
+      const field = {
+        orgUnit: 'orgUnitId',
+        model: 'model',
+        agent: 'agentId',
+        user: 'userId',
+        role: 'role',
+        routingReason: 'routingReason',
+      }[groupBy] as 'orgUnitId' | 'model' | 'agentId' | 'userId' | 'role' | 'routingReason';
       const rows = await this.prisma.usageRecord.groupBy({
         by: [field],
         where,
@@ -122,6 +128,8 @@ export class UsageService {
         inputTokens: r.inputTokens,
         outputTokens: r.outputTokens,
         costUsd: Number(r.costUsd),
+        routingReason: r.routingReason,
+        role: r.role,
       })),
       nextCursor: rows.length > limit ? page[page.length - 1].id : null,
     };
@@ -168,7 +176,10 @@ export class UsageService {
 
   private async labels(workspaceId: string, groupBy: GroupBy, keys: string[]): Promise<Map<string, string>> {
     const ids = [...new Set(keys.filter(Boolean))];
-    if (!ids.length || groupBy === 'model' || groupBy === 'day') return new Map(ids.map((k) => [k, k]));
+    if (!ids.length || groupBy === 'model' || groupBy === 'day' || groupBy === 'role' || groupBy === 'routingReason') {
+      // Estos agrupamientos ya son el valor legible (código de motivo, rol, modelo o día): la clave es su propia etiqueta.
+      return new Map(ids.map((k) => [k, k]));
+    }
     if (groupBy === 'orgUnit') {
       const rows = await this.prisma.orgUnit.findMany({
         where: { workspaceId, id: { in: ids } },

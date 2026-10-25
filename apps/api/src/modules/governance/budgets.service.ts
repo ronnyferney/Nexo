@@ -17,6 +17,10 @@ export interface UsageContext {
   workflowId?: string;
   executionId?: string;
   conversationId?: string;
+  /** Trazabilidad de enrutamiento (ADR 0010 D5): código(s) auditable(s) del motivo de selección; `null` sin política. */
+  routingReason?: string | null;
+  /** Rol del tramo (ADR 0010 D5): `draft`/`verify`/nombre de rol; `null` sin enrutamiento. */
+  role?: string | null;
 }
 
 export interface SpendPlan {

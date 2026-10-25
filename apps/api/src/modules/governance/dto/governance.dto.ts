@@ -84,7 +84,7 @@ export class UpsertBudgetDto {
   @ApiPropertyOptional() @IsOptional() @IsString() downgradeModel?: string | null;
 }
 
-export const GROUP_BY = ['orgUnit', 'model', 'agent', 'user', 'day'] as const;
+export const GROUP_BY = ['orgUnit', 'model', 'agent', 'user', 'day', 'role', 'routingReason'] as const;
 export type GroupBy = (typeof GROUP_BY)[number];
 
 export class UsageQueryDto {

@@ -24,11 +24,18 @@ import { ConnectionUnavailableException } from '../llm/llm-errors';
 import { LlmGatewayService } from '../llm/llm-gateway.service';
 import type { AgentEvent, Effort, LlmRunResult, ToolCall, ToolOutcome, ToolSpec } from '../llm/llm-provider';
 import { ModelRouterService } from '../llm/model-router.service';
-import type { RoutingPolicy, RoutingRule, RoutingSignals } from '../llm/routing.types';
+import type { RoutingPolicy, RoutingReasonCode, RoutingRule, RoutingSignals } from '../llm/routing.types';
 import { costUsd } from '../llm/pricing';
 import { composeSystemPrompt, LOAD_SKILL_TOOL, SAVE_KNOWLEDGE_TOOL, SEARCH_KNOWLEDGE_TOOL } from './prompt-composer';
 
 const MAX_TOOL_OUTPUT = 50_000;
+/**
+ * Rol del tramo que redacta la respuesta (ADR 0010 D5). En Fase 2 (sin verificación cruzada) todo turno enrutado es el
+ * tramo redactor; la Fase 3 añadirá `verify` y roles de multi-agente. Sin política de enrutamiento el rol queda `null`.
+ */
+const DRAFT_ROLE = 'draft';
+/** Separador estable entre varios códigos de motivo de enrutamiento al persistirlos en `UsageRecord.routingReason`. */
+const ROUTING_REASON_SEP = ',';
 /** Fragmentos que devuelve `search_knowledge`. */
 const KNOWLEDGE_TOOL_RESULTS = 5;
 /** Límites del documento que el agente guarda con `save_knowledge`. */
@@ -368,7 +375,7 @@ export class AgentRuntimeService {
     // del workspace; sin política (`agent.routing` == null) es la cadena estática de hoy (principal + fallbackModels).
     // En ambos casos cada candidato pasa por `budgets.plan` (permisos/presupuesto/degradación) y `gateway.resolve`
     // (DataGuard). El router solo ordena: no evade presupuesto ni permisos.
-    const { chain, routed } = await this.candidateChain(agent, prepared, opts);
+    const { chain, routed, reasons } = await this.candidateChain(agent, prepared, opts);
     // `list` es la lista de respaldos que recorre el bucle. En modo enrutado toda la cadena del router se consume como
     // respaldos (se omite con aviso el candidato no permitido; el presupuesto agotado detiene la cadena, igual que
     // `fallbackModels`); sin política, el principal `Agent.model` se planifica y resuelve aparte, como hasta hoy.
@@ -419,7 +426,12 @@ export class AgentRuntimeService {
       history = [];
     }
 
-    let current = { resolved: primary, chainIds: start?.chainIds ?? planChainIds, history };
+    let current = {
+      resolved: primary,
+      chainIds: start?.chainIds ?? planChainIds,
+      history,
+      ...this.routingTrace(routed, reasons, primary),
+    };
     let failed = label(primary);
     for (let i = start ? start.index + 1 : 0; ; i++) {
       try {
@@ -435,6 +447,7 @@ export class AgentRuntimeService {
           resolved: next.resolved,
           chainIds: next.chainIds,
           history: next.resolved.kind === primary.kind ? history : [],
+          ...this.routingTrace(routed, reasons, next.resolved),
         };
         failed = label(next.resolved);
       }
@@ -453,7 +466,12 @@ export class AgentRuntimeService {
     agent: AgentWithTools,
     prepared: PreparedAgent,
     opts: AgentRunOptions,
-  ): Promise<{ chain: { providerId: string; model: string }[]; routed: boolean }> {
+  ): Promise<{
+    chain: { providerId: string; model: string }[];
+    routed: boolean;
+    /** Motivos auditables por referencia `"<providerId>:<modelId>"` (ADR 0010 D5); vacío sin enrutamiento. */
+    reasons: Map<string, RoutingReasonCode[]>;
+  }> {
     const staticChain: { providerId: string; model: string }[] = [
       { providerId: agent.provider, model: agent.model },
       ...(agent.fallbackModels ?? [])
@@ -461,7 +479,7 @@ export class AgentRuntimeService {
         .filter((r): r is { providerId: string; model: string } => r !== null),
     ];
     const policy = toRoutingPolicy(agent.routing);
-    if (!policy) return { chain: staticChain, routed: false };
+    if (!policy) return { chain: staticChain, routed: false, reasons: new Map() };
 
     const candidates = await this.gateway.routingCandidates(agent.workspaceId);
     const decision = this.router.route({ policy, candidates, task: taskSignals(prepared, opts) });
@@ -474,7 +492,7 @@ export class AgentRuntimeService {
         type: 'notice',
         message: 'El enrutamiento no encontró candidatos; se usa la configuración por defecto del agente.',
       });
-      return { chain: staticChain, routed: false };
+      return { chain: staticChain, routed: false, reasons: new Map() };
     }
     const [top, ...backups] = decision.candidates;
     opts.onEvent?.({
@@ -486,7 +504,24 @@ export class AgentRuntimeService {
     const chain = decision.candidates
       .map((c) => parseModelRef(c.ref))
       .filter((r): r is { providerId: string; model: string } => r !== null);
-    return { chain, routed: true };
+    // Traza auditable: el motivo del tramo se persiste en `UsageRecord` a partir de esta tabla ref → códigos (D5).
+    const reasons = new Map(decision.candidates.map((c) => [c.ref, c.reasons]));
+    return { chain, routed: true, reasons };
+  }
+
+  /**
+   * Traza de enrutamiento del tramo (ADR 0010 D5) para imputarla en `UsageRecord`. Sin política (`routed === false`)
+   * ⇒ ambos `null` (comportamiento actual). Con política, el motivo son los código(s) auditable(s) del modelo resuelto
+   * (nunca el razonamiento del modelo), separados por coma, y el rol es el tramo redactor ({@link DRAFT_ROLE}).
+   */
+  private routingTrace(
+    routed: boolean,
+    reasons: Map<string, RoutingReasonCode[]>,
+    resolved: ResolvedModel,
+  ): { routingReason: string | null; role: string | null } {
+    if (!routed) return { routingReason: null, role: null };
+    const codes = reasons.get(`${resolved.providerId}:${resolved.model}`) ?? [];
+    return { routingReason: codes.length ? codes.join(ROUTING_REASON_SEP) : null, role: DRAFT_ROLE };
   }
 
   /**
@@ -594,7 +629,13 @@ export class AgentRuntimeService {
     opts: AgentRunOptions,
     prepared: PreparedAgent,
     orgUnitId: string,
-    current: { resolved: ResolvedModel; chainIds: string[]; history: unknown[] },
+    current: {
+      resolved: ResolvedModel;
+      chainIds: string[];
+      history: unknown[];
+      routingReason: string | null;
+      role: string | null;
+    },
     totals: RunTotals,
   ): Promise<AgentRunResult> {
     const ws = agent.workspaceId;
@@ -623,7 +664,14 @@ export class AgentRuntimeService {
         totals.inputTokens += usage.inputTokens;
         totals.outputTokens += usage.outputTokens;
         await this.budgets.record(
-          { workspaceId: ws, orgUnitId, agentId: agent.id, ...opts.context },
+          {
+            workspaceId: ws,
+            orgUnitId,
+            agentId: agent.id,
+            ...opts.context,
+            routingReason: current.routingReason,
+            role: current.role,
+          },
           chainIds,
           resolved.providerId,
           resolved.model,

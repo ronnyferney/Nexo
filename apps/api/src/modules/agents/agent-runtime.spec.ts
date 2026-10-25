@@ -80,7 +80,7 @@ function setup(
     { search: async () => [] } as unknown as KnowledgeService,
     new ModelRouterService(),
   );
-  return { runtime, calls, planned, gateway };
+  return { runtime, calls, planned, gateway, budgets };
 }
 
 function agent(fallbackModels: string[]): AgentWithTools {
@@ -327,6 +327,61 @@ describe('AgentRuntimeService · enrutamiento multi-modelo (ADR 0010)', () => {
     await runtime.run(routed({ objetivo: 'malformado' }), { message: 'hola', context: { source: 'CHAT' } });
     expect(gateway.routingCandidates).not.toHaveBeenCalled();
     expect(planned).toEqual(['p1:m1']);
+  });
+});
+
+describe('AgentRuntimeService · traza de rol/razón de enrutamiento en el consumo (ADR 0010 D5)', () => {
+  const routed = (routing: unknown): AgentWithTools => ({ ...agent([]), routing: routing as never });
+  // Comportamiento que reporta consumo (dispara `onUsage` → `budgets.record`, donde se persiste la traza).
+  const reporting: Behavior = async (req) => {
+    await req.onUsage?.({ inputTokens: 2, outputTokens: 3, cacheReadTokens: 0, cacheWriteTokens: 0 });
+    return ok('ok')(req);
+  };
+  type RecordCtx = { routingReason: string | null; role: string | null };
+  const lastRecordCtx = (budgets: ReturnType<typeof setup>['budgets']): RecordCtx => {
+    const calls = (budgets.record as jest.Mock).mock.calls as [RecordCtx, ...unknown[]][];
+    return calls[calls.length - 1][0];
+  };
+
+  it('un turno enrutado imputa el consumo con el motivo auditable (código) y el rol del tramo', async () => {
+    const { runtime, budgets } = setup({ 'p1:cheap': { kind: 'MOCK', behavior: reporting } }, {}, [
+      candidate('p1:cheap', { tier: 'ECONOMY', inputUsdPerMTok: 0.1, outputUsdPerMTok: 0.5 }),
+    ]);
+    await runtime.run(routed({ objective: 'cost' }), { message: 'hola', context: { source: 'CHAT' } });
+    expect(budgets.record).toHaveBeenCalledTimes(1);
+    const ctx = lastRecordCtx(budgets);
+    expect(ctx.role).toBe('draft');
+    // El motivo es un código auditable del router, nunca texto libre del modelo.
+    expect(ctx.routingReason).toContain('OBJETIVO_COSTO');
+  });
+
+  it('un turno sin política (routing=null) deja motivo y rol en null (comportamiento actual)', async () => {
+    const { runtime, budgets } = setup({ 'p1:m1': { kind: 'MOCK', behavior: reporting } });
+    await runtime.run(agent([]), { message: 'hola', context: { source: 'CHAT' } });
+    expect(budgets.record).toHaveBeenCalledTimes(1);
+    const ctx = lastRecordCtx(budgets);
+    expect(ctx.routingReason).toBeNull();
+    expect(ctx.role).toBeNull();
+  });
+
+  it('en modo enrutado, un respaldo por fallo del proveedor conserva su propio motivo auditable', async () => {
+    const { runtime, budgets } = setup(
+      {
+        'p1:caro': { kind: 'MOCK', behavior: fail(new Error('HTTP 503')) },
+        'p1:barato': { kind: 'MOCK', behavior: reporting },
+      },
+      {},
+      [
+        candidate('p1:caro', { tier: 'PREMIUM', inputUsdPerMTok: 4, outputUsdPerMTok: 20 }),
+        candidate('p1:barato', { tier: 'ECONOMY', inputUsdPerMTok: 0.1, outputUsdPerMTok: 0.5 }),
+      ],
+    );
+    // Objetivo calidad: el router pone primero el PREMIUM (que falla) y recurre al segundo candidato.
+    const r = await runtime.run(routed({ objective: 'quality' }), { message: 'hola', context: { source: 'CHAT' } });
+    expect(r).toMatchObject({ model: 'barato' });
+    const ctx = lastRecordCtx(budgets);
+    expect(ctx.role).toBe('draft');
+    expect(ctx.routingReason).toContain('OBJETIVO_CALIDAD');
   });
 });
 

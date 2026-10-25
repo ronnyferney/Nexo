@@ -79,6 +79,28 @@ describe('Gobierno de IA · medición, centro de costo y modelos permitidos (E2E
       expect(JSON.stringify(rows)).not.toContain('cotización');
     });
 
+    it('expone la traza de enrutamiento (rol/razón) por registro; null sin política (ADR 0010 D5)', async () => {
+      const items = await records(owner);
+      expect(items).toHaveLength(2);
+      // El agente mock no tiene política de enrutamiento: la traza queda en null, retrocompatible.
+      for (const item of items) {
+        expect(item).toHaveProperty('routingReason', null);
+        expect(item).toHaveProperty('role', null);
+      }
+    });
+
+    it('/admin/usage/summary admite agrupar por role y routingReason sin romper el contrato', async () => {
+      const total = sum(results.map((r) => r.usage.costUsd));
+      for (const groupBy of ['role', 'routingReason']) {
+        const s = await summary(owner, groupBy);
+        expect(s.totalCostUsd).toBeCloseTo(total, 8);
+        expect(s.calls).toBe(2);
+        // Sin enrutamiento todo cae en un único grupo "Sin asignar" (clave null → etiqueta por defecto).
+        expect(s.groups).toHaveLength(1);
+        expect(s.groups[0]).toMatchObject({ key: '', label: 'Sin asignar', calls: 2 });
+      }
+    });
+
     it('/me/usage cuadra con el costo devuelto por el chat', async () => {
       const total = sum(results.map((r) => r.usage.costUsd));
       const me = (await editor.api.get('/me/usage').expect(200)).body as {

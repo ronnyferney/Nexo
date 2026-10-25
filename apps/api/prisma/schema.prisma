@@ -701,6 +701,11 @@ model UsageRecord {
   cacheReadTokens  Int         @default(0)
   cacheWriteTokens Int         @default(0)
   costUsd          Decimal     @db.Decimal(18, 8)
+  /// Trazabilidad de enrutamiento (ADR 0010 D5): motivo de selección como código(s) auditable(s), nunca el
+  /// razonamiento interno del modelo. Varios motivos se separan por coma. `null` = sin política de enrutamiento.
+  routingReason    String?
+  /// Rol del tramo en la orquestación (ADR 0010 D5): `draft`/`verify`/nombre de rol. `null` sin enrutamiento.
+  role             String?
   createdAt        DateTime    @default(now())
 
   @@index([workspaceId, createdAt])

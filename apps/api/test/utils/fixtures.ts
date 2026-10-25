@@ -179,6 +179,8 @@ export interface UsageRecordItem {
   inputTokens: number;
   outputTokens: number;
   costUsd: number;
+  routingReason: string | null;
+  role: string | null;
 }
 
 export async function records(s: Session): Promise<UsageRecordItem[]> {
