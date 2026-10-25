@@ -33,6 +33,7 @@ import { DEFAULT_TARGET_SCORE } from '../../core/training.models';
 import { AgentChatFeedbackComponent } from './agent-chat-feedback.component';
 import { AgentExamplesComponent } from './agent-examples.component';
 import { AgentProfileComponent } from './agent-profile.component';
+import { AgentSectionComponent, type SectionStatus } from './agent-section.component';
 import { AgentPromptPreviewComponent } from './agent-prompt-preview.component';
 import { AgentRoutinesComponent } from './agent-routines.component';
 import { AgentTrainingComponent } from './training/agent-training.component';
@@ -78,6 +79,7 @@ const MAX_FALLBACKS = 3;
     NumberPipe,
     MarkdownPipe,
     AgentProfileComponent,
+    AgentSectionComponent,
     AgentExamplesComponent,
     AgentRoutinesComponent,
     AgentPromptPreviewComponent,
@@ -492,6 +494,11 @@ export class AgentDetailPage implements OnInit {
       this.saved.skills !== this.skillsSnapshot() ||
       this.saved.kbs !== this.kbSnapshot()
     );
+  }
+
+  /** Estado de la sección «Identidad»: el nombre es obligatorio (RX-7). */
+  identityStatus(): SectionStatus {
+    return this.form.name.trim() ? 'complete' : 'incomplete';
   }
 
   onProviderChange(id: string) {

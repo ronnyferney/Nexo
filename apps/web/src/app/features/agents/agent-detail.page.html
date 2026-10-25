@@ -114,10 +114,17 @@
           @switch (seesConfig() ? tab() : 'profile') {
             @case ('profile') {
               <div class="stack">
-                <div class="card stack">
-                  <div class="field"><label for="agent-name">Nombre</label><input id="agent-name" class="input" [disabled]="!canEditAgent()" [(ngModel)]="form.name" /></div>
+                <nx-agent-section icon="bot" title="Identidad" [status]="identityStatus()"
+                  description="Cómo se llama y se presenta el agente ante las personas y los clientes MCP.">
+                  <div class="field"><label for="agent-name">Nombre <abbr class="req" title="Campo obligatorio" aria-hidden="true">*</abbr></label>
+                    <input id="agent-name" class="input" required aria-required="true" [attr.aria-invalid]="canEditAgent() && !form.name.trim() ? 'true' : null"
+                      [disabled]="!canEditAgent()" [(ngModel)]="form.name" />
+                    @if (canEditAgent() && !form.name.trim()) {
+                      <span class="field-error" role="alert"><nx-icon name="alert" [size]="12" />El nombre es obligatorio.</span>
+                    }
+                  </div>
                   <div class="field"><label for="agent-desc">Descripción (visible para clientes MCP)</label><input id="agent-desc" class="input" [disabled]="!canEditAgent()" [(ngModel)]="form.description" /></div>
-                </div>
+                </nx-agent-section>
                 <nx-agent-profile [(profile)]="profile" [(systemPrompt)]="systemPrompt" [disabled]="!canEditAgent()" />
               </div>
             }
