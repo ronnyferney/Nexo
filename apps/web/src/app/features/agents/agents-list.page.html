@@ -133,8 +133,7 @@
       <label class="sr-only" for="filtro-estado">Filtrar por estado</label>
       <select id="filtro-estado" class="input compact" [ngModel]="status()" (ngModelChange)="onStatus($event)">
         <option value="">Todos los estados</option>
-        <option value="LAUNCHED">Lanzado</option>
-        <option value="DRAFT">Borrador</option>
+        @for (o of statusOptions; track o.value) { <option [value]="o.value">{{ o.label }}</option> }
       </select>
 
       @if (hasFilters()) {

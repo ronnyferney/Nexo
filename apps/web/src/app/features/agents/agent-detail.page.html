@@ -35,10 +35,9 @@
               <span class="badge" [title]="visibilityMeta[v].description"><nx-icon [name]="visibilityMeta[v].icon" [size]="12" />{{ visibilityMeta[v].label }}</span>
             }
             @if (a.visibility !== 'PRIVATE' && a.shares?.length) { <nx-share-audience [shares]="a.shares" /> }
-            @if (a.launchStatus === 'LAUNCHED') {
-              <span class="badge success" [title]="a.launchOverrideReason ? 'Lanzado por un administrador: ' + a.launchOverrideReason : 'Cumple los requisitos de calidad'"><nx-icon name="rocket" [size]="12" />Lanzado</span>
-            } @else if (a.launchStatus === 'DRAFT') {
-              <span class="badge warning"><nx-icon name="pencil" [size]="12" />Borrador</span>
+            <nx-launch-badge [status]="a.launchStatus ?? 'DRAFT'" />
+            @if (a.launchStatus === 'LAUNCHED' && a.launchOverrideReason) {
+              <span class="small muted" [title]="'Lanzado por un administrador: ' + a.launchOverrideReason">Publicado con excepción</span>
             }
             @if (a.owner) { <span class="small muted">Dueño: {{ isOwner() ? 'usted' : a.owner.name }}</span> }
             @if (!canEditAgent()) { <span class="badge info">{{ permissionLabels[permission()] }}</span> }
@@ -52,10 +51,11 @@
           <button id="copilot-trigger" class="btn copilot-btn" aria-keyshortcuts="Alt+Shift+A" title="Nexo Copilot (Alt+Mayús+A)" [attr.aria-expanded]="copilotOpen()" (click)="copilotOpen.set(!copilotOpen())">
             <nx-icon name="sparkles" [size]="16" />Ayúdame</button>
           <button class="btn" (click)="shareOpen.set(true)"><nx-icon name="users" [size]="16" />Compartir</button>
-          @if (a.launchStatus === 'LAUNCHED') {
-            <button class="btn" [disabled]="launchBusy()" (click)="unlaunch()"><nx-icon name="x" [size]="16" />Retirar lanzamiento</button>
-          } @else {
-            <button class="btn" [disabled]="launchBusy()" title="Publicar: lanza el agente a producción (requiere confirmación)" (click)="launchOpen.set(true)"><nx-icon name="rocket" [size]="16" />Publicar</button>
+          @for (action of lifecycleActionList(); track action.id) {
+            <button class="btn" [class.danger]="action.danger"
+              [disabled]="launchBusy() || lifecycleBusy()"
+              [title]="action.id === 'launch' ? 'Publicar: lanza el agente a producción (requiere responsable y confirmación)' : action.label"
+              (click)="runLifecycle(action.id)"><nx-icon [name]="action.icon" [size]="16" />{{ action.label }}</button>
           }
           @if (canDeleteAgent()) {
             <button class="btn danger icon" title="Eliminar agente" aria-label="Eliminar agente" (click)="remove()"><nx-icon name="trash" /></button>
@@ -146,6 +146,51 @@
                     </div>
                   </div>
                 </nx-agent-section>
+
+                <nx-agent-section icon="layers" title="Expediente del empleado digital"
+                  description="Cargo del catálogo que desempeña y responsables humanos (titular y suplente). Debe tener un responsable titular para poder publicarlo.">
+                  <div class="field">
+                    <label for="agent-cargo">Cargo</label>
+                    <select id="agent-cargo" class="input" [disabled]="!canEditAgent()" [ngModel]="cargoId()" (ngModelChange)="cargoId.set($event)">
+                      <option [ngValue]="null">Sin cargo asignado</option>
+                      @for (c of cargoOptions(); track c.id) {
+                        <option [ngValue]="c.id">{{ c.nombre }} · {{ nivelLabels[c.nivel] }}{{ c.activo ? '' : ' (inactivo)' }}</option>
+                      }
+                    </select>
+                    <span class="hint">Perfil reutilizable con propósito, funciones y nivel jerárquico. <a routerLink="/cargos">Gestionar cargos</a></span>
+                  </div>
+
+                  <div class="field">
+                    <label for="agent-responsable">Responsable titular <abbr class="req" title="Obligatorio para publicar" aria-hidden="true">*</abbr></label>
+                    @if (memberOptions().length) {
+                      <select id="agent-responsable" class="input" [disabled]="!canEditAgent()" [ngModel]="responsableUserId()" (ngModelChange)="responsableUserId.set($event)">
+                        <option [ngValue]="null">Sin responsable</option>
+                        @for (m of memberOptions(); track m.userId) { <option [ngValue]="m.userId">{{ m.name }} · {{ m.email }}</option> }
+                      </select>
+                    } @else {
+                      <p class="hint m0">
+                        @if (responsableUserId()) { Hay un responsable asignado. } @else { Sin responsable asignado. }
+                        Solo un administrador del workspace puede listar los miembros para elegir el responsable.
+                      </p>
+                    }
+                    @if (canEditAgent() && !responsableUserId()) {
+                      <span class="field-error" role="alert"><nx-icon name="alert" [size]="12" />Asigne un responsable antes de publicar el agente.</span>
+                    }
+                  </div>
+
+                  <div class="field">
+                    <label for="agent-suplente">Suplente</label>
+                    @if (memberOptions().length) {
+                      <select id="agent-suplente" class="input" [disabled]="!canEditAgent()" [ngModel]="suplenteUserId()" (ngModelChange)="suplenteUserId.set($event)">
+                        <option [ngValue]="null">Sin suplente</option>
+                        @for (m of memberOptions(); track m.userId) { <option [ngValue]="m.userId">{{ m.name }} · {{ m.email }}</option> }
+                      </select>
+                    } @else {
+                      <p class="hint m0">@if (suplenteUserId()) { Hay un suplente asignado. } @else { Sin suplente asignado. } Requiere rol de administrador para elegirlo.</p>
+                    }
+                  </div>
+                </nx-agent-section>
+
                 <nx-agent-profile [(profile)]="profile" [(systemPrompt)]="systemPrompt" [disabled]="!canEditAgent()" />
               </div>
             }

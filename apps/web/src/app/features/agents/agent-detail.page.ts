@@ -6,12 +6,14 @@ import { type AgentHealth, PERMISSION_LABELS, VISIBILITY_META } from '../../core
 import { ApiService, errorMessage } from '../../core/api.service';
 import type { CopilotApplyNavigationState, CopilotApplyResult, CopilotProposal } from '../../core/copilot.models';
 import { AuthService } from '../../core/auth.service';
-import type { Agent, CatalogModel, Connector, Effort, Operation, OrgUnitOption, ProviderInfo, RoutingPolicy } from '../../core/models';
+import type { Agent, Cargo, CatalogModel, Connector, Effort, Operation, OrgMember, OrgUnitOption, ProviderInfo, RoutingPolicy } from '../../core/models';
+import { NIVEL_LABELS } from '../../core/models';
+import { type LifecycleActionId, lifecycleActions } from './agent-lifecycle.util';
 import { StudioApi } from '../../core/studio.api';
 import { type AgentProfile, EMPTY_PROFILE, type KnowledgeBase, normalizeProfile, type Skill } from '../../core/studio.models';
 import { ToastService } from '../../core/toast.service';
 import { TIER_LABELS, treeOrder } from '../../shared/budget';
-import { ShareAudienceComponent } from '../../shared/agent-badges.component';
+import { LaunchBadgeComponent, ShareAudienceComponent } from '../../shared/agent-badges.component';
 import { canManageAgentOwnership, canWriteAgent } from '../../shared/agent-permissions';
 import { IconComponent } from '../../shared/icon.component';
 import { IconPickerComponent } from '../../shared/icon-picker.component';
@@ -95,6 +97,7 @@ const MAX_FALLBACKS = 3;
     AgentLaunchDialogComponent,
     AgentShareDialogComponent,
     ShareAudienceComponent,
+    LaunchBadgeComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './agent-detail.page.html',
@@ -270,6 +273,27 @@ export class AgentDetailPage implements OnInit {
   readonly profile = signal<AgentProfile>(normalizeProfile(EMPTY_PROFILE));
   /** Ícono del agente (nombre del mapa de `IconComponent`); `null` = ícono por defecto (`bot`). */
   readonly icon = signal<string | null>(null);
+  // ----- Expediente del empleado digital (E2/RF02/RF04) -----
+  readonly nivelLabels = NIVEL_LABELS;
+  /** Cargos activos del catálogo (más el ya asignado aunque esté inactivo), para el selector de cargo. */
+  readonly cargos = signal<Cargo[]>([]);
+  /** Miembros del workspace para elegir responsable/suplente (solo ADMIN los lista; vacío en otro caso). */
+  readonly members = signal<OrgMember[]>([]);
+  readonly membersUnavailable = signal(false);
+  readonly cargoId = signal<string | null>(null);
+  readonly responsableUserId = signal<string | null>(null);
+  readonly suplenteUserId = signal<string | null>(null);
+  /** Cargos que se ofrecen en el selector: los activos y, si aplica, el actualmente asignado aunque esté inactivo. */
+  readonly cargoOptions = computed(() => {
+    const current = this.cargoId();
+    return this.cargos()
+      .filter((c) => c.activo || c.id === current)
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  });
+  readonly memberOptions = computed(() => [...this.members()].sort((a, b) => a.name.localeCompare(b.name, 'es')));
+  /** Acciones de ciclo de vida disponibles según el estado actual (RF05/RF06). */
+  readonly lifecycleActionList = computed(() => lifecycleActions(this.agent()?.launchStatus));
+  readonly lifecycleBusy = signal(false);
   readonly systemPrompt = signal('');
   readonly fallbacks = signal<string[]>([]);
   /** Política de enrutamiento multi-modelo (ADR 0010); `null` = principal + respaldos. Se guarda con «Guardar». */
@@ -407,15 +431,26 @@ export class AgentDetailPage implements OnInit {
     this.loading.set(true);
     this.loadError.set(null);
     try {
-      const [agent, providers, list, units] = await Promise.all([
+      const [agent, providers, list, units, cargos] = await Promise.all([
         this.api.agent(this.id()),
         this.api.llmCatalog().catch(() => this.api.providers()),
         this.api.connectors(),
         this.api.orgUnits().catch(() => [] as OrgUnitOption[]),
+        this.api.cargos().catch(() => [] as Cargo[]),
       ]);
       this.providers.set(providers);
       this.units.set(treeOrder(units, (u) => u.id, (u) => u.parentId));
       this.connectors.set(await Promise.all(list.map((c) => this.api.connector(c.id))));
+      this.cargos.set(cargos);
+      // Los miembros solo los lista la administración; para un EDITOR sin ese rol el selector se degrada con un aviso.
+      if (this.auth.isAdmin()) {
+        this.api.orgMembers().then(
+          (m) => this.members.set(m),
+          () => this.membersUnavailable.set(true),
+        );
+      } else {
+        this.membersUnavailable.set(true);
+      }
       this.apply(agent);
       // Con `?tab=` la pestaña puede quedar fuera de vista en móvil.
       setTimeout(() => document.getElementById(`tab-${this.tab()}`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
@@ -460,6 +495,9 @@ export class AgentDetailPage implements OnInit {
     };
     this.profile.set(normalizeProfile(agent.profile));
     this.icon.set(agent.icon ?? null);
+    this.cargoId.set(agent.cargoId ?? null);
+    this.responsableUserId.set(agent.responsableUserId ?? null);
+    this.suplenteUserId.set(agent.suplenteUserId ?? null);
     this.systemPrompt.set(agent.systemPrompt ?? '');
     this.fallbacks.set([...(agent.fallbackModels ?? [])]);
     this.routing.set(agent.routing ? structuredClone(agent.routing) : null);
@@ -479,6 +517,9 @@ export class AgentDetailPage implements OnInit {
       systemPrompt: this.systemPrompt(),
       description: this.form.description || undefined,
       icon: this.icon(),
+      cargoId: this.cargoId(),
+      responsableUserId: this.responsableUserId(),
+      suplenteUserId: this.suplenteUserId(),
       profile: {
         role: p.role.trim(),
         goals: clean(p.goals),
@@ -846,6 +887,70 @@ export class AgentDetailPage implements OnInit {
     } finally {
       this.launchBusy.set(false);
     }
+  }
+
+  /**
+   * Ejecuta una acción de ciclo de vida (RF05/RF06). `launch` abre el diálogo de publicación (garantía de calidad);
+   * `unlaunch` reusa el flujo existente; el resto llama su endpoint directo y maneja el 409 (p. ej. publicar sin
+   * responsable, o una transición no permitida) con un mensaje claro.
+   */
+  async runLifecycle(action: LifecycleActionId) {
+    const a = this.agent();
+    if (!a || this.lifecycleBusy() || this.launchBusy()) return;
+    if (action === 'launch') {
+      if (!a.responsableUserId) {
+        this.toast.error('Asigne un responsable antes de publicar: elíjalo en Perfil → Identidad.');
+        this.tab.set('profile');
+        return;
+      }
+      this.launchOpen.set(true);
+      return;
+    }
+    if (action === 'unlaunch') {
+      void this.unlaunch();
+      return;
+    }
+    if (action === 'retire' && !confirm(`¿Retirar «${a.name}»? Es un estado final: dejará de ejecutarse (rutinas y MCP) y conservará su expediente, pero no podrá reactivarlo.`)) return;
+    if (action === 'suspend' && !confirm(`¿Suspender «${a.name}»? Dejará de ejecutar rutinas y de estar disponible por MCP; podrá reactivarlo más tarde.`)) return;
+    this.lifecycleBusy.set(true);
+    try {
+      const res = await this.callTransition(action, a.id);
+      this.mergeAccess(res);
+      if (res?.launchStatus) this.agent.update((cur) => (cur ? { ...cur, launchStatus: res.launchStatus } : cur));
+      this.toast.success(this.lifecycleToast(action));
+    } catch (e) {
+      this.toast.error(errorMessage(e));
+    } finally {
+      this.lifecycleBusy.set(false);
+    }
+  }
+
+  private callTransition(action: Exclude<LifecycleActionId, 'launch' | 'unlaunch'>, id: string) {
+    switch (action) {
+      case 'submit-validation':
+        return this.access.submitForValidation(id);
+      case 'suspend':
+        return this.access.suspend(id);
+      case 'reactivate':
+        return this.access.reactivate(id);
+      case 'retire':
+        return this.access.retire(id);
+    }
+  }
+
+  private lifecycleToast(action: Exclude<LifecycleActionId, 'launch' | 'unlaunch'>): string {
+    return {
+      'submit-validation': 'Agente enviado a validación',
+      suspend: 'Agente suspendido',
+      reactivate: 'Agente reactivado',
+      retire: 'Agente retirado',
+    }[action];
+  }
+
+  /** Nombre legible del miembro por id (para mostrar el responsable asignado cuando se puede listar). */
+  memberName(id: string | null): string | null {
+    if (!id) return null;
+    return this.members().find((m) => m.userId === id)?.name ?? null;
   }
 
   async duplicate() {

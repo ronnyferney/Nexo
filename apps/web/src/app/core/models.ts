@@ -116,6 +116,12 @@ export interface Agent {
   maxTurns: number;
   /** Unidad organizacional a la que se imputa el consumo cuando el agente corre sin usuario. */
   costCenterId: string | null;
+  /** Expediente del empleado digital (E2/RF02/RF04): cargo del catálogo y responsables humanos. */
+  cargoId?: string | null;
+  /** Responsable humano titular (RF02). Obligatorio para publicar (RF06). */
+  responsableUserId?: string | null;
+  /** Responsable humano suplente (RF02). */
+  suplenteUserId?: string | null;
   /** Perfil estructurado (ADR 0003 D2); la API puede devolver campos ausentes. */
   profile?: Partial<import('./studio.models').AgentProfile> | null;
   /** Cadena de respaldo `"<providerId>:<modelId>"`, máx. 3 (ADR 0003 D1). */
@@ -143,6 +149,60 @@ export interface Agent {
   launchOverrideReason?: string | null;
   _count?: { tools: number; conversations: number };
   updatedAt: string;
+}
+
+// ===== Catálogo de cargos — empleado digital (E2/RF03) =====
+
+/** Nivel jerárquico de un cargo (RF03, base de E3/RF32). Debe coincidir con el enum `NivelJerarquico` del backend. */
+export type NivelJerarquico = 'EMPLEADO' | 'LIDER' | 'JEFE' | 'DIRECTOR' | 'GERENTE' | 'SUPEREMPLEADO';
+
+/** Niveles en orden jerárquico ascendente (de menor a mayor autoridad). */
+export const NIVELES_JERARQUICOS: readonly NivelJerarquico[] = [
+  'EMPLEADO',
+  'LIDER',
+  'JEFE',
+  'DIRECTOR',
+  'GERENTE',
+  'SUPEREMPLEADO',
+];
+
+/** Etiquetas en español de los niveles jerárquicos. */
+export const NIVEL_LABELS: Record<NivelJerarquico, string> = {
+  EMPLEADO: 'Empleado',
+  LIDER: 'Líder',
+  JEFE: 'Jefe',
+  DIRECTOR: 'Director',
+  GERENTE: 'Gerente',
+  SUPEREMPLEADO: 'Superempleado',
+};
+
+/** `GET /cargos` — perfil reutilizable del empleado digital (propósito, funciones, entregables, indicadores, límites). */
+export interface Cargo {
+  id: string;
+  nombre: string;
+  proposito: string | null;
+  funciones: string[];
+  entregables: string[];
+  indicadores: string[];
+  limites: string[];
+  nivel: NivelJerarquico;
+  activo: boolean;
+  /** Número de agentes que desempeñan este cargo (impide o advierte al eliminar). */
+  agentsCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Cuerpo de `POST /cargos` y `PATCH /cargos/:id` (parcial en PATCH). */
+export interface CargoInput {
+  nombre: string;
+  proposito?: string | null;
+  funciones?: string[];
+  entregables?: string[];
+  indicadores?: string[];
+  limites?: string[];
+  nivel?: NivelJerarquico;
+  activo?: boolean;
 }
 
 // ===== Gobierno de IA (ADR 0002) =====

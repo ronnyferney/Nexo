@@ -15,6 +15,8 @@ import type {
   BudgetInput,
   BudgetRow,
   BuildInfo,
+  Cargo,
+  CargoInput,
   Connector,
   Execution,
   LlmConnection,
@@ -151,6 +153,13 @@ export class ApiService {
       }
     }
   }
+
+  // Catálogo de cargos — empleado digital (E2/RF03). Lectura cualquier rol; mutaciones EDITOR+.
+  cargos = () => this.get<Cargo[]>('/cargos');
+  cargo = (id: string) => this.get<Cargo>(`/cargos/${id}`);
+  createCargo = (data: CargoInput) => this.post<Cargo>('/cargos', data);
+  updateCargo = (id: string, data: CargoInput) => this.patch<Cargo>(`/cargos/${id}`, data);
+  deleteCargo = (id: string) => this.delete<void>(`/cargos/${id}`);
 
   // Catálogo de IA, unidades y consumo propio (cualquier rol)
   llmCatalog = () => this.get<ProviderInfo[]>('/llm/catalog');

@@ -1,3 +1,4 @@
+import type { LaunchStatus } from '../../core/access.models';
 import type { AgentDashboardCounts, DashboardAgent } from '../../core/agents-scope.models';
 
 /** Pestañas de estado del tablero (RX-11). `testing`/`archived` solo aparecen si el backend trae el dato. */
@@ -39,12 +40,15 @@ export function statusMatchesTab(tab: StatusTab, agent: DashboardAgent): boolean
   return true;
 }
 
+/** Estado explícito del filtro del tablero: vacío = todos, o uno de los cinco estados de ciclo de vida. */
+export type StatusFilterValue = '' | LaunchStatus;
+
 /** Filtros cliente del tablero: pestaña de estado, búsqueda de texto, área y estado explícito. */
 export interface AgentFilter {
   tab: StatusTab;
   query: string;
   area: string | null;
-  status: '' | 'LAUNCHED' | 'DRAFT';
+  status: StatusFilterValue;
 }
 
 /** Aplica todos los filtros (AND) sobre el arreglo de agentes. Búsqueda por nombre, descripción y área. */

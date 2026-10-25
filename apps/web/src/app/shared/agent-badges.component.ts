@@ -9,6 +9,7 @@ import {
   type SharePrincipal,
   VISIBILITY_META,
 } from '../core/access.models';
+import { LAUNCH_STATUS_META } from '../features/agents/agent-lifecycle.util';
 import { IconComponent } from './icon.component';
 
 /** Distintivo visual por visibilidad (ADR 0007 D1). */
@@ -41,16 +42,21 @@ export class VisibilityBadgeComponent {
   });
 }
 
-/** Estado de lanzamiento (ADR 0006 D4): Borrador / Lanzado. */
+/** Estado de ciclo de vida del empleado digital (E2/RF05/RF06): Borrador / En validación / Publicado / Suspendido / Retirado. */
 @Component({
   selector: 'nx-launch-badge',
+  imports: [IconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `@if (status(); as s) {
-    <span class="badge" [class.success]="s === 'LAUNCHED'"><span class="dot"></span>{{ s === 'LAUNCHED' ? 'Lanzado' : 'Borrador' }}</span>
+  template: `@if (meta(); as m) {
+    <span class="badge {{ m.tone === 'neutral' ? '' : m.tone }}" [title]="m.description"><nx-icon [name]="m.icon" [size]="12" />{{ m.label }}</span>
   }`,
 })
 export class LaunchBadgeComponent {
   readonly status = input<LaunchStatus | null | undefined>();
+  readonly meta = computed(() => {
+    const s = this.status();
+    return s ? LAUNCH_STATUS_META[s] : null;
+  });
 }
 
 /** Puntaje de salud (0–100) con color por nivel. */

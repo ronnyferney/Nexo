@@ -23,12 +23,14 @@ import {
   formatSuccessRate,
   pageCount,
   pageSlice,
+  type StatusFilterValue,
   type StatusTab,
 } from './agents-dashboard.util';
+import { LAUNCH_STATUS_FILTER_OPTIONS } from './agent-lifecycle.util';
 
 const PAGE_SIZE = 9;
 type ViewMode = 'cards' | 'list';
-type StatusFilter = '' | 'LAUNCHED' | 'DRAFT';
+type StatusFilter = StatusFilterValue;
 
 /**
  * Tablero del catálogo de agentes (RX-11): KPIs, pestañas por estado con contadores, búsqueda, filtros de área y
@@ -74,6 +76,7 @@ export class AgentsListPage implements OnInit {
   readonly query = signal('');
   readonly area = signal<string | null>(null);
   readonly status = signal<StatusFilter>('');
+  readonly statusOptions = LAUNCH_STATUS_FILTER_OPTIONS;
   readonly page = signal(1);
 
   readonly agents = computed(() => this.data()?.agents ?? []);

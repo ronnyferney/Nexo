@@ -63,4 +63,10 @@ export class AccessApi {
   healthSummary = async (): Promise<AgentHealthSummary[]> => normalizeHealthSummary(await this.get<unknown>('/agents/health'));
   launch = (agentId: string, data: LaunchInput = {}) => this.post<Agent>(`/agents/${agentId}/launch`, data);
   unlaunch = (agentId: string) => this.post<Agent>(`/agents/${agentId}/unlaunch`);
+
+  // Ciclo de vida del empleado digital (E2/RF05/RF06). Cada transición responde el agente actualizado; 409 si no aplica.
+  submitForValidation = (agentId: string) => this.post<Agent>(`/agents/${agentId}/submit-validation`);
+  suspend = (agentId: string) => this.post<Agent>(`/agents/${agentId}/suspend`);
+  reactivate = (agentId: string) => this.post<Agent>(`/agents/${agentId}/reactivate`);
+  retire = (agentId: string) => this.post<Agent>(`/agents/${agentId}/retire`);
 }

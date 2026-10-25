@@ -140,6 +140,7 @@ export class SidebarComponent {
     { path: '/', label: 'Inicio', icon: 'dashboard', exact: true },
     { path: '/agents', label: 'Agentes', icon: 'bot', exact: false },
     { path: '/agents/explore', label: 'Explorar agentes', icon: 'search', exact: false },
+    { path: '/cargos', label: 'Cargos', icon: 'layers', exact: false },
     { path: '/skills', label: 'Skills', icon: 'sparkles', exact: false },
     { path: '/knowledge', label: 'Conocimiento', icon: 'book', exact: false },
     { path: '/routines', label: 'Rutinas', icon: 'calendar', exact: false },

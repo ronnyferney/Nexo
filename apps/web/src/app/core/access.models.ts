@@ -4,7 +4,12 @@ export type AgentVisibility = 'PRIVATE' | 'TEAM' | 'WORKSPACE';
 export type AgentPermission = 'OWNER' | 'EDIT' | 'USE' | 'ADMIN_VIEW';
 export type SharePrincipal = 'USER' | 'UNIT' | 'GROUP';
 export type SharePermission = 'USE' | 'EDIT';
-export type LaunchStatus = 'DRAFT' | 'LAUNCHED';
+/**
+ * Ciclo de vida del empleado digital (E2/RF05/RF06): Borrador→En validación→Publicado; Publicado⇄Suspendido;
+ * cualquiera→Retirado (terminal). El mapeo de etiquetas, badge y transiciones vive en
+ * `features/agents/agent-lifecycle.util.ts` (lógica pura con pruebas).
+ */
+export type LaunchStatus = 'DRAFT' | 'EN_VALIDACION' | 'LAUNCHED' | 'SUSPENDIDO' | 'RETIRADO';
 
 /** Share de un agente (solo visible para quien tiene EDIT). */
 export interface AgentShare {
