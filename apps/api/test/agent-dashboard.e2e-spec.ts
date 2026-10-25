@@ -50,6 +50,14 @@ interface Analytics {
     failed: number;
     durationMs: { avg: number; p50: number; p95: number } | null;
   };
+  chat: {
+    total: number;
+    successRatePct: number | null;
+    failed: number;
+    cancelled: number;
+    durationMs: { avg: number; p50: number; p95: number } | null;
+    ttftMs: { avg: number; p50: number; p95: number } | null;
+  };
 }
 
 const dashboard = async (s: Session): Promise<Dashboard> =>
@@ -95,9 +103,10 @@ describe('Tablero y observabilidad de agentes (E2E)', () => {
       // Sin periodo previo no hay base de comparación.
       expect(d.kpis.executionsDeltaPct).toBeNull();
       expect(d.kpis.costDeltaPct).toBeNull();
-      // Datos no instrumentados: se exponen como null, no se inventan.
+      // `testing` sigue sin instrumentarse: viaja como null.
       expect(d.kpis.testing).toBeNull();
-      expect(d.kpis.successRatePct).toBeNull();
+      // `successRatePct` es real (RX-14): los dos turnos de chat se registraron como ejecuciones exitosas.
+      expect(d.kpis.successRatePct).toBe(100);
       expect(typeof d.kpis.alerts).toBe('number');
     });
 
@@ -133,6 +142,43 @@ describe('Tablero y observabilidad de agentes (E2E)', () => {
       expect(a.usage.bySource).toEqual([{ source: 'CHAT', calls: 1, costUsd: expect.any(Number) }]);
       // Sin rutinas ejecutadas: sin corridas terminadas no hay tasa de éxito ni duración.
       expect(a.routines).toMatchObject({ total: 0, successRatePct: null, durationMs: null, failed: 0 });
+      // El turno de chat se registró en AgentRun: tasa de éxito, duración y ttft reales (RX-14).
+      expect(a.chat.total).toBe(1);
+      expect(a.chat.successRatePct).toBe(100);
+      expect(a.chat.failed).toBe(0);
+      expect(a.chat.cancelled).toBe(0);
+      expect(a.chat.durationMs).toMatchObject({
+        avg: expect.any(Number),
+        p50: expect.any(Number),
+        p95: expect.any(Number),
+      });
+      expect(a.chat.ttftMs).toMatchObject({
+        avg: expect.any(Number),
+        p50: expect.any(Number),
+        p95: expect.any(Number),
+      });
+    });
+
+    it('cada turno de chat crea un AgentRun con estado y timings (RX-14)', async () => {
+      const owner = await registerOwner(app, 'agentrun');
+      const agentId = (await createAgent(owner, { name: 'Con registro' })).id;
+      await publishAgent(owner, agentId);
+      const res = await chat(owner, agentId, 'Hola');
+
+      const runs = await prismaOf(app).agentRun.findMany({ where: { agentId } });
+      expect(runs).toHaveLength(1);
+      const run = runs[0];
+      expect(run).toMatchObject({
+        workspaceId: owner.workspaceId,
+        agentId,
+        userId: owner.userId,
+        source: 'CHAT',
+        status: 'SUCCEEDED',
+        conversationId: res.conversationId,
+      });
+      expect(run.finishedAt).not.toBeNull();
+      expect(run.durationMs).toBeGreaterThanOrEqual(0);
+      expect(run.error).toBeNull();
     });
   });
 

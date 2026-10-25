@@ -160,6 +160,14 @@ enum RunStatus {
   FAILED
 }
 
+/// Estado de una ejecución de agente registrada en `AgentRun` (instrumentación RX-14).
+enum AgentRunStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
 enum TriggerType {
   MANUAL
   WEBHOOK
@@ -240,6 +248,7 @@ model Workspace {
   llmAuthFlows              LlmAuthFlow[]
   orgUnits                  OrgUnit[]
   usage                     UsageRecord[]
+  agentRuns                 AgentRun[]
   skills                    Skill[]
   knowledgeBases            KnowledgeBase[]
   agentRoutines             AgentRoutine[]
@@ -400,10 +409,45 @@ model Agent {
   evalRuns             EvalRun[]
   versions             AgentVersion[]
   suggestions          PromptSuggestion[]
+  runs                 AgentRun[]
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
 
   @@index([workspaceId])
+}
+
+/// Registro persistente de cada ejecución de un agente (instrumentación defensiva, RX-14): da los KPIs reales
+/// (tasa de éxito, duración, latencia al primer token) y la base del historial de tareas. Su escritura NUNCA
+/// afecta ni bloquea la ejecución del agente: un fallo al registrar se loguea y se ignora.
+model AgentRun {
+  id             String         @id @default(cuid())
+  workspaceId    String
+  workspace      Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agentId        String
+  agent          Agent          @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  /// Usuario que originó la ejecución (null cuando corre sin usuario: flujos, webhooks, MCP).
+  userId         String?
+  source         UsageSource
+  status         AgentRunStatus @default(RUNNING)
+  error          String?
+  model          String?
+  providerId     String?
+  startedAt      DateTime       @default(now())
+  finishedAt     DateTime?
+  durationMs     Int?
+  /// Tiempo hasta el primer token (primer evento de texto o tool del stream), en ms.
+  ttftMs         Int?
+  costUsd        Decimal?       @db.Decimal(18, 8)
+  inputTokens    Int?
+  outputTokens   Int?
+  /// Datos enmascarados por DataGuard durante la ejecución (null si no se instrumenta).
+  maskedCount    Int?
+  conversationId String?
+  executionId    String?
+  createdAt      DateTime       @default(now())
+
+  @@index([workspaceId, agentId, createdAt])
+  @@index([workspaceId, createdAt])
 }
 
 model AgentTool {

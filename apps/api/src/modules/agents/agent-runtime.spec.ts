@@ -328,3 +328,119 @@ interface ToolOutcomeLike {
   content: string;
   isError?: boolean;
 }
+
+interface AgentRunSpy {
+  create: jest.Mock;
+  update: jest.Mock;
+}
+
+/** Construye un runtime de `setup` pero con un Prisma que expone `agentRun` (y `connectorOperation` para `prepare`). */
+function withAgentRun(models: Parameters<typeof setup>[0], agentRun: AgentRunSpy) {
+  const base = setup(models);
+  (base.runtime as unknown as { prisma: unknown }).prisma = {
+    connectorOperation: { findMany: async () => [] },
+    agentRun,
+  };
+  return base;
+}
+
+describe('AgentRuntimeService · instrumentación AgentRun (RX-14)', () => {
+  it('registra la ejecución con estado, timings y consumo acumulado', async () => {
+    const created: Record<string, unknown>[] = [];
+    const updated: { where: unknown; data: Record<string, unknown> }[] = [];
+    const agentRun: AgentRunSpy = {
+      create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => void created.push(data)),
+      update: jest.fn(
+        async ({ where, data }: { where: unknown; data: Record<string, unknown> }) =>
+          void updated.push({ where, data }),
+      ),
+    };
+    // Comportamiento que emite un token de texto (para medir ttft) y reporta consumo (para acumular tokens y costo).
+    const streaming: Behavior = async (req) => {
+      req.onEvent?.({ type: 'text', text: 'hola ' });
+      await req.onUsage?.({ inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 });
+      return ok('listo')(req);
+    };
+    const { runtime } = withAgentRun({ 'p1:m1': { kind: 'MOCK', behavior: streaming } }, agentRun);
+
+    const r = await runtime.run(agent([]), {
+      message: 'hola',
+      context: { source: 'CHAT', userId: 'u1', conversationId: 'c1' },
+    });
+
+    expect(r.text).toBe('listo');
+    expect(created).toHaveLength(1);
+    expect(created[0]).toMatchObject({
+      workspaceId: 'ws',
+      agentId: 'a1',
+      userId: 'u1',
+      source: 'CHAT',
+      status: 'RUNNING',
+      conversationId: 'c1',
+    });
+    expect(updated).toHaveLength(1);
+    expect(updated[0].where).toEqual({ id: created[0].id });
+    expect(updated[0].data).toMatchObject({
+      status: 'SUCCEEDED',
+      providerId: 'p1',
+      model: 'm1',
+      inputTokens: 1,
+      outputTokens: 1,
+    });
+    expect(typeof updated[0].data.durationMs).toBe('number');
+    expect(typeof updated[0].data.ttftMs).toBe('number');
+  });
+
+  it('un fallo al registrar (BD caída) NO rompe la ejecución: el agente responde igual', async () => {
+    const dbDown = async () => {
+      throw new Error('BD caída');
+    };
+    const agentRun: AgentRunSpy = { create: jest.fn(dbDown), update: jest.fn(dbDown) };
+    const { runtime, calls } = withAgentRun({ 'p1:m1': { kind: 'MOCK', behavior: ok('respuesta íntegra') } }, agentRun);
+
+    const events: AgentEvent[] = [];
+    const r = await runtime.run(agent([]), {
+      message: 'hola',
+      context: { source: 'CHAT' },
+      onEvent: (e) => events.push(e),
+    });
+
+    // La ejecución del agente siguió y respondió igual, pese a que ambas escrituras de AgentRun fallaron.
+    expect(r.text).toBe('respuesta íntegra');
+    expect(calls).toHaveLength(1);
+    expect(agentRun.create).toHaveBeenCalledTimes(1);
+    expect(agentRun.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('marca FAILED y guarda el mensaje de error cuando el proveedor falla sin respaldo', async () => {
+    const updated: Record<string, unknown>[] = [];
+    const agentRun: AgentRunSpy = {
+      create: jest.fn(async () => undefined),
+      update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => void updated.push(data)),
+    };
+    const { runtime } = withAgentRun(
+      { 'p1:m1': { kind: 'ANTHROPIC', behavior: fail(new Error('HTTP 500')) } },
+      agentRun,
+    );
+
+    await expect(runtime.run(agent([]), { message: 'h', context: { source: 'CHAT' } })).rejects.toThrow('HTTP 500');
+    expect(updated[0]).toMatchObject({ status: 'FAILED', error: 'HTTP 500' });
+  });
+
+  it('marca CANCELLED cuando el usuario cancela la ejecución', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const updated: Record<string, unknown>[] = [];
+    const agentRun: AgentRunSpy = {
+      create: jest.fn(async () => undefined),
+      update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => void updated.push(data)),
+    };
+    const aborted = Object.assign(new Error('cancelado'), { name: 'AbortError' });
+    const { runtime } = withAgentRun({ 'p1:m1': { kind: 'MOCK', behavior: fail(aborted) } }, agentRun);
+
+    await expect(
+      runtime.run(agent([]), { message: 'h', context: { source: 'CHAT' }, signal: controller.signal }),
+    ).rejects.toThrow('cancelado');
+    expect(updated[0]).toMatchObject({ status: 'CANCELLED' });
+  });
+});

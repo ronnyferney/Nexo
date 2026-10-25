@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, type AgentVisibility, type LaunchStatus } from '@prisma/client';
+import { Prisma, type AgentRunStatus, type AgentVisibility, type LaunchStatus } from '@prisma/client';
 import type { AuthContext } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AgentAccessService } from '../agent-access/agent-access.service';
@@ -93,6 +93,27 @@ export class AgentAnalyticsService {
     return out;
   }
 
+  /**
+   * Tasa de éxito real de las ejecuciones de agentes (`AgentRun`) en la ventana: SUCCEEDED / (SUCCEEDED + FAILED),
+   * en %. Las ejecuciones CANCELLED y RUNNING no cuentan para la tasa. `null` si no hubo ninguna terminada.
+   */
+  private async runSuccessRate(workspaceId: string, agentIds: string[], from: Date, to: Date): Promise<number | null> {
+    if (!agentIds.length) return null;
+    const rows = await this.prisma.agentRun.groupBy({
+      by: ['status'],
+      where: { workspaceId, agentId: { in: agentIds }, createdAt: { gte: from, lt: to } },
+      _count: true,
+    });
+    let succeeded = 0;
+    let failed = 0;
+    for (const r of rows) {
+      if (r.status === 'SUCCEEDED') succeeded += r._count;
+      else if (r.status === 'FAILED') failed += r._count;
+    }
+    const finished = succeeded + failed;
+    return finished ? Math.round((succeeded / finished) * 1000) / 10 : null;
+  }
+
   /** Suma de un mapa de consumo. */
   private totals(usage: Map<string, UsageAgg>): { calls: number; costUsd: number } {
     let calls = 0;
@@ -116,10 +137,11 @@ export class AgentAnalyticsService {
     const agents = await this.visibleAgents(auth);
     const ids = agents.map((a) => a.id);
 
-    const [curUsage, prevUsage, healthList] = await Promise.all([
+    const [curUsage, prevUsage, healthList, successRatePct] = await Promise.all([
       this.usageByAgent(auth.workspaceId, ids, curFrom, now),
       this.usageByAgent(auth.workspaceId, ids, prevFrom, curFrom),
       this.health.evaluateMany(auth.workspaceId, ids),
+      this.runSuccessRate(auth.workspaceId, ids, curFrom, now),
     ]);
     const healthById = new Map(healthList.map((h) => [h.agentId, h]));
 
@@ -144,8 +166,9 @@ export class AgentAnalyticsService {
         published,
         executions: curTotals.calls,
         executionsDeltaPct: deltaPct(curTotals.calls, prevTotals.calls),
-        // No se registra éxito/fallo por llamada de agente en `UsageRecord`. Dato faltante.
-        successRatePct: null,
+        // Tasa de éxito real de las ejecuciones registradas (`AgentRun`): SUCCEEDED / (SUCCEEDED + FAILED).
+        // `null` mientras no haya ejecuciones terminadas (p. ej. agentes sin instrumentación aún).
+        successRatePct,
         costUsd: curTotals.costUsd,
         costDeltaPct: deltaPct(curTotals.costUsd, prevTotals.costUsd),
         alerts,
@@ -179,12 +202,11 @@ export class AgentAnalyticsService {
   }
 
   /**
-   * Observabilidad (RX-12, primer corte). Agrega lo que el modelo de datos permite hoy:
+   * Observabilidad (RX-12). Agrega:
    * - `usage`: llamadas, costo y tokens de `UsageRecord`, con desglose por origen.
-   * - `routines`: corridas de rutinas de agentes (`RoutineRun`), único registro con estado y duración reales:
-   *   tasa de éxito, reintentos (fallidas) y duración media/percentiles.
-   * Latencia al primer token, duración por turno de chat, cancelaciones de chat y eventos de protección de datos
-   * NO están instrumentados: no se inventan (ver el informe de datos faltantes).
+   * - `routines`: corridas de rutinas de agentes (`RoutineRun`): tasa de éxito, fallidas y duración media/percentiles.
+   * - `chat`: ejecuciones de chat registradas en `AgentRun` (RX-14): tasa de éxito, canceladas, duración real por
+   *   turno y latencia al primer token (ttft), media/p50/p95. `null` cuando aún no hay datos.
    */
   async analytics(auth: AuthContext) {
     const now = new Date();
@@ -193,7 +215,7 @@ export class AgentAnalyticsService {
     const agents = await this.visibleAgents(auth);
     const ids = agents.map((a) => a.id);
 
-    const [usageTotal, bySourceRows, routineRuns] = await Promise.all([
+    const [usageTotal, bySourceRows, routineRuns, chatRuns] = await Promise.all([
       this.prisma.usageRecord.aggregate({
         where: { workspaceId, agentId: { in: ids }, createdAt: { gte: from, lt: now } },
         _sum: { costUsd: true, inputTokens: true, outputTokens: true },
@@ -209,6 +231,12 @@ export class AgentAnalyticsService {
         where: { startedAt: { gte: from, lt: now }, routine: { workspaceId, agentId: { in: ids } } },
         select: { status: true, startedAt: true, finishedAt: true },
       }),
+      ids.length
+        ? this.prisma.agentRun.findMany({
+            where: { workspaceId, agentId: { in: ids }, source: 'CHAT', createdAt: { gte: from, lt: now } },
+            select: { status: true, durationMs: true, ttftMs: true },
+          })
+        : Promise.resolve([]),
     ]);
 
     const byStatus: Record<string, number> = { RUNNING: 0, SUCCEEDED: 0, FAILED: 0 };
@@ -239,8 +267,42 @@ export class AgentAnalyticsService {
         failed: byStatus.FAILED,
         durationMs: percentiles(durations),
       },
+      chat: chatMetrics(chatRuns),
     };
   }
+}
+
+/** Métricas de observabilidad de los turnos de chat registrados en `AgentRun` (RX-14). */
+interface ChatRunRow {
+  status: AgentRunStatus;
+  durationMs: number | null;
+  ttftMs: number | null;
+}
+
+function chatMetrics(runs: ChatRunRow[]) {
+  let succeeded = 0;
+  let failed = 0;
+  let cancelled = 0;
+  const durations: number[] = [];
+  const ttfts: number[] = [];
+  for (const r of runs) {
+    if (r.status === 'SUCCEEDED') succeeded++;
+    else if (r.status === 'FAILED') failed++;
+    else if (r.status === 'CANCELLED') cancelled++;
+    if (r.durationMs !== null) durations.push(r.durationMs);
+    if (r.ttftMs !== null) ttfts.push(r.ttftMs);
+  }
+  const finished = succeeded + failed;
+  return {
+    total: runs.length,
+    // Tasa de éxito sobre los turnos terminados (SUCCEEDED/FAILED); las cancelaciones no cuentan. `null` si no hay.
+    successRatePct: finished ? Math.round((succeeded / finished) * 1000) / 10 : null,
+    failed,
+    cancelled,
+    // Duración real por turno de chat y latencia al primer token (ttft); `null` si no hay muestras.
+    durationMs: percentiles(durations),
+    ttftMs: percentiles(ttfts),
+  };
 }
 
 /** Duración media y percentiles p50/p95 (ms) de una muestra; `null` si está vacía. */

@@ -1,8 +1,10 @@
 import { HttpException, Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import type {
   Agent,
   AgentExample,
   AgentKnowledge,
+  AgentRunStatus,
   AgentSkill,
   AgentTool,
   Connector,
@@ -65,6 +67,19 @@ export interface AgentRunResult extends LlmRunResult {
   providerId: string;
   model: string;
   costUsd: number;
+}
+
+/** Acumulador de consumo de una ejecución: suma de todos los turnos e intentos de respaldo. */
+interface RunTotals {
+  cost: number;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+/** Referencia a un `AgentRun` en curso; `created` resuelve cuando la fila RUNNING se escribió (o falló, sin lanzar). */
+interface AgentRunRef {
+  id: string;
+  created: Promise<unknown>;
 }
 
 interface ToolBinding {
@@ -243,6 +258,50 @@ export class AgentRuntimeService {
   }
 
   /**
+   * Ejecuta un turno y lo registra en `AgentRun` (instrumentación defensiva, RX-14). El registro es no-bloqueante:
+   * un fallo al escribirlo se loguea y se ignora, NUNCA se propaga a la ejecución ni cambia la respuesta o la latencia
+   * percibida (la fila RUNNING se crea en paralelo, no antes del primer token; la actualización final ocurre cuando la
+   * respuesta ya se produjo). Captura el tiempo al primer token (primer evento de texto o tool), la duración total, el
+   * costo y los tokens que ya se miden en cada turno.
+   */
+  async run(agent: AgentWithTools, opts: AgentRunOptions): Promise<AgentRunResult> {
+    const startedAt = Date.now();
+    const totals: RunTotals = { cost: 0, inputTokens: 0, outputTokens: 0 };
+    const timing = { ttftMs: null as number | null };
+    const runRef = this.beginAgentRun(agent, opts.context, new Date(startedAt));
+    const instrumented: AgentRunOptions = {
+      ...opts,
+      onEvent: (e) => {
+        if (timing.ttftMs === null && (e.type === 'text' || e.type === 'tool_call')) {
+          timing.ttftMs = Date.now() - startedAt;
+        }
+        opts.onEvent?.(e);
+      },
+    };
+    try {
+      const result = await this.execute(agent, instrumented, totals);
+      // La respuesta ya se produjo (se transmitió por `onEvent`): registrar aquí no afecta la latencia percibida.
+      await this.finishAgentRun(runRef, 'SUCCEEDED', {
+        startedAt,
+        ttftMs: timing.ttftMs,
+        totals,
+        providerId: result.providerId,
+        model: result.model,
+      });
+      return result;
+    } catch (err) {
+      const cancelled = opts.signal?.aborted || /abort/i.test((err as Error)?.name ?? '');
+      await this.finishAgentRun(runRef, cancelled ? 'CANCELLED' : 'FAILED', {
+        startedAt,
+        ttftMs: timing.ttftMs,
+        totals,
+        error: (err as Error).message,
+      });
+      throw err;
+    }
+  }
+
+  /**
    * Ejecuta un turno. Cadena de respaldo (D1): el modelo principal se planifica y resuelve como siempre (sus errores
    * de presupuesto, permisos o configuración se propagan). Si `client.run` falla por un error del proveedor, se prueba
    * cada `fallbackModels` en orden; cada intento vuelve a pasar por `budgets.plan` (modelos permitidos, presupuesto,
@@ -252,7 +311,7 @@ export class AgentRuntimeService {
    * fallidos queda medido e imputado. Nota: si el principal falló a mitad del bucle, las tools ya ejecutadas pueden
    * volver a ejecutarse en el respaldo.
    */
-  async run(agent: AgentWithTools, opts: AgentRunOptions): Promise<AgentRunResult> {
+  private async execute(agent: AgentWithTools, opts: AgentRunOptions, totals: RunTotals): Promise<AgentRunResult> {
     const ws = agent.workspaceId;
     const orgUnitId = await this.org.resolveCostCenter(ws, opts.context.userId, agent.costCenterId);
     const prepared = await this.prepare(agent);
@@ -286,7 +345,6 @@ export class AgentRuntimeService {
       history = [];
     }
 
-    const totals = { cost: 0 };
     let current = { resolved: primary, chainIds: start?.chainIds ?? plan.chainIds, history };
     let failed = label(primary);
     for (let i = start ? start.index + 1 : 0; ; i++) {
@@ -306,6 +364,80 @@ export class AgentRuntimeService {
         };
         failed = label(next.resolved);
       }
+    }
+  }
+
+  /**
+   * Crea la fila `AgentRun` en estado RUNNING. No se espera: corre en paralelo a la planificación y resolución del
+   * modelo para no retrasar el primer token. Nunca lanza (la escritura va envuelta en {@link safeAgentRunWrite}).
+   */
+  private beginAgentRun(agent: AgentWithTools, context: RunContext, startedAt: Date): AgentRunRef {
+    const id = randomUUID();
+    const created = this.safeAgentRunWrite(() =>
+      this.prisma.agentRun.create({
+        data: {
+          id,
+          workspaceId: agent.workspaceId,
+          agentId: agent.id,
+          userId: context.userId ?? null,
+          source: context.source,
+          status: 'RUNNING',
+          startedAt,
+          model: agent.model,
+          providerId: agent.provider,
+          conversationId: context.conversationId ?? null,
+          executionId: context.executionId ?? null,
+        },
+      }),
+    );
+    return { id, created };
+  }
+
+  /**
+   * Cierra la fila `AgentRun` con su estado final, duración, latencia al primer token, costo y tokens. Espera a que
+   * la creación haya terminado (o fallado) para no actualizar una fila inexistente. Nunca lanza: un fallo al registrar
+   * se loguea y se ignora, jamás altera la ejecución del agente. `maskedCount` queda null (no se instrumenta hoy).
+   */
+  private async finishAgentRun(
+    ref: AgentRunRef,
+    status: AgentRunStatus,
+    info: {
+      startedAt: number;
+      ttftMs: number | null;
+      totals: RunTotals;
+      providerId?: string;
+      model?: string;
+      error?: string;
+    },
+  ): Promise<void> {
+    await ref.created;
+    const finishedAt = new Date();
+    await this.safeAgentRunWrite(() =>
+      this.prisma.agentRun.update({
+        where: { id: ref.id },
+        data: {
+          status,
+          finishedAt,
+          durationMs: finishedAt.getTime() - info.startedAt,
+          ttftMs: info.ttftMs,
+          costUsd: info.totals.cost,
+          inputTokens: info.totals.inputTokens,
+          outputTokens: info.totals.outputTokens,
+          ...(info.providerId ? { providerId: info.providerId } : {}),
+          ...(info.model ? { model: info.model } : {}),
+          ...(info.error ? { error: info.error.slice(0, 2000) } : {}),
+        },
+      }),
+    );
+  }
+
+  /** Envoltura defensiva de toda escritura de `AgentRun`: un fallo se loguea y se ignora; nunca se propaga. */
+  private async safeAgentRunWrite<T>(fn: () => Promise<T>): Promise<T | undefined> {
+    try {
+      return await fn();
+    } catch (err) {
+      this.logger.warn(`No se pudo registrar AgentRun (se ignora): ${(err as Error).message}`);
+      return undefined;
     }
   }
 
@@ -341,7 +473,7 @@ export class AgentRuntimeService {
     prepared: PreparedAgent,
     orgUnitId: string,
     current: { resolved: ResolvedModel; chainIds: string[]; history: unknown[] },
-    totals: { cost: number },
+    totals: RunTotals,
   ): Promise<AgentRunResult> {
     const ws = agent.workspaceId;
     const { resolved, chainIds } = current;
@@ -366,6 +498,8 @@ export class AgentRuntimeService {
       onUsage: async (usage) => {
         const cost = costUsd(usage, resolved.pricing);
         totals.cost += cost;
+        totals.inputTokens += usage.inputTokens;
+        totals.outputTokens += usage.outputTokens;
         await this.budgets.record(
           { workspaceId: ws, orgUnitId, agentId: agent.id, ...opts.context },
           chainIds,
