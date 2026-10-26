@@ -1,0 +1,410 @@
+<div class="page">
+  @if (error()) {
+    <nx-error-state message="{{ error() }}" title="No se pudo cargar la Cuadrilla" (retry)="load()" />
+  } @else if (loading()) {
+    <nx-loading-state text="Cargando la Cuadrilla…" />
+  } @else if (crew(); as c) {
+    <nx-page-header
+      heading="{{ c.nombre }}"
+      [crumbs]="[{ label: 'Cuadrillas', link: '/cuadrillas' }, { label: c.nombre }]"
+    >
+      <a lead class="btn icon lead-back" routerLink="/cuadrillas" title="Volver al catálogo" aria-label="Volver al catálogo">
+        <nx-icon name="arrowLeft" [size]="18" />
+      </a>
+      <div meta>
+        @if (c.proposito) {
+          <p class="m0">{{ c.proposito }}</p>
+        }
+        @if (c.procesoObjetivo) {
+          <p class="muted small m0">Proceso objetivo: {{ c.procesoObjetivo }}</p>
+        }
+        <div class="meta-row">
+          <span class="badge {{ estadoBadge[c.estado] }}">{{ estadoLabels[c.estado] }}</span>
+          <span class="muted small"><nx-icon name="layers" [size]="13" />{{ c.versiones.length }} versión(es)</span>
+          <span class="muted small"><nx-icon name="clock" [size]="13" />Actualizada {{ c.updatedAt | ago }}</span>
+        </div>
+      </div>
+      <div actions>
+        @if (actions().instantiate) {
+          <button class="btn primary brand" [disabled]="acting()" (click)="openInstantiate()">
+            <nx-icon name="rocket" [size]="16" />Instanciar
+          </button>
+        }
+        @if (actions().addVersion) {
+          <button class="btn" [disabled]="acting()" (click)="openVersionEditor()">
+            <nx-icon name="plus" [size]="16" />Nueva versión
+          </button>
+        }
+        @if (actions().publish) {
+          <button class="btn primary" [disabled]="acting()" (click)="publish()">
+            <nx-icon name="check" [size]="16" />Publicar
+          </button>
+        }
+        @if (actions().retire) {
+          <button class="btn danger" [disabled]="acting()" (click)="retire()">
+            <nx-icon name="stop" [size]="16" />Retirar
+          </button>
+        }
+      </div>
+    </nx-page-header>
+
+    <div class="callout declarative-note">
+      <nx-icon name="shield" [size]="18" />
+      <div>
+        <strong>Una Cuadrilla es configuración, no código.</strong>
+        <p class="muted small m0">
+          Es 100 % declarativa: cargos, skills, conectores sugeridos, política y criterios de resultado. No contiene
+          scripts, hooks, comandos ni URLs de arranque. Instanciarla no ejecuta nada ni concede acceso a datos.
+        </p>
+      </div>
+    </div>
+
+    @if (!c.versiones.length) {
+      <nx-empty-state
+        icon="layers"
+        title="Sin versiones"
+        description="Agregue la primera versión con sus miembros (roles, cargos, skills y sugerencias) para poder publicar e instanciar."
+        [actionLabel]="actions().addVersion ? 'Nueva versión' : ''"
+        actionIcon="plus"
+        (action)="openVersionEditor()"
+      />
+    } @else {
+      <div class="versions">
+        @for (v of c.versiones; track v.id) {
+          <div class="card version-card">
+            <div class="v-head">
+              <div class="icon-tile"><nx-icon name="layers" [size]="18" /></div>
+              <div class="grow">
+                <h2>Versión {{ v.version }}</h2>
+                <span class="muted small">
+                  {{ v.miembros.length }} miembro(s) · creada {{ v.createdAt | ago }}
+                </span>
+              </div>
+              @if (v.publicadaAt) {
+                <span class="badge success"><nx-icon name="check" [size]="12" />Publicada</span>
+              }
+            </div>
+
+            @if (!v.miembros.length) {
+              <p class="muted small m0">Esta versión no define miembros.</p>
+            } @else {
+              <div class="members">
+                @for (m of v.miembros; track m.id) {
+                  <div class="member">
+                    <h3>
+                      <nx-icon name="user" [size]="15" />{{ m.rol }}
+                      @if (m.nivelEsperado) {
+                        <span class="badge">{{ nivelLabel(m.nivelEsperado) }}</span>
+                      }
+                    </h3>
+                    @if (m.cargoId) {
+                      <div class="facet">
+                        <span class="lbl"><nx-icon name="layers" [size]="12" />Cargo</span>
+                        {{ cargoName(m.cargoId) }}
+                      </div>
+                    }
+                    @if (m.skills.length) {
+                      <div class="facet">
+                        <span class="lbl"><nx-icon name="sparkles" [size]="12" />Skills sugeridos</span>
+                        <div class="chips">
+                          @for (s of m.skills; track s) {
+                            <span class="badge">{{ s }}</span>
+                          }
+                        </div>
+                      </div>
+                    }
+                    @if (m.conectoresSugeridos.length) {
+                      <div class="facet">
+                        <span class="lbl"><nx-icon name="plug" [size]="12" />Conectores sugeridos</span>
+                        <div class="chips">
+                          @for (r of m.conectoresSugeridos; track $index) {
+                            <span class="badge">{{ $any(r) }}</span>
+                          }
+                        </div>
+                      </div>
+                    }
+                    @if (m.delegaA.length) {
+                      <div class="facet">
+                        <span class="lbl"><nx-icon name="branch" [size]="12" />Puede delegar a</span>
+                        <div class="chips">
+                          @for (d of m.delegaA; track d) {
+                            <span class="badge">{{ d }}</span>
+                          }
+                        </div>
+                      </div>
+                    }
+                    @if (hasKeys(m.politicaSugerida)) {
+                      <div class="facet">
+                        <span class="lbl"><nx-icon name="scale" [size]="12" />Política sugerida</span>
+                        <pre>{{ pretty(m.politicaSugerida) }}</pre>
+                      </div>
+                    }
+                    @if (hasKeys(m.criteriosResultado)) {
+                      <div class="facet">
+                        <span class="lbl"><nx-icon name="target" [size]="12" />Criterios de resultado</span>
+                        <pre>{{ pretty(m.criteriosResultado) }}</pre>
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
+            }
+          </div>
+        }
+      </div>
+    }
+  }
+</div>
+
+<!-- Editor de versión — SOLO declarativo (sin campos de código/hook/URL de arranque) -->
+@if (draftMembers(); as members) {
+  <dialog #versionDlg class="modal wide" aria-labelledby="version-title" (cancel)="onVersionCancel($event)" (close)="draftMembers.set(null)">
+    <form (ngSubmit)="saveVersion()">
+      <div class="modal-head">
+        <div class="icon-tile"><nx-icon name="layers" /></div>
+        <div class="grow">
+          <h2 id="version-title">Nueva versión</h2>
+          <span class="small muted"
+            >Defina los miembros del equipo. Todo es configuración declarativa: cargo, nivel, skills, conectores
+            sugeridos, política y criterios. No hay campos de código, scripts, hooks ni URLs de arranque.</span
+          >
+        </div>
+      </div>
+      <div class="modal-body">
+        @for (m of members; track $index; let i = $index) {
+          <div class="member-edit">
+            <div class="m-head">
+              <span class="sub"><nx-icon name="user" [size]="14" />Miembro {{ i + 1 }}</span>
+              <span class="grow"></span>
+              <button
+                type="button"
+                class="btn sm icon danger"
+                title="Quitar miembro"
+                aria-label="Quitar miembro"
+                [disabled]="members.length < 2"
+                (click)="removeMember(i)"
+              >
+                <nx-icon name="trash" [size]="15" />
+              </button>
+            </div>
+            <div class="grid-2">
+              <div class="field">
+                <label [attr.for]="'rol-' + i">Rol <abbr class="req" title="Obligatorio" aria-hidden="true">*</abbr></label>
+                <input
+                  [id]="'rol-' + i"
+                  class="input"
+                  required
+                  maxlength="120"
+                  [ngModel]="m.rol"
+                  (ngModelChange)="patchMember(i, { rol: $event })"
+                  [name]="'rol-' + i"
+                  placeholder="p. ej. Analista de soporte"
+                />
+              </div>
+              <div class="field">
+                <label [attr.for]="'cargo-' + i">Cargo</label>
+                <select
+                  [id]="'cargo-' + i"
+                  class="input"
+                  [ngModel]="m.cargoId"
+                  (ngModelChange)="patchMember(i, { cargoId: $event })"
+                  [name]="'cargo-' + i"
+                >
+                  <option value="">— Sin cargo —</option>
+                  @for (c of cargos(); track c.id) {
+                    <option [value]="c.id">{{ c.nombre }}</option>
+                  }
+                </select>
+              </div>
+              <div class="field">
+                <label [attr.for]="'nivel-' + i">Nivel esperado</label>
+                <select
+                  [id]="'nivel-' + i"
+                  class="input"
+                  [ngModel]="m.nivelEsperado"
+                  (ngModelChange)="patchMember(i, { nivelEsperado: $event })"
+                  [name]="'nivel-' + i"
+                >
+                  <option value="">— Sin definir —</option>
+                  @for (n of niveles; track n) {
+                    <option [value]="n">{{ nivelLabels[n] }}</option>
+                  }
+                </select>
+              </div>
+            </div>
+            <div class="grid-2">
+              <div class="field">
+                <label>Skills sugeridos <span class="muted small">(sugerencia, no concesión)</span></label>
+                <nx-list-editor
+                  label="Skill"
+                  placeholder="Id o nombre de skill"
+                  emptyText="Sin skills sugeridos."
+                  [items]="m.skills"
+                  (itemsChange)="patchMember(i, { skills: $event })"
+                />
+              </div>
+              <div class="field">
+                <label>Conectores/operaciones sugeridos <span class="muted small">(no concede acceso)</span></label>
+                <nx-list-editor
+                  label="Conector sugerido"
+                  placeholder="p. ej. crm/crear-ticket"
+                  emptyText="Sin conectores sugeridos."
+                  [items]="m.conectoresSugeridos"
+                  (itemsChange)="patchMember(i, { conectoresSugeridos: $event })"
+                />
+              </div>
+            </div>
+            <div class="field">
+              <label>Puede delegar a <span class="muted small">(roles de este equipo)</span></label>
+              <nx-list-editor
+                label="Delegación"
+                placeholder="Rol al que puede delegar"
+                emptyText="Sin delegación definida."
+                [items]="m.delegaA"
+                (itemsChange)="patchMember(i, { delegaA: $event })"
+              />
+            </div>
+            <div class="grid-2">
+              <div class="field">
+                <label [attr.for]="'pol-' + i">Política sugerida</label>
+                <span class="hint muted small">Objeto declarativo (límites, aprobaciones). No admite código.</span>
+                <nx-json-editor
+                  [rows]="4"
+                  [value]="m.politicaSugerida"
+                  (valueChange)="patchMember(i, { politicaSugerida: $any($event) })"
+                />
+              </div>
+              <div class="field">
+                <label [attr.for]="'crit-' + i">Criterios de resultado</label>
+                <span class="hint muted small">Regla de validación y evidencia exigida, de forma declarativa.</span>
+                <nx-json-editor
+                  [rows]="4"
+                  [value]="m.criteriosResultado"
+                  (valueChange)="patchMember(i, { criteriosResultado: $any($event) })"
+                />
+              </div>
+            </div>
+          </div>
+        }
+        <button type="button" class="btn sm" (click)="addMember()"><nx-icon name="plus" [size]="14" />Agregar miembro</button>
+
+        @if (versionError()) {
+          <div class="callout danger" role="alert">
+            <nx-icon name="alert" [size]="16" /><span>{{ versionError() }}</span>
+          </div>
+        }
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn" (click)="closeVersion()">Cancelar</button>
+        <button type="submit" class="btn primary" [disabled]="versionBusy() || !versionValid()">
+          <nx-icon name="save" [size]="16" />{{ versionBusy() ? 'Guardando…' : 'Agregar versión' }}
+        </button>
+      </div>
+    </form>
+  </dialog>
+}
+
+<!-- Instanciar -->
+@if (crew(); as c) {
+  <dialog #instDlg class="modal" aria-labelledby="inst-title" (cancel)="onInstCancel($event)">
+    <form (ngSubmit)="confirmInstantiate()">
+      <div class="modal-head">
+        <div class="icon-tile"><nx-icon name="rocket" /></div>
+        <div class="grow">
+          <h2 id="inst-title">Instanciar «{{ c.nombre }}»</h2>
+          <span class="small muted"
+            >Se creará un empleado digital en BORRADOR por cada miembro. Instanciar NO concede acceso: los conectores,
+            skills y políticas quedan como sugerencias por conceder.</span
+          >
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label for="inst-version">Versión a instanciar</label>
+          <select id="inst-version" class="input" [ngModel]="instVersionId()" (ngModelChange)="instVersionId.set($event)" name="versionId">
+            @for (v of c.versiones; track v.id) {
+              <option [value]="v.id">Versión {{ v.version }} ({{ v.miembros.length }} miembro(s))</option>
+            }
+          </select>
+        </div>
+        <div class="callout">
+          <nx-icon name="info" [size]="16" />
+          <span class="small"
+            >Un agente recién instanciado sin permisos concedidos no puede tocar ningún dato. Tras instanciar verá la
+            lista de permisos pendientes de conceder por el camino normal.</span
+          >
+        </div>
+        @if (instError()) {
+          <div class="callout danger" role="alert">
+            <nx-icon name="alert" [size]="16" /><span>{{ instError() }}</span>
+          </div>
+        }
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn" (click)="closeInstantiate()">Cancelar</button>
+        <button type="submit" class="btn primary" [disabled]="instBusy() || !instVersionId()">
+          <nx-icon name="rocket" [size]="16" />{{ instBusy() ? 'Instanciando…' : 'Instanciar' }}
+        </button>
+      </div>
+    </form>
+  </dialog>
+}
+
+<!-- Resultado de instanciar: permisos PENDIENTES de conceder -->
+@if (result(); as r) {
+  <dialog #resultDlg class="modal wide" aria-labelledby="result-title" (close)="result.set(null)">
+    <div class="modal-head">
+      <div class="icon-tile"><nx-icon name="checkCircle" /></div>
+      <div class="grow">
+        <h2 id="result-title">Cuadrilla instanciada</h2>
+        <span class="small muted">{{ r.agentesCreados.length }} empleado(s) digital(es) creado(s) en BORRADOR.</span>
+      </div>
+    </div>
+    <div class="modal-body">
+      <div class="callout danger">
+        <nx-icon name="alert" [size]="18" />
+        <div>
+          <strong>Instanciar no concede acceso.</strong>
+          <p class="muted small m0">{{ r.aviso }}</p>
+        </div>
+      </div>
+
+      @if (totales(); as t) {
+        <div class="totals">
+          <span class="badge"><nx-icon name="bot" [size]="12" />{{ t.agentes }} agente(s)</span>
+          <span class="badge"><nx-icon name="sparkles" [size]="12" />{{ t.skills }} skill(s) por conceder</span>
+          <span class="badge"><nx-icon name="plug" [size]="12" />{{ t.conectores }} conector(es) por conceder</span>
+          <span class="badge"><nx-icon name="scale" [size]="12" />{{ t.politicas }} política(s) por aplicar</span>
+        </div>
+      }
+
+      <p class="sub">Permisos pendientes de conceder, por agente:</p>
+      <div class="pending-list">
+        @for (p of resumen(); track p.agentId) {
+          <div class="pending">
+            <div class="p-head">
+              <strong>{{ p.rol }}</strong>
+              @if (p.cargoId) {
+                <span class="badge">{{ cargoName(p.cargoId) }}</span>
+              }
+              <span class="grow"></span>
+              <button type="button" class="btn sm" (click)="goToAgent(p.agentId)">
+                <nx-icon name="externalLink" [size]="14" />Abrir agente
+              </button>
+            </div>
+            <div class="chips">
+              <span class="badge"><nx-icon name="sparkles" [size]="12" />{{ p.skillsCount }} skill(s)</span>
+              <span class="badge"><nx-icon name="plug" [size]="12" />{{ p.conectoresCount }} conector(es)</span>
+              @if (p.tienePolitica) {
+                <span class="badge"><nx-icon name="scale" [size]="12" />política sugerida</span>
+              }
+            </div>
+          </div>
+        }
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn primary" (click)="closeResult()">Entendido</button>
+    </div>
+  </dialog>
+}

@@ -23,6 +23,8 @@ export const routes: Routes = [
       { path: 'agents/new', loadComponent: () => import('./features/agents/agent-new.page').then((m) => m.AgentNewPage) },
       { path: 'agents/:id', loadComponent: () => import('./features/agents/agent-detail.page').then((m) => m.AgentDetailPage) },
       { path: 'cargos', loadComponent: () => import('./features/cargos/cargos.page').then((m) => m.CargosPage) },
+      { path: 'cuadrillas', loadComponent: () => import('./features/cuadrillas/cuadrillas.page').then((m) => m.CuadrillasPage) },
+      { path: 'cuadrillas/:id', loadComponent: () => import('./features/cuadrillas/cuadrilla-detail.page').then((m) => m.CuadrillaDetailPage) },
       { path: 'connectors', loadComponent: () => import('./features/connectors/connectors-list.page').then((m) => m.ConnectorsListPage) },
       { path: 'integrations', loadComponent: () => import('./features/integrations/integrations.page').then((m) => m.IntegrationsPage) },
       { path: 'connectors/:id', loadComponent: () => import('./features/connectors/connector-detail.page').then((m) => m.ConnectorDetailPage) },
