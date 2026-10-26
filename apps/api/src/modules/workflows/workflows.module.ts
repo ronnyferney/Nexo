@@ -2,6 +2,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { Module, type Provider } from '@nestjs/common';
 import { AgentsModule } from '../agents/agents.module';
 import { ConnectorsModule } from '../connectors/connectors.module';
+import { MessagingModule } from '../messaging/messaging.module';
 import { ResultsModule } from '../results/results.module';
 import { RoutinesModule } from '../routines/routines.module';
 import { WorkflowProcessor } from './queue/workflow.processor';
@@ -22,6 +23,7 @@ const workers: Provider[] = process.env.WORKER_ENABLED === 'false' ? [] : [Workf
     AgentsModule,
     RoutinesModule,
     ResultsModule,
+    MessagingModule,
   ],
   controllers: [WorkflowsController, ExecutionsController, WebhooksController],
   providers: [WorkflowsService, WorkflowRunnerService, RetentionService, ScheduleReconcilerService, ...workers],

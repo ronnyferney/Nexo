@@ -26,6 +26,8 @@ import { GroupsModule } from './modules/groups/groups.module';
 import { HealthModule } from './modules/health/health.module';
 import { LlmModule } from './modules/llm/llm.module';
 import { KnowledgeModule } from './modules/knowledge/knowledge.module';
+import { CollaborationModule } from './modules/collaboration/collaboration.module';
+import { MessagingModule } from './modules/messaging/messaging.module';
 import { McpServerModule } from './modules/mcp-server/mcp-server.module';
 import { OAuthModule } from './modules/oauth/oauth.module';
 import { ResultsModule } from './modules/results/results.module';
@@ -90,6 +92,8 @@ import { WorkspacesModule } from './modules/workspaces/workspaces.module';
     TrainingModule,
     WorkflowsModule,
     ResultsModule,
+    MessagingModule,
+    CollaborationModule,
     RoutinesModule,
     McpServerModule,
     HealthModule,

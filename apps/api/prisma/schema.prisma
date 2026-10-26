@@ -269,19 +269,19 @@ model Invitation {
 }
 
 model Workspace {
-  id                        String          @id @default(cuid())
+  id                        String                     @id @default(cuid())
   name                      String
-  slug                      String          @unique
+  slug                      String                     @unique
   /// Permite que cualquier miembro cree agentes personales (ADR 0007).
-  allowPersonalAgents       Boolean         @default(true)
+  allowPersonalAgents       Boolean                    @default(true)
   /// Política de DataGuard hacia los modelos de IA (ADR 0008 D2).
-  dataGuardMode             DataGuardMode   @default(MASK)
+  dataGuardMode             DataGuardMode              @default(MASK)
   /// Días que se conservan conversaciones y mensajes (ADR 0008 D7; null = sin límite).
   conversationRetentionDays Int?
   /// Última vez que el workspace guardó sus ajustes de protección de datos (null = rige CONVERSATIONS_RETENTION_DAYS).
   privacySettingsUpdatedAt  DateTime?
-  createdAt                 DateTime        @default(now())
-  updatedAt                 DateTime        @updatedAt
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
   memberships               Membership[]
   connectors                Connector[]
   agents                    Agent[]
@@ -310,6 +310,10 @@ model Workspace {
   contratosResultado        ContratoResultado[]
   evidencias                Evidencia[]
   incumplimientos           Incumplimiento[]
+  mensajesAgente            MensajeAgente[]
+  transferencias            ContratoTransferencia[]
+  canales                   Canal[]
+  hilosCanal                HiloCanal[]
 }
 
 /// Catálogo de cargos (RF03): perfil reutilizable del empleado digital con propósito, funciones, entregables,
@@ -602,25 +606,28 @@ model Workflow {
 }
 
 model Execution {
-  id          String          @id @default(cuid())
-  status      ExecutionStatus @default(QUEUED)
-  trigger     TriggerType     @default(MANUAL)
-  input       Json            @default("{}")
-  output      Json?
-  error       String?
+  id                String          @id @default(cuid())
+  status            ExecutionStatus @default(QUEUED)
+  trigger           TriggerType     @default(MANUAL)
+  input             Json            @default("{}")
+  output            Json?
+  error             String?
   /// Bitácora por nodo: [{ nodeId, status, startedAt, finishedAt, input, output, error }]
-  steps       Json            @default("[]")
-  workflowId  String
-  workflow    Workflow        @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-  workspaceId String
-  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  steps             Json            @default("[]")
+  workflowId        String
+  workflow          Workflow        @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  workspaceId       String
+  workspace         Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   /// Vínculo opcional y aditivo a la tarea cuyo trabajo ejecuta este flujo (E4/RF08). `null` = ejecución sin tarea
   /// (comportamiento previo intacto). Una tarea puede tener varias ejecuciones (segmentos del handoff llegan en E5).
-  tareaId     String?
-  tarea       Tarea?          @relation(fields: [tareaId], references: [id], onDelete: SetNull)
-  startedAt   DateTime?
-  finishedAt  DateTime?
-  createdAt   DateTime        @default(now())
+  tareaId           String?
+  tarea             Tarea?          @relation(fields: [tareaId], references: [id], onDelete: SetNull)
+  /// Nº de segmento dentro de la tarea (handoff, E5/RF09). `null` = ejecución no segmentada (comportamiento previo).
+  /// Único por `(tareaId, secuenciaSegmento)` a nivel de aplicación: reanudar un handoff no rehace un segmento.
+  secuenciaSegmento Int?
+  startedAt         DateTime?
+  finishedAt        DateTime?
+  createdAt         DateTime        @default(now())
 
   @@index([workspaceId, createdAt])
   @@index([workflowId])
@@ -718,16 +725,16 @@ model LlmAuthFlow {
 
 /// Unidad corporativa (árbol). La raíz (parentId = null) es el tope global del workspace.
 model OrgUnit {
-  id            String         @id @default(cuid())
-  name          String
-  code          String?
+  id                String           @id @default(cuid())
+  name              String
+  code              String?
   /// Modelos permitidos "<providerId>:<modelId>". Vacío = hereda del padre.
-  allowedModels String[]       @default([])
-  parentId      String?
-  parent        OrgUnit?       @relation("OrgTree", fields: [parentId], references: [id], onDelete: Restrict)
-  children      OrgUnit[]      @relation("OrgTree")
-  workspaceId   String
-  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  allowedModels     String[]         @default([])
+  parentId          String?
+  parent            OrgUnit?         @relation("OrgTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children          OrgUnit[]        @relation("OrgTree")
+  workspaceId       String
+  workspace         Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   /// Dimensión jerárquica/funcional (ADR 0011 D2). Las unidades previas migran a `AREA_FUNCIONAL` (default neutro).
   tipo              OrgUnitTipo      @default(AREA_FUNCIONAL)
   /// Empresa (OrgUnit `EMPRESA`) a la que pertenece la unidad. Desnormalizado para filtrar barato por empresa
@@ -740,15 +747,15 @@ model OrgUnit {
   /// Vigencia de la unidad (RF43). Opcionales; `null` = sin límite.
   vigenteDesde      DateTime?
   vigenteHasta      DateTime?
-  memberships   Membership[]
-  agents        Agent[]
-  budget        Budget?
-  ledger        BudgetLedger[]
-  alerts        BudgetAlert[]
-  usage         UsageRecord[]
-  invitations   Invitation[]
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  memberships       Membership[]
+  agents            Agent[]
+  budget            Budget?
+  ledger            BudgetLedger[]
+  alerts            BudgetAlert[]
+  usage             UsageRecord[]
+  invitations       Invitation[]
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
 
   @@index([workspaceId])
   @@index([workspaceId, tipo])
@@ -923,11 +930,11 @@ model AsignacionOrganizacional {
   vigenteHasta    DateTime?
   creadaPorUserId String?
   createdAt       DateTime         @default(now())
+  // Índice parcial único (SQL manual): a lo sumo una FUNCIONAL_PRINCIPAL vigente (vigenteHasta IS NULL) por sujeto.
 
   @@index([workspaceId, agentId])
   @@index([workspaceId, userId])
   @@index([workspaceId, lineaNegocioId])
-  // Índice parcial único (SQL manual): a lo sumo una FUNCIONAL_PRINCIPAL vigente (vigenteHasta IS NULL) por sujeto.
 }
 
 // ===================== Estudio de agentes y n8n (ADR 0003) =====================
@@ -1389,6 +1396,33 @@ enum VeredictoValidacion {
   DEVUELVE
 }
 
+/// Tipo de mensaje del protocolo entre agentes (RF35). HANDOFF acompaña un `ContratoTransferencia` (continuidad, RF09).
+enum TipoMensaje {
+  ASIGNACION
+  ACEPTACION
+  SOLICITUD_INFO
+  ENTREGA
+  DEVOLUCION
+  BLOQUEO
+  ESCALAMIENTO
+  CIERRE
+  HANDOFF
+}
+
+/// Estado de un contrato de transferencia (handoff). El receptor ACEPTA (encola el segmento) o RECHAZA (devuelve).
+enum EstadoTransferencia {
+  PROPUESTO
+  ACEPTADO
+  RECHAZADO
+}
+
+/// Ámbito de un canal de coordinación transversal (RF36).
+enum TipoCanal {
+  MISION
+  PROCESO
+  AREA
+}
+
 /// Objetivo (RF07): indicador, línea base, meta y plazo con dueño humano y responsable digital. Agrupa tareas.
 /// Lo autoriza un humano (el sistema solo propone). Vínculo opcional a una unidad/empresa/línea por `orgUnitId`.
 model Objetivo {
@@ -1423,37 +1457,39 @@ model Objetivo {
 /// fecha límite y estado operativo. Distingue producto intermedio de resultado de negocio. Lleva campos de delegación
 /// (cadena `parentTareaId`, `profundidadDelegacion`, `correlationId`) para el control de ciclos de E5 (RF10).
 model Tarea {
-  id                    String             @id @default(cuid())
+  id                    String                  @id @default(cuid())
   workspaceId           String
-  workspace             Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace             Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   orgUnitId             String?
   objetivoId            String?
-  objetivo              Objetivo?          @relation(fields: [objetivoId], references: [id], onDelete: SetNull)
+  objetivo              Objetivo?               @relation(fields: [objetivoId], references: [id], onDelete: SetNull)
   titulo                String
   descripcion           String?
   criterioAceptacion    String?
-  entradas              Json               @default("{}")
+  entradas              Json                    @default("{}")
   /// Responsable digital ejecutor (referencia blanda a `Agent`). El verificador debe ser distinto (RF30).
   responsableAgentId    String?
   equipoId              String?
   /// Dueño humano (referencia blanda a `User`).
   duenoUserId           String?
-  prioridad             Int                @default(3)
+  prioridad             Int                     @default(3)
   fechaLimite           DateTime?
-  estado                EstadoTarea        @default(PENDIENTE)
-  tipoResultado         TipoResultado      @default(PRODUCTO_INTERMEDIO)
+  estado                EstadoTarea             @default(PENDIENTE)
+  tipoResultado         TipoResultado           @default(PRODUCTO_INTERMEDIO)
   /// Delegación y control de ciclos (RF10; la validación dura llega con el handoff de E5).
   parentTareaId         String?
-  profundidadDelegacion Int                @default(0)
+  profundidadDelegacion Int                     @default(0)
   correlationId         String?
-  validFrom             DateTime           @default(now())
+  validFrom             DateTime                @default(now())
   validTo               DateTime?
   contratoResultado     ContratoResultado?
   executions            Execution[]
   evidencias            Evidencia[]
   incumplimientos       Incumplimiento[]
-  createdAt             DateTime           @default(now())
-  updatedAt             DateTime           @updatedAt
+  mensajes              MensajeAgente[]
+  transferencias        ContratoTransferencia[]
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
 
   @@index([workspaceId, estado])
   @@index([workspaceId, objetivoId])
@@ -1574,4 +1610,135 @@ model Incumplimiento {
 
   @@index([workspaceId, tareaId])
   @@index([workspaceId, resuelto])
+}
+
+/// Protocolo estructurado y persistente entre agentes (RF35). La "conversación" es una proyección de estos registros,
+/// no una fuente de verdad paralela. `messageId` es la clave de idempotencia provista por el emisor:
+/// `@@unique([workspaceId, messageId])` garantiza que una redelivery NO crea otra tarea ni otro efecto (QA11).
+/// Los hechos de ciclo de vida (enviado/recibido/aceptado/resuelto) son registros distintos (timestamps). Un mensaje
+/// NO autoriza efectos ni amplía atribuciones: `permisos` es el alcance que acompaña, nunca lo expande (RF09/QA02).
+model MensajeAgente {
+  id                   String      @id @default(cuid())
+  workspaceId          String
+  workspace            Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// Empresa a la que pertenece el mensaje (referencia blanda a `OrgUnit` tipo EMPRESA); no concede acceso.
+  empresaId            String?
+  /// Clave de idempotencia del emisor (RF35/QA11). Única por workspace.
+  messageId            String
+  /// Hilo de negocio (correlación) que agrupa el intercambio.
+  correlationId        String?
+  emisorAgentId        String?
+  destinatarioAgentId  String?
+  /// Destinatario de grupo (equipo) como referencia blanda.
+  destinatarioEquipoId String?
+  canalId              String?
+  /// Objetivo (misión) asociado.
+  misionId             String?
+  tareaId              String?
+  tarea                Tarea?      @relation(fields: [tareaId], references: [id], onDelete: SetNull)
+  tipo                 TipoMensaje
+  prioridad            Int         @default(3)
+  version              Int         @default(1)
+  fechaLimite          DateTime?
+  /// Referencias autorizadas a evidencia/recursos (punteros), sin copiar datos sensibles.
+  referencias          Json        @default("[]")
+  /// Alcance que acompaña al mensaje; NUNCA amplía atribuciones (validado en servicio).
+  permisos             Json        @default("{}")
+  /// Hechos de ciclo de vida como registros distintos (RF35).
+  enviadoAt            DateTime    @default(now())
+  recibidoAt           DateTime?
+  aceptadoAt           DateTime?
+  resueltoAt           DateTime?
+  /// Para rechazo/devolución/escalamiento: código/razón auditable.
+  motivo               String?
+  /// Actores de los hechos (referencias blandas; auditoría de quién hizo qué).
+  recibidoPorAgentId   String?
+  aceptadoPorAgentId   String?
+  createdAt            DateTime    @default(now())
+
+  @@unique([workspaceId, messageId])
+  @@index([workspaceId, correlationId])
+  @@index([workspaceId, tareaId])
+  @@index([workspaceId, destinatarioAgentId])
+  @@index([workspaceId, fechaLimite])
+}
+
+/// Contrato de transferencia / continuidad de tarea (RF09, requisito del dueño). Un agente lleva la tarea hasta un
+/// punto de corte y cierra el segmento con el estado alcanzado + entregable parcial + contexto autorizado + criterio
+/// del siguiente paso + responsable entrante; otro agente o grupo continúa desde ese estado SIN rehacer. El receptor
+/// ACEPTA (encola el siguiente segmento con el estado persistido como entrada) o RECHAZA (devuelve/escala). La unicidad
+/// `(workspaceId, tareaId, secuenciaSegmento)` evita rehacer o duplicar un segmento ya transferido (idempotencia).
+model ContratoTransferencia {
+  id                        String              @id @default(cuid())
+  workspaceId               String
+  workspace                 Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tareaId                   String
+  tarea                     Tarea               @relation(fields: [tareaId], references: [id], onDelete: Cascade)
+  secuenciaSegmento         Int
+  fromAgentId               String?
+  toAgentId                 String?
+  toEquipoId                String?
+  /// Snapshot/referencias del estado persistido de la tarea en el punto de corte (entrada del siguiente segmento).
+  estadoAlcanzado           Json                @default("{}")
+  entregableParcial         Json?
+  /// Contexto autorizado: referencias, no copia de datos sensibles (RF35).
+  contextoAutorizado        Json                @default("[]")
+  criterioSiguiente         String?
+  /// Permisos del tramo entrante; NUNCA amplía atribuciones.
+  permisos                  Json                @default("{}")
+  responsableEntranteUserId String?
+  /// Flujo que ejecuta el segmento entrante al aceptar (referencia blanda a `Workflow`).
+  workflowId                String?
+  estado                    EstadoTransferencia @default(PROPUESTO)
+  motivoRechazo             String?
+  /// `MensajeAgente` de tipo HANDOFF que acompaña la propuesta.
+  mensajeId                 String?
+  /// `Execution` del segmento encolado al aceptar (trazabilidad de quién continuó).
+  executionId               String?
+  profundidadDelegacion     Int                 @default(0)
+  createdAt                 DateTime            @default(now())
+  decididoAt                DateTime?
+
+  @@unique([workspaceId, tareaId, secuenciaSegmento])
+  @@index([workspaceId, tareaId])
+  @@index([workspaceId, estado])
+}
+
+/// Canal de coordinación transversal por misión/proceso/área (RF36). Mencionar/referenciar NO concede acceso (QA12):
+/// el alcance se valida en consulta y entrega, no por visibilidad. Un canal entre empresas exige permiso explícito.
+model Canal {
+  id          String      @id @default(cuid())
+  workspaceId String
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  orgUnitId   String?
+  tipo        TipoCanal
+  misionId    String?
+  nombre      String
+  descripcion String?
+  validFrom   DateTime    @default(now())
+  validTo     DateTime?
+  hilos       HiloCanal[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([workspaceId, tipo])
+}
+
+/// Hilo dentro de un canal (RF36). Una solicitud de acción NO ejecuta sola: se convierte en una `Tarea` autorizada
+/// (D5) solo tras validación de autoridad y aceptación. `tareaId` enlaza el hilo con la tarea en que se convirtió.
+model HiloCanal {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  canalId      String
+  canal        Canal     @relation(fields: [canalId], references: [id], onDelete: Cascade)
+  asunto       String
+  /// Nº de intercambios registrados en el hilo (prevención de ruido/ciclos, RF36).
+  intercambios Int       @default(0)
+  /// Tarea autorizada en la que se convirtió una solicitud del hilo (null = aún no convertida).
+  tareaId      String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([workspaceId, canalId])
 }

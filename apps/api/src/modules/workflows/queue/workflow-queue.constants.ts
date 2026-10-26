@@ -14,10 +14,24 @@ export const RESULTS_SWEEP_PATTERN = '23 * * * *';
 export const WORKFLOW_SCHEDULER_PREFIX = 'wf-schedule:';
 export const schedulerId = (workflowId: string) => `${WORKFLOW_SCHEDULER_PREFIX}${workflowId}`;
 
+/** Despacho de un mensaje entre agentes (E5/RF35): reutiliza esta misma cola, no una nueva. */
+export const JOB_MESSAGE = 'message';
+/** Barrido de vencimientos de mensajes (confirmación/respuesta) para suplencia/escalamiento (E5/RF35). */
+export const JOB_MESSAGES_SWEEP = 'messages-sweep';
+export const MESSAGES_SWEEP_SCHEDULER_ID = 'messages-sweep';
+/** Cada hora, al minuto 41 (desfasado de retención/incumplimientos para no solaparse). */
+export const MESSAGES_SWEEP_PATTERN = '41 * * * *';
+/** Despacho del segmento entrante de un handoff tras la aceptación (E5/RF09). */
+export const JOB_SEGMENT = 'segment';
+
 export interface RunJobData {
   executionId: string;
 }
 
 export interface ScheduledJobData {
   workflowId: string;
+}
+
+export interface MessageJobData {
+  mensajeId: string;
 }

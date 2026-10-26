@@ -2,14 +2,18 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { MensajesService } from '../../messaging/mensajes.service';
 import { IncumplimientosService } from '../../results/incumplimientos.service';
 import { RetentionService } from '../retention.service';
 import { WorkflowRunnerService } from '../workflow-runner.service';
 import {
+  JOB_MESSAGE,
+  JOB_MESSAGES_SWEEP,
   JOB_RESULTS_SWEEP,
   JOB_RETENTION,
   JOB_RUN,
   JOB_SCHEDULED,
+  type MessageJobData,
   type RunJobData,
   type ScheduledJobData,
 } from './workflow-queue.constants';
@@ -25,11 +29,12 @@ export class WorkflowProcessor extends WorkerHost {
     private readonly prisma: PrismaService,
     private readonly retention: RetentionService,
     private readonly incumplimientos: IncumplimientosService,
+    private readonly mensajes: MensajesService,
   ) {
     super();
   }
 
-  async process(job: Job<RunJobData | ScheduledJobData>): Promise<void> {
+  async process(job: Job<RunJobData | ScheduledJobData | MessageJobData>): Promise<void> {
     if (job.name === JOB_RUN) {
       await this.runner.execute((job.data as RunJobData).executionId);
       return;
@@ -55,6 +60,14 @@ export class WorkflowProcessor extends WorkerHost {
     }
     if (job.name === JOB_RESULTS_SWEEP) {
       await this.incumplimientos.barrer();
+      return;
+    }
+    if (job.name === JOB_MESSAGES_SWEEP) {
+      await this.mensajes.barrerVencidos();
+      return;
+    }
+    if (job.name === JOB_MESSAGE) {
+      await this.mensajes.despachar((job.data as MessageJobData).mensajeId);
       return;
     }
     this.logger.warn(`Job desconocido: ${job.name}`);
