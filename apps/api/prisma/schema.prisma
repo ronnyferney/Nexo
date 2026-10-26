@@ -328,6 +328,9 @@ model Workspace {
   auditLogs                 AuditLog[]
   auditCounter              AuditCounter?
   estacionesVirtuales       EstacionVirtual[]
+  publicaciones             Publicacion[]
+  comentarios               Comentario[]
+  reacciones                Reaccion[]
 }
 
 /// Catálogo de cargos (RF03): perfil reutilizable del empleado digital con propósito, funciones, entregables,
@@ -2440,4 +2443,84 @@ model EstacionVirtual {
 
   @@unique([workspaceId, nombre])
   @@index([workspaceId])
+}
+
+// ===================== Comunidad interna (E11 · el "muro" corporativo privado) =====================
+// Red social interna privada: comunicar novedades, pedir apoyo, compartir aprendizajes y coordinar compromisos. No es
+// un chat suelto: un COMPROMISO/APOYO puede ligarse a una Tarea (referencia blanda, validada en servicio) para que la
+// comunidad contribuya a los procesos. Contenido de usuario: NUNCA se expande con el motor de plantillas ni se ejecuta
+// (nada de `eval`). Multi-tenant estricto por `workspaceId`; un workspace no ve ni comenta publicaciones de otro.
+
+/// Tipo de publicación del muro (E11). NOVEDAD = comunicar; APOYO = pedir ayuda (puede ligarse a trabajo);
+/// APRENDIZAJE = compartir; COMPROMISO = coordinar trabajo (suele ligarse a una Tarea).
+enum PublicacionTipo {
+  NOVEDAD
+  APOYO
+  APRENDIZAJE
+  COMPROMISO
+}
+
+/// Estado de una publicación (E11). ACTIVA por defecto; RESUELTA cierra un APOYO/COMPROMISO atendido; ARCHIVADA es la
+/// baja lógica (se conserva el histórico y sus comentarios/reacciones; sale del muro por defecto).
+enum PublicacionEstado {
+  ACTIVA
+  RESUELTA
+  ARCHIVADA
+}
+
+/// Publicación del muro corporativo (E11). `autorUserId` y `orgUnitId` son referencias blandas (no conceden acceso ni
+/// se vuelven obligatorias). `tareaId` liga un COMPROMISO/APOYO a una Tarea del mismo workspace (referencia blanda,
+/// validada en servicio). `titulo` opcional; `cuerpo` es texto de usuario sin plantillas.
+model Publicacion {
+  id          String            @id @default(cuid())
+  workspaceId String
+  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// Autor (referencia blanda a `User`). SIEMPRE del contexto autenticado, nunca del cuerpo de la petición.
+  autorUserId String
+  /// Alcance opcional a un área/empresa (referencia blanda a `OrgUnit`). `null` = muro general del workspace.
+  orgUnitId   String?
+  tipo        PublicacionTipo
+  titulo      String?
+  cuerpo      String
+  /// Tarea ligada (COMPROMISO/APOYO). Referencia blanda a `Tarea` del mismo workspace, validada en servicio.
+  tareaId     String?
+  estado      PublicacionEstado @default(ACTIVA)
+  comentarios Comentario[]
+  reacciones  Reaccion[]
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, tipo])
+}
+
+/// Comentario a una publicación del muro (E11). `autorUserId` referencia blanda; `cuerpo` texto de usuario sin
+/// plantillas. Se borra en cascada con su publicación.
+model Comentario {
+  id            String      @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  publicacionId String
+  publicacion   Publicacion @relation(fields: [publicacionId], references: [id], onDelete: Cascade)
+  autorUserId   String
+  cuerpo        String
+  createdAt     DateTime    @default(now())
+
+  @@index([workspaceId, publicacionId])
+}
+
+/// Reacción a una publicación del muro (E11). Una reacción por `(publicacion, autor, tipo)`: el POST es idempotente y
+/// el DELETE la retira. `tipo` es una etiqueta corta ("like" | "celebrar" | "apoyo" ...). Cascada con su publicación.
+model Reaccion {
+  id            String      @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  publicacionId String
+  publicacion   Publicacion @relation(fields: [publicacionId], references: [id], onDelete: Cascade)
+  autorUserId   String
+  tipo          String
+  createdAt     DateTime    @default(now())
+
+  @@unique([publicacionId, autorUserId, tipo])
+  @@index([workspaceId, publicacionId])
 }

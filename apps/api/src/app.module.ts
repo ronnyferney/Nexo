@@ -33,6 +33,7 @@ import { HierarchyModule } from './modules/hierarchy/hierarchy.module';
 import { LlmModule } from './modules/llm/llm.module';
 import { KnowledgeModule } from './modules/knowledge/knowledge.module';
 import { CollaborationModule } from './modules/collaboration/collaboration.module';
+import { CommunityModule } from './modules/community/community.module';
 import { MessagingModule } from './modules/messaging/messaging.module';
 import { McpServerModule } from './modules/mcp-server/mcp-server.module';
 import { OAuthModule } from './modules/oauth/oauth.module';
@@ -106,6 +107,7 @@ import { WorkspacesModule } from './modules/workspaces/workspaces.module';
     ConsolasModule,
     MessagingModule,
     CollaborationModule,
+    CommunityModule,
     RoutinesModule,
     McpServerModule,
     HealthModule,
