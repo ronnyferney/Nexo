@@ -42,17 +42,17 @@ export class PoliciesController {
 
   @Post()
   create(@CurrentAuth() a: AuthContext, @Body() dto: CreatePoliticaDto) {
-    return this.policy.create(a.workspaceId, dto);
+    return this.policy.create(a.workspaceId, dto, a);
   }
 
   @Patch(':id')
   update(@CurrentAuth() a: AuthContext, @Param('id') id: string, @Body() dto: UpdatePoliticaDto) {
-    return this.policy.update(a.workspaceId, id, dto);
+    return this.policy.update(a.workspaceId, id, dto, a);
   }
 
   @Delete(':id')
   archive(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
-    return this.policy.archive(a.workspaceId, id);
+    return this.policy.archive(a.workspaceId, id, a);
   }
 }
 

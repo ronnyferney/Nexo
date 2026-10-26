@@ -3,6 +3,8 @@ import { Prisma, type Aprobacion } from '@prisma/client';
 import type { AuthContext } from '../../../common/decorators/current-user.decorator';
 import { ROLE_RANK, type WorkspaceRole } from '../../../common/decorators/roles.decorator';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { AuditService } from '../../audit/audit.service';
+import { AUDIT_ACTIONS } from '../../audit/audit.types';
 import { applyDecision, canRegisterDecision, type ApprovalState, type DecisionRecord } from '../policy/approval.rules';
 import type { ApprovalDecisionBodyDto, ApprovalsQueryDto } from './dto/actions.dto';
 
@@ -16,7 +18,10 @@ const MIN_APPROVER_ROLE: WorkspaceRole = 'EDITOR';
  */
 @Injectable()
 export class ApprovalsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   list(workspaceId: string, q: ApprovalsQueryDto = {}) {
     return this.prisma.aprobacion.findMany({
@@ -49,10 +54,33 @@ export class ApprovalsService {
     };
     const next = applyDecision(state, record);
 
-    return this.prisma.aprobacion.update({
+    const updated = await this.prisma.aprobacion.update({
       where: { id: aprobacion.id },
       data: { estado: next.estado as never, decisiones: next.decisiones as unknown as Prisma.InputJsonValue },
     });
+
+    // Auditoría inmutable (E13): solo el hecho terminal de gobierno (concesión/rechazo), no cada firma intermedia.
+    if (next.estado === 'APROBADA' || next.estado === 'RECHAZADA') {
+      await this.audit.append(workspaceId, {
+        actorType: 'USER',
+        actorId: actor.userId,
+        action: next.estado === 'APROBADA' ? AUDIT_ACTIONS.APROBACION_CONCEDIDA : AUDIT_ACTIONS.APROBACION_RECHAZADA,
+        targetType: 'Aprobacion',
+        targetId: aprobacion.id,
+        resumen:
+          next.estado === 'APROBADA'
+            ? `Aprobación concedida para la acción "${aprobacion.tipoAccion}"`
+            : `Aprobación rechazada para la acción "${aprobacion.tipoAccion}"`,
+        metadata: {
+          tipoAccion: aprobacion.tipoAccion,
+          requiredApprovals: aprobacion.requiredApprovals,
+          riesgo: aprobacion.riesgo,
+          decision: dto.decision,
+        },
+      });
+    }
+
+    return updated;
   }
 
   /** ¿Conservan todos los aprobadores (que APROBARON) el rol mínimo? (QA07, revalidación al ejecutar). */

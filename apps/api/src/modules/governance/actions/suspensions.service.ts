@@ -2,6 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import type { Suspension } from '@prisma/client';
 import type { AuthContext } from '../../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { AuditService } from '../../audit/audit.service';
+import { AUDIT_ACTIONS } from '../../audit/audit.types';
 import type { ActionContext } from '../policy/policy.types';
 import type { CreateSuspensionDto } from './dto/actions.dto';
 
@@ -12,7 +14,10 @@ import type { CreateSuspensionDto } from './dto/actions.dto';
  */
 @Injectable()
 export class SuspensionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   list(workspaceId: string, soloActivas = false) {
     return this.prisma.suspension.findMany({
@@ -27,8 +32,8 @@ export class SuspensionsService {
     return s;
   }
 
-  create(workspaceId: string, dto: CreateSuspensionDto, actor: AuthContext) {
-    return this.prisma.suspension.create({
+  async create(workspaceId: string, dto: CreateSuspensionDto, actor: AuthContext) {
+    const suspension = await this.prisma.suspension.create({
       data: {
         workspaceId,
         alcance: dto.alcance,
@@ -38,12 +43,22 @@ export class SuspensionsService {
         activa: true,
       },
     });
+    await this.audit.append(workspaceId, {
+      actorType: actor.userId ? 'USER' : 'SYSTEM',
+      actorId: actor.userId ?? null,
+      action: AUDIT_ACTIONS.SUSPENSION_ACTIVADA,
+      targetType: 'Suspension',
+      targetId: suspension.id,
+      resumen: `Suspensión de emergencia activada (${dto.alcance}) sobre ${dto.targetId}`,
+      metadata: { alcance: dto.alcance, targetId: dto.targetId, motivo: suspension.motivo },
+    });
+    return suspension;
   }
 
   async reactivate(workspaceId: string, id: string, actor: AuthContext, motivo: string) {
     const s = await this.get(workspaceId, id);
     if (!s.activa) throw new BadRequestException('La suspensión ya está inactiva');
-    return this.prisma.suspension.update({
+    const updated = await this.prisma.suspension.update({
       where: { id: s.id },
       data: {
         activa: false,
@@ -52,6 +67,16 @@ export class SuspensionsService {
         reactivadaAt: new Date(),
       },
     });
+    await this.audit.append(workspaceId, {
+      actorType: actor.userId ? 'USER' : 'SYSTEM',
+      actorId: actor.userId ?? null,
+      action: AUDIT_ACTIONS.SUSPENSION_LEVANTADA,
+      targetType: 'Suspension',
+      targetId: s.id,
+      resumen: `Suspensión de emergencia levantada (${s.alcance}) sobre ${s.targetId}`,
+      metadata: { alcance: s.alcance, targetId: s.targetId, motivo: updated.reactivadaMotivo },
+    });
+    return updated;
   }
 
   /** ¿Una suspensión activa alcanza esta acción? Reutilizable por el gateway para nuevas y pendientes. */

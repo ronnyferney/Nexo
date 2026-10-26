@@ -325,6 +325,8 @@ model Workspace {
   dimensionAssignments      DimensionAssignment[]
   idempotencyKeys           IdempotencyKey[]
   excepciones               Excepcion[]
+  auditLogs                 AuditLog[]
+  auditCounter              AuditCounter?
 }
 
 /// Catálogo de cargos (RF03): perfil reutilizable del empleado digital con propósito, funciones, entregables,
@@ -2191,4 +2193,61 @@ model ExcepcionEvento {
   createdAt   DateTime  @default(now())
 
   @@index([workspaceId, excepcionId])
+}
+
+// ===================== Auditoría inmutable (E13 · RF gobierno/trazabilidad) =====================
+
+/// Quién originó el hecho auditado. USER = persona autenticada; AGENT = empleado digital actuando sin usuario
+/// (flujos, MCP, rutinas); SYSTEM = la plataforma (caducidades, conciliaciones automáticas).
+enum AuditActorType {
+  USER
+  AGENT
+  SYSTEM
+}
+
+/// Contador monotónico de secuencia de auditoría por workspace (E13). La escritura de cada `AuditLog` incrementa esta
+/// fila con un `INSERT ... ON CONFLICT DO UPDATE ... RETURNING` dentro de la transacción de `append`: el bloqueo de fila
+/// de Postgres serializa los appends concurrentes de un mismo workspace (no hay colisión de `seq` ni `prevHash` roto).
+model AuditCounter {
+  workspaceId String    @id
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  seq         Int       @default(0)
+  updatedAt   DateTime  @updatedAt
+}
+
+/// Registro inmutable y append-only de los hechos de gobierno (E13, base de la trazabilidad de E6). NO se expone update
+/// ni delete: el servicio solo ofrece `append`, `list`, `get` y `verificarCadena`. A prueba de manipulación por
+/// encadenamiento de hashes: `contentHash` fija el contenido canónico de la entrada; `hash` = sha256(contentHash +
+/// prevHash + seq) enlaza con la entrada anterior (`prevHash`) del mismo workspace. Alterar o borrar una fila rompe el
+/// enlace de todas las siguientes y `verificarCadena` lo detecta en el `seq` exacto. Multi-tenant por `workspaceId`.
+model AuditLog {
+  id          String         @id @default(cuid())
+  workspaceId String
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// Secuencia monotónica por workspace (1, 2, 3, ...). Única por workspace; base del encadenamiento.
+  seq         Int
+  createdAt   DateTime       @default(now())
+  actorType   AuditActorType
+  /// Id del actor (userId / agentId); null cuando `actorType = SYSTEM`. Referencia blanda.
+  actorId     String?
+  /// Acción auditada (código auditable en español: APROBACION_CONCEDIDA, SUSPENSION_ACTIVADA, POLITICA_MODIFICADA...).
+  action      String
+  /// Tipo y id de la entidad afectada (Aprobacion, Suspension, Politica, Agent...). Referencias blandas.
+  targetType  String?
+  targetId    String?
+  /// Resumen legible en español del hecho.
+  resumen     String
+  /// Datos estructurados adicionales (nunca tokens, secretos ni cuerpos completos de webhooks).
+  metadata    Json           @default("{}")
+  /// sha256 del contenido canónico de la entrada (claves ordenadas): detecta cualquier alteración de los campos.
+  contentHash String
+  /// `hash` de la entrada anterior del mismo workspace (GENESIS de 64 ceros en la primera). Enlaza la cadena.
+  prevHash    String
+  /// sha256(contentHash + prevHash + seq): el eslabón que se guarda y se vuelve a calcular al verificar.
+  hash        String
+
+  @@unique([workspaceId, seq])
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, targetType, targetId])
+  @@index([workspaceId, action, createdAt])
 }

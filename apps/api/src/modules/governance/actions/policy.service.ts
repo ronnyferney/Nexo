@@ -1,6 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import type { AuthContext } from '../../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { AuditService } from '../../audit/audit.service';
+import { AUDIT_ACTIONS } from '../../audit/audit.types';
 import { actionContextHash } from '../policy/hashing';
 import { evaluate } from '../policy/policy-engine';
 import type { ActionContext, PolicyDecision, PolicyRule, PolicySelector } from '../policy/policy.types';
@@ -18,7 +21,10 @@ export interface EvaluateResult {
  */
 @Injectable()
 export class PolicyService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   list(workspaceId: string, filtro: { tipoAccion?: string; estado?: string } = {}) {
     return this.prisma.politica.findMany({
@@ -37,8 +43,8 @@ export class PolicyService {
     return p;
   }
 
-  create(workspaceId: string, dto: CreatePoliticaDto) {
-    return this.prisma.politica.create({
+  async create(workspaceId: string, dto: CreatePoliticaDto, actor?: AuthContext) {
+    const politica = await this.prisma.politica.create({
       data: {
         workspaceId,
         nombre: dto.nombre.trim(),
@@ -52,12 +58,19 @@ export class PolicyService {
         estado: (dto.estado ?? 'ACTIVA') as never,
       },
     });
+    await this.auditPolicy(workspaceId, actor, AUDIT_ACTIONS.POLITICA_CREADA, politica.id, politica.nombre, {
+      nombre: politica.nombre,
+      tipoAccion: politica.tipoAccion,
+      efecto: politica.efecto,
+      version: politica.version,
+    });
+    return politica;
   }
 
   /** Un cambio archiva la versión vigente y crea otra con `version + 1` (inmutabilidad del historial, RF11). */
-  async update(workspaceId: string, id: string, dto: UpdatePoliticaDto) {
+  async update(workspaceId: string, id: string, dto: UpdatePoliticaDto, actor?: AuthContext) {
     const actual = await this.get(workspaceId, id);
-    return this.prisma.$transaction(async (tx) => {
+    const nueva = await this.prisma.$transaction(async (tx) => {
       await tx.politica.update({ where: { id: actual.id }, data: { estado: 'ARCHIVADA', vigenteHasta: new Date() } });
       return tx.politica.create({
         data: {
@@ -74,13 +87,53 @@ export class PolicyService {
         },
       });
     });
+    await this.auditPolicy(workspaceId, actor, AUDIT_ACTIONS.POLITICA_MODIFICADA, nueva.id, nueva.nombre, {
+      nombre: nueva.nombre,
+      tipoAccion: nueva.tipoAccion,
+      efecto: nueva.efecto,
+      versionAnterior: actual.version,
+      version: nueva.version,
+    });
+    return nueva;
   }
 
-  async archive(workspaceId: string, id: string) {
+  async archive(workspaceId: string, id: string, actor?: AuthContext) {
     const actual = await this.get(workspaceId, id);
-    return this.prisma.politica.update({
+    const archivada = await this.prisma.politica.update({
       where: { id: actual.id },
       data: { estado: 'ARCHIVADA', vigenteHasta: new Date() },
+    });
+    await this.auditPolicy(workspaceId, actor, AUDIT_ACTIONS.POLITICA_ARCHIVADA, archivada.id, archivada.nombre, {
+      nombre: archivada.nombre,
+      tipoAccion: archivada.tipoAccion,
+      version: archivada.version,
+    });
+    return archivada;
+  }
+
+  /** Registra el cambio de política en la auditoría inmutable (E13). */
+  private auditPolicy(
+    workspaceId: string,
+    actor: AuthContext | undefined,
+    action: string,
+    politicaId: string,
+    nombre: string,
+    metadata: Record<string, unknown>,
+  ) {
+    const verbo =
+      action === AUDIT_ACTIONS.POLITICA_ARCHIVADA
+        ? 'Política archivada'
+        : action === AUDIT_ACTIONS.POLITICA_CREADA
+          ? 'Política creada'
+          : 'Política modificada';
+    return this.audit.append(workspaceId, {
+      actorType: actor?.userId ? 'USER' : 'SYSTEM',
+      actorId: actor?.userId ?? null,
+      action,
+      targetType: 'Politica',
+      targetId: politicaId,
+      resumen: `${verbo}: "${nombre}"`,
+      metadata,
     });
   }
 
