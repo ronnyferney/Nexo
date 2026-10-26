@@ -5,6 +5,8 @@ import { WORKFLOW_QUEUE } from '../workflows/queue/workflow-queue.constants';
 import { ContratosController, IncumplimientosController } from './contratos.controller';
 import { ContratosService } from './contratos.service';
 import { IncumplimientosService } from './incumplimientos.service';
+import { IndicadoresController } from './indicadores/indicadores.controller';
+import { IndicadoresService } from './indicadores/indicadores.service';
 import { ObjetivosController } from './objetivos.controller';
 import { ObjetivosService } from './objetivos.service';
 import { TareasController } from './tareas.controller';
@@ -19,13 +21,20 @@ import { ValidacionService } from './validacion.service';
  */
 @Module({
   imports: [BullModule.registerQueue({ name: WORKFLOW_QUEUE })],
-  controllers: [ObjetivosController, TareasController, ContratosController, IncumplimientosController],
+  controllers: [
+    ObjetivosController,
+    TareasController,
+    ContratosController,
+    IncumplimientosController,
+    IndicadoresController,
+  ],
   providers: [
     ObjetivosService,
     TareasService,
     ContratosService,
     ValidacionService,
     IncumplimientosService,
+    IndicadoresService,
     AgentVerificationService,
   ],
   exports: [IncumplimientosService],
