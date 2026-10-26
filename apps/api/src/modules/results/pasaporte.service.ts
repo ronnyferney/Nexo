@@ -94,6 +94,25 @@ export class PasaporteService {
   }
 
   /**
+   * Lista los pasaportes emitidos para un `ContratoResultado`, el más reciente primero. Puede haber varios
+   * (append-only: cada reemisión encadena con `reemplazaAId`). Cada elemento tiene el mismo shape que `get`. Valida que
+   * el contrato pertenezca al workspace: si no existe en el workspace responde 404 (nunca filtra recursos ajenos).
+   * Devuelve `[]` cuando el contrato existe pero aún no tiene pasaportes.
+   */
+  async listarPorContrato(workspaceId: string, contratoId: string) {
+    const contrato = await this.prisma.contratoResultado.findFirst({
+      where: { id: contratoId, workspaceId },
+      select: { id: true },
+    });
+    if (!contrato) throw new NotFoundException('Contrato de resultado no encontrado');
+
+    return this.prisma.pasaporteResultado.findMany({
+      where: { workspaceId, contratoResultadoId: contratoId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /**
    * Verifica el pasaporte de extremo a extremo: (1) recompone el `documentHash` desde las referencias VIGENTES y lo
    * compara con el almacenado (detecta alteración de lo referenciado o de la propia fila); (2) comprueba que la entrada
    * de ancla existe y que su `seq`/acción/`targetId`/`documentHash` cuadran; (3) comprueba que la cadena de auditoría

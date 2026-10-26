@@ -236,4 +236,45 @@ describe('Pasaporte de resultado E14 (e2e)', () => {
     const leido1 = (await owner.api.get(`/passports/${p1.id}`).expect(200)).body as Pasaporte;
     expect(leido1.documentHash).toBe(p1.documentHash);
   });
+
+  it('lista los pasaportes de un contrato (el más reciente primero), incl. la cadena por reemplazaAId', async () => {
+    const { tareaId, contratoId } = await contratoAceptado(owner);
+
+    // Sin pasaportes aún: lista vacía, nunca 404.
+    expect((await owner.api.get(`/contracts/${contratoId}/passports`).expect(200)).body).toEqual([]);
+
+    const p1 = (await owner.api.post(`/contracts/${contratoId}/passport`).expect(201)).body as Pasaporte;
+
+    // Cambia lo referenciado para poder reemitir (unicidad por documentHash) y encadenar con reemplazaAId.
+    const wf = await prismaOf(app).workflow.create({
+      data: { workspaceId: owner.workspaceId, name: 'wf-e14-listar', definition: {} },
+    });
+    await prismaOf(app).execution.create({
+      data: { workspaceId: owner.workspaceId, workflowId: wf.id, tareaId, status: 'SUCCEEDED' },
+    });
+    const p2 = (await owner.api.post(`/contracts/${contratoId}/passport`).expect(201)).body as Pasaporte;
+    expect(p2.reemplazaAId).toBe(p1.id);
+
+    const lista = (await owner.api.get(`/contracts/${contratoId}/passports`).expect(200)).body as Pasaporte[];
+    expect(lista.map((p) => p.id)).toEqual([p2.id, p1.id]); // createdAt desc: el más reciente primero
+    expect(lista[0].documentHash).toBe(p2.documentHash);
+    expect(lista[1].documentHash).toBe(p1.documentHash);
+  });
+
+  it('aísla por workspace al listar: un contrato ajeno responde 404, nunca filtra pasaportes de otro workspace', async () => {
+    const { contratoId } = await contratoAceptado(owner);
+    await owner.api.post(`/contracts/${contratoId}/passport`).expect(201);
+
+    const otro = await registerOwner(app, 'e14-listar-otro');
+    await otro.api.get(`/contracts/${contratoId}/passports`).expect(404);
+  });
+
+  it('un VIEWER puede listar los pasaportes de un contrato', async () => {
+    const { contratoId } = await contratoAceptado(owner);
+    const p = (await owner.api.post(`/contracts/${contratoId}/passport`).expect(201)).body as Pasaporte;
+    const viewer = await addMember(app, owner, { role: 'VIEWER', tag: 'e14-listar-viewer' });
+
+    const lista = (await viewer.api.get(`/contracts/${contratoId}/passports`).expect(200)).body as Pasaporte[];
+    expect(lista.map((x) => x.id)).toContain(p.id);
+  });
 });

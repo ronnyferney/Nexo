@@ -20,6 +20,17 @@ export class ContractPassportController {
   emitir(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
     return this.pasaportes.emitir(a, id);
   }
+
+  /**
+   * Lista los pasaportes del contrato, el más reciente primero (append-only: la reemisión encadena con `reemplazaAId`).
+   * Solo lectura -> `@MinRole('VIEWER')`, coherente con la lectura de pasaportes. `workspaceId` de `@CurrentAuth`; el
+   * aislamiento multi-tenant hace que un contrato de otro workspace responda 404. Devuelve `[]` si aún no hay ninguno.
+   */
+  @MinRole('VIEWER')
+  @Get(':id/passports')
+  listarPorContrato(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
+    return this.pasaportes.listarPorContrato(a.workspaceId, id);
+  }
 }
 
 /**
