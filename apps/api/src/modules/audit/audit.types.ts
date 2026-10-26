@@ -34,6 +34,9 @@ export const AUDIT_ACTIONS = {
   /// Cambio de los parámetros de ejecución de un empleado digital (E8). Actor humano, agente y, para el cambio
   /// sensible de `salidaInternet`, su valor anterior/nuevo (dirección debe poder auditar quién abrió la salida).
   PARAMETROS_EJECUCION_MODIFICADOS: 'PARAMETROS_EJECUCION_MODIFICADOS',
+  /// Cambio de los controles configurables de grabación/retención de una empresa (E14 · ADR 0015 D3/D4). Actor humano,
+  /// empresa y, en metadata, las banderas anterior/nuevo (cambio sensible que Jurídica debe poder auditar).
+  GRABACION_CONFIG_MODIFICADA: 'GRABACION_CONFIG_MODIFICADA',
 } as const;
 
 /** Código de acción auditable. Texto abierto (`string`): se recomienda usar las constantes de `AUDIT_ACTIONS`. */

@@ -7,6 +7,7 @@ import { AuditService } from '../../audit/audit.service';
 import { ActionGatewayService } from '../../governance/actions/action-gateway.service';
 import { SecretsService } from '../../workspaces/secrets.service';
 import { VOICE_ADAPTERS, type VoiceProvider } from './domain/voice-provider';
+import { GrabacionConfigService } from './grabacion/grabacion-config.service';
 import type { VoiceAccionSensible, VoiceRequisitos, VoiceRuntime } from './domain/voice.types';
 import type { CreateVoiceCuentaDto, IniciarLlamadaDto, TransferirLlamadaDto, TurnoLlamadaDto } from './dto/voice.dto';
 import { validarCapabilitiesVoz } from './voice-capabilities';
@@ -41,6 +42,7 @@ export class VoiceService {
     private readonly secrets: SecretsService,
     private readonly gateway: ActionGatewayService,
     private readonly audit: AuditService,
+    private readonly grabacion: GrabacionConfigService,
     @Inject(VOICE_ADAPTERS) adapters: VoiceProvider[],
   ) {
     this.adapters = new Map();
@@ -203,6 +205,17 @@ export class VoiceService {
     }
 
     const estado = this.estadoTras(call, res.estado);
+
+    // Grabación/retención (ADR 0015 D3 · GrabacionConfig): la transcripción es dato NO confiable y NO se persiste cruda.
+    // `GrabacionConfigService` es el punto de verificación autorizado: solo si la empresa habilitó `guardarTranscripcion`
+    // (OFF por defecto) podría persistirse una REFERENCIA (nunca el contenido). Hoy no hay almacenamiento de objetos
+    // cableado, así que incluso con la bandera en ON `transcripcionRef` queda null; se mantiene el invariante
+    // "nada crudo". TODO(voice-worker): al integrar el almacén de objetos, persistir aquí SOLO la referencia saneada.
+    const puedeGuardarTranscripcion = call.empresaId
+      ? await this.grabacion.puedeGuardarTranscripcion(a.workspaceId, call.empresaId)
+      : false;
+    void puedeGuardarTranscripcion;
+
     const actualizada = await this.prisma.voiceCall.update({ where: { id: call.id }, data: { estado } });
     return {
       id: actualizada.id,

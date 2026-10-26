@@ -2711,3 +2711,38 @@ model VoiceCall {
   @@index([workspaceId, canalCuentaId])
   @@index([workspaceId, estado])
 }
+
+/// Controles configurables de grabación y retención por empresa (ADR 0015 D3/D4 · decisión Jurídica D7). TODO OFF/null
+/// por defecto: sin configuración explícita NO se graba ni se retiene nada. Distingue los cuatro tipos de dato (audio,
+/// transcripción, resumen, evidencia) con banderas independientes. `retencionDias = null` significa "pendiente de
+/// política", NO un plazo por defecto: no se inventan plazos legales ni se declara valor probatorio automático; la
+/// activación en producción queda gated por validación jurídica. Multi-tenant: toda consulta filtra por `workspaceId`.
+model GrabacionConfig {
+  id                   String   @id @default(cuid())
+  workspaceId          String
+  /// Empresa (OrgUnit tipo EMPRESA) dueña de la configuración. Referencia blanda.
+  empresaId            String
+  /// Habilita marcar/persistir referencias de audio de la llamada. OFF por defecto.
+  grabarAudio          Boolean  @default(false)
+  /// Habilita persistir referencias de la transcripción. OFF por defecto (hoy la transcripción cruda nunca se persiste).
+  guardarTranscripcion Boolean  @default(false)
+  /// Habilita persistir el resumen de la llamada. OFF por defecto.
+  guardarResumen       Boolean  @default(false)
+  /// Habilita persistir evidencia asociada a la llamada. OFF por defecto.
+  guardarEvidencia     Boolean  @default(false)
+  /// Exige autorización (cuando corresponda) antes de grabar. ON por defecto (postura conservadora).
+  requiereAutorizacion Boolean  @default(true)
+  /// Finalidad declarada del tratamiento. Opcional; texto libre, sin declarar cumplimiento normativo.
+  finalidad            String?
+  /// Plazo de conservación en días. null = pendiente de política (NO es un plazo por defecto ni legal).
+  retencionDias        Int?
+  /// Roles del workspace que pueden acceder a la grabación. Vacío por defecto.
+  accesoRoles          String[] @default([])
+  /// Habilita la eliminación automática al vencer el plazo. OFF por defecto (no ejecuta borrados productivos aquí).
+  eliminacionAutomatica Boolean @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([workspaceId, empresaId])
+  @@index([workspaceId])
+}

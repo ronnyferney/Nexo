@@ -3,6 +3,8 @@ import { AmazonConnectVoiceAdapter } from './adapters/amazon-connect-voice.adapt
 import { GoogleCloudVoiceAdapter } from './adapters/google-cloud-voice.adapter';
 import { SimuladoVoiceAdapter } from './adapters/simulado-voice.adapter';
 import { VOICE_ADAPTERS } from './domain/voice-provider';
+import { GrabacionConfigController } from './grabacion/grabacion-config.controller';
+import { GrabacionConfigService } from './grabacion/grabacion-config.service';
 import { VoiceController } from './voice.controller';
 import { VoiceService } from './voice.service';
 
@@ -16,12 +18,13 @@ import { VoiceService } from './voice.service';
 const VOICE_ADAPTER_PROVIDERS = [SimuladoVoiceAdapter, AmazonConnectVoiceAdapter, GoogleCloudVoiceAdapter];
 
 @Module({
-  controllers: [VoiceController],
+  controllers: [VoiceController, GrabacionConfigController],
   providers: [
     VoiceService,
+    GrabacionConfigService,
     ...VOICE_ADAPTER_PROVIDERS,
     { provide: VOICE_ADAPTERS, useFactory: (...a: unknown[]) => a, inject: VOICE_ADAPTER_PROVIDERS },
   ],
-  exports: [VoiceService],
+  exports: [VoiceService, GrabacionConfigService],
 })
 export class VoiceModule {}
