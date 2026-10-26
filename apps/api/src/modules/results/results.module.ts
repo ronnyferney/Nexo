@@ -42,6 +42,6 @@ import { ValidacionService } from './validacion.service';
     AgentVerificationService,
     PasaporteService,
   ],
-  exports: [IncumplimientosService],
+  exports: [IncumplimientosService, IndicadoresService],
 })
 export class ResultsModule {}

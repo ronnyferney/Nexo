@@ -17,6 +17,7 @@ import { AgentAccessModule } from './modules/agent-access/agent-access.module';
 import { AgentsModule } from './modules/agents/agents.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { CargosModule } from './modules/cargos/cargos.module';
+import { ConsolasModule } from './modules/consolas/consolas.module';
 import { CopilotModule } from './modules/copilot/copilot.module';
 import { CrewsModule } from './modules/crews/crews.module';
 import { DataProtectionModule } from './modules/data-protection/data-protection.module';
@@ -98,6 +99,7 @@ import { WorkspacesModule } from './modules/workspaces/workspaces.module';
     TrainingModule,
     WorkflowsModule,
     ResultsModule,
+    ConsolasModule,
     MessagingModule,
     CollaborationModule,
     RoutinesModule,
