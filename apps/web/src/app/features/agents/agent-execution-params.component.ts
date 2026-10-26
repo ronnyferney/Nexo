@@ -131,8 +131,8 @@ export class AgentExecutionParamsComponent implements OnInit {
   readonly salida = signal(false);
   readonly paramsText = signal('{}');
 
-  /** Instantánea guardada, para detectar cambios y habilitar «Guardar». */
-  private snapshot = { estacionId: null as string | null, salida: false, params: '{}' };
+  /** Instantánea guardada (signal, para que `dirty` recalcule al guardar), para detectar cambios y habilitar «Guardar». */
+  private readonly snapshot = signal({ estacionId: null as string | null, salida: false, params: '{}' });
 
   readonly ejemplo = '{ "horarioOperacion": "L-V 9-18", "maxEjecucionesDiarias": 100 }';
   readonly label = estacionLabel;
@@ -155,7 +155,8 @@ export class AgentExecutionParamsComponent implements OnInit {
 
   readonly dirty = computed(() => {
     const cur = this.currentSnapshot();
-    return cur.estacionId !== this.snapshot.estacionId || cur.salida !== this.snapshot.salida || cur.params !== this.snapshot.params;
+    const snap = this.snapshot();
+    return cur.estacionId !== snap.estacionId || cur.salida !== snap.salida || cur.params !== snap.params;
   });
 
   ngOnInit() {
@@ -183,18 +184,19 @@ export class AgentExecutionParamsComponent implements OnInit {
     this.estacionId.set(p.estacionVirtualId ?? null);
     this.salida.set(p.salidaInternet);
     this.paramsText.set(formatParametrosJson(p.parametrosEjecucion));
-    this.snapshot = {
+    this.snapshot.set({
       estacionId: p.estacionVirtualId ?? null,
       salida: p.salidaInternet,
       params: JSON.stringify(p.parametrosEjecucion ?? {}),
-    };
+    });
   }
 
   /** Descarta los cambios sin guardar y vuelve al último estado guardado. */
   reset() {
-    this.estacionId.set(this.snapshot.estacionId);
-    this.salida.set(this.snapshot.salida);
-    this.paramsText.set(formatParametrosJson(this.snapshot.params ? JSON.parse(this.snapshot.params) : {}));
+    const snap = this.snapshot();
+    this.estacionId.set(snap.estacionId);
+    this.salida.set(snap.salida);
+    this.paramsText.set(formatParametrosJson(snap.params ? JSON.parse(snap.params) : {}));
   }
 
   async save() {

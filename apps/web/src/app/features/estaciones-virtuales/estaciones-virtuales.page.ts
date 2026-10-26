@@ -51,19 +51,19 @@ const EMPTY_DRAFT: Draft = { id: null, nombre: '', descripcion: '', proveedor: '
           <div class="field">
             <label for="ev-nombre">Nombre <abbr class="req" title="Campo obligatorio" aria-hidden="true">*</abbr></label>
             <input id="ev-nombre" class="input" maxlength="120" required [attr.aria-invalid]="nombreError() ? 'true' : null"
-              [(ngModel)]="d.nombre" name="nombre" (ngModelChange)="touched.set(true)" />
+              [ngModel]="d.nombre" name="nombre" (ngModelChange)="patch({ nombre: $event }); touched.set(true)" />
             @if (touched() && nombreError(); as err) {
               <span class="field-error" role="alert"><nx-icon name="alert" [size]="12" />{{ err }}</span>
             }
           </div>
           <div class="field">
             <label for="ev-proveedor">Proveedor (etiqueta)</label>
-            <input id="ev-proveedor" class="input" maxlength="120" placeholder="interna, azure, aws…" [(ngModel)]="d.proveedor" name="proveedor" />
+            <input id="ev-proveedor" class="input" maxlength="120" placeholder="interna, azure, aws…" [ngModel]="d.proveedor" name="proveedor" (ngModelChange)="patch({ proveedor: $event })" />
             <span class="hint">Solo una etiqueta descriptiva. No escriba credenciales ni secretos aquí.</span>
           </div>
           <div class="field">
             <label for="ev-desc">Descripción</label>
-            <textarea id="ev-desc" class="input" rows="2" maxlength="2000" [(ngModel)]="d.descripcion" name="descripcion"></textarea>
+            <textarea id="ev-desc" class="input" rows="2" maxlength="2000" [ngModel]="d.descripcion" name="descripcion" (ngModelChange)="patch({ descripcion: $event })"></textarea>
           </div>
           <div class="row wrap">
             <span class="spacer"></span>
@@ -165,6 +165,12 @@ export class EstacionesVirtualesPage implements OnInit {
     } finally {
       this.loading.set(false);
     }
+  }
+
+  /** Actualiza el borrador re-emitiendo el signal con una nueva referencia (para que los `computed` reaccionen). */
+  patch(p: Partial<Draft>) {
+    const d = this.draft();
+    if (d) this.draft.set({ ...d, ...p });
   }
 
   nueva() {
