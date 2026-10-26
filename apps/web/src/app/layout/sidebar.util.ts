@@ -100,6 +100,12 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     ],
   },
   {
+    id: 'direction',
+    label: 'Dirección',
+    icon: 'trophy',
+    items: [{ path: '/consola-gerencial', label: 'Consola gerencial', icon: 'chart', exact: false, scope: 'admin' }],
+  },
+  {
     id: 'governance',
     label: 'Gobierno',
     icon: 'shield',

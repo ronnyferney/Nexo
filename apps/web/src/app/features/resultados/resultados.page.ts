@@ -10,9 +10,9 @@ import { ErrorStateComponent } from '../../shared/error-state.component';
 import { IconComponent } from '../../shared/icon.component';
 import { LoadingStateComponent } from '../../shared/loading-state.component';
 import { DateRangeComponent, lastDays, rangeToIso, type DateRange } from '../../shared/date-range.component';
-import { UsdPipe, formatUsd } from '../../shared/usd.pipe';
+import { UsdPipe } from '../../shared/usd.pipe';
 import { empresasDe } from '../admin/estructura/estructura.util';
-import { fraccion, formatPct, tiempoCicloLabel } from './resultados.util';
+import { ResultadosKpisComponent } from './resultados-kpis.component';
 
 /** Tipos de unidad que ofrecemos como «área» en el filtro (todo lo que no es grupo ni empresa). */
 const AREA_TIPOS = new Set(['UNIDAD_NEGOCIO', 'AREA_FUNCIONAL', 'DEPARTAMENTO', 'EQUIPO']);
@@ -20,15 +20,6 @@ const AREA_TIPOS = new Set(['UNIDAD_NEGOCIO', 'AREA_FUNCIONAL', 'DEPARTAMENTO', 
 interface Opcion {
   id: string;
   name: string;
-}
-
-interface KpiCard {
-  label: string;
-  icon: string;
-  value: string;
-  /** `true` cuando no hay dato en el período: se muestra atenuado, nunca como un cero inventado. */
-  na: boolean;
-  sub: string;
 }
 
 /**
@@ -48,6 +39,7 @@ interface KpiCard {
     EmptyStateComponent,
     ErrorStateComponent,
     LoadingStateComponent,
+    ResultadosKpisComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -105,18 +97,7 @@ interface KpiCard {
           Período: {{ dia(d.periodo.from) }} – {{ dia(d.periodo.to) }}
         </p>
 
-        <div class="kpis">
-          @for (k of cards(); track k.label) {
-            <div class="card kpi-card">
-              <div class="icon-tile"><nx-icon [name]="k.icon" /></div>
-              <div class="kpi-body">
-                <div class="muted small">{{ k.label }}</div>
-                <div class="kpi-value" [class.na]="k.na">{{ k.value }}</div>
-                @if (k.sub) { <div class="muted small">{{ k.sub }}</div> }
-              </div>
-            </div>
-          }
-        </div>
+        <nx-resultados-kpis [kpis]="d.kpis" />
 
         <section class="estimaciones" aria-labelledby="h-est">
           <div class="sec-head">
@@ -162,9 +143,6 @@ interface KpiCard {
     .field label { font-size: 12.5px; font-weight: 600; color: var(--muted); }
     .field select { min-width: 160px; }
     .periodo { margin: 0 2px 14px; }
-    .kpi-body { min-width: 0; }
-    .kpi-value { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.25; }
-    .kpi-value.na { font-size: 14px; font-weight: 600; color: var(--muted); }
     .estimaciones { margin-top: 24px; }
     .sec-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 12px; }
     .sec-head h2 { margin: 0; font-size: 16px; }
@@ -207,50 +185,6 @@ export class ResultadosPage implements OnInit {
     return this.flat()
       .map((u) => ({ id: u.id, name: u.name }))
       .sort((a, b) => a.name.localeCompare(b.name, 'es'));
-  });
-
-  readonly cards = computed<KpiCard[]>(() => {
-    const d = this.data();
-    if (!d) return [];
-    const k = d.kpis;
-    const costo = k.costoPorResultado.costoPorResultadoUsd;
-    return [
-      {
-        label: 'Cumplimiento',
-        icon: 'checkCircle',
-        value: formatPct(k.cumplimiento.pct),
-        na: k.cumplimiento.pct === null,
-        sub: `${fraccion(k.cumplimiento)} compromisos · ${k.cumplimiento.vencimientosEnPeriodo} con vencimiento`,
-      },
-      {
-        label: 'Calidad',
-        icon: 'shield',
-        value: formatPct(k.calidad.pct),
-        na: k.calidad.pct === null,
-        sub: `${fraccion(k.calidad)} aceptados · ${k.calidad.revisadosEnPeriodo} revisados`,
-      },
-      {
-        label: 'Tiempo de ciclo (mediana / p95)',
-        icon: 'clock',
-        value: tiempoCicloLabel(k.tiempoCiclo),
-        na: !k.tiempoCiclo,
-        sub: k.tiempoCiclo ? `${k.tiempoCiclo.muestras} muestras aceptadas` : '',
-      },
-      {
-        label: 'Costo por resultado',
-        icon: 'wallet',
-        value: costo === null ? '—' : formatUsd(costo),
-        na: costo === null,
-        sub: `Costo total ${formatUsd(k.costoPorResultado.costoTotalUsd)} · ${k.costoPorResultado.resultadosAceptados} aceptados`,
-      },
-      {
-        label: 'Excepciones',
-        icon: 'alert',
-        value: formatPct(k.excepciones.pct),
-        na: k.excepciones.pct === null,
-        sub: `${fraccion(k.excepciones)} con excepción · ${k.excepciones.ejecucionesIniciadas} ejecuciones`,
-      },
-    ];
   });
 
   ngOnInit() {
