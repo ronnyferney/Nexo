@@ -383,6 +383,10 @@
               <nx-agent-routines [agentId]="a.id" [canEdit]="canEditAgent()" />
             }
 
+            @case ('execution') {
+              <nx-agent-execution-params [agentId]="a.id" [canEdit]="canEditAgent()" />
+            }
+
             @case ('training') {
               <nx-agent-training [agent]="a" [canEdit]="canEditAgent()" [dirty]="dirty()" [(targetScore)]="targetScore" (agentChanged)="reloadAgent()" />
             }

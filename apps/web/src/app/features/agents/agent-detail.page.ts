@@ -39,6 +39,7 @@ import { AgentProfileComponent } from './agent-profile.component';
 import { AgentSectionComponent, type SectionStatus } from './agent-section.component';
 import { AgentPromptPreviewComponent } from './agent-prompt-preview.component';
 import { AgentRoutinesComponent } from './agent-routines.component';
+import { AgentExecutionParamsComponent } from './agent-execution-params.component';
 import { AgentRoutingEditorComponent } from './agent-routing-editor.component';
 import { normalizeRoutingPolicy } from './agent-routing.util';
 import { AgentTrainingComponent } from './training/agent-training.component';
@@ -64,7 +65,7 @@ interface ChatItem {
 /** Vista activa del panel de prueba: separa la conversación de la actividad técnica y el diagnóstico (P0 UX). */
 type ChatView = 'conversation' | 'activity' | 'diagnostics';
 
-export type AgentTab = 'profile' | 'model' | 'tools' | 'knowledge' | 'routines' | 'training' | 'preview';
+export type AgentTab = 'profile' | 'model' | 'tools' | 'knowledge' | 'routines' | 'training' | 'execution' | 'preview';
 
 /** Opción de modelo del catálogo con clave `"<providerId>:<modelId>"` (modelos de respaldo). */
 interface ModelOption {
@@ -88,6 +89,7 @@ const MAX_FALLBACKS = 3;
     AgentSectionComponent,
     AgentExamplesComponent,
     AgentRoutinesComponent,
+    AgentExecutionParamsComponent,
     AgentRoutingEditorComponent,
     AgentPromptPreviewComponent,
     AgentTrainingComponent,
@@ -137,6 +139,7 @@ export class AgentDetailPage implements OnInit {
     { id: 'knowledge', label: 'Conocimiento' },
     { id: 'routines', label: 'Rutinas' },
     { id: 'training', label: 'Entrenamiento' },
+    { id: 'execution', label: 'Ejecución' },
     { id: 'preview', label: 'Vista previa' },
   ];
   readonly tab = signal<AgentTab>('profile');

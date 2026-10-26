@@ -70,6 +70,7 @@ export const routes: Routes = [
           { path: 'suspension', loadComponent: () => import('./features/gobierno/suspension.page').then((m) => m.SuspensionPage) },
           { path: 'alerts', loadComponent: () => import('./features/admin/alerts.page').then((m) => m.AlertsPage) },
           { path: 'edges', loadComponent: () => import('./features/admin/edges.page').then((m) => m.EdgesPage) },
+          { path: 'estaciones-virtuales', loadComponent: () => import('./features/estaciones-virtuales/estaciones-virtuales.page').then((m) => m.EstacionesVirtualesPage) },
           { path: 'security', loadComponent: () => import('./features/admin/security.page').then((m) => m.SecurityPage) },
           { path: 'settings', loadComponent: () => import('./features/admin/workspace-settings.page').then((m) => m.WorkspaceSettingsPage) },
         ],
