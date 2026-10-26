@@ -327,6 +327,7 @@ model Workspace {
   excepciones               Excepcion[]
   auditLogs                 AuditLog[]
   auditCounter              AuditCounter?
+  estacionesVirtuales       EstacionVirtual[]
 }
 
 /// Catálogo de cargos (RF03): perfil reutilizable del empleado digital con propósito, funciones, entregables,
@@ -514,6 +515,20 @@ model Agent {
   reportaAAgentId      String?
   reportaA             Agent?             @relation("Jerarquia", fields: [reportaAAgentId], references: [id], onDelete: SetNull)
   subordinados         Agent[]            @relation("Jerarquia")
+  /// Parámetros de ejecución del empleado digital (E8/RF). Aditivos y opcionales: los agentes previos quedan sin
+  /// estación, sin salida a internet y con `parametrosEjecucion = {}`. Ningún campo existente cambia ni se vuelve
+  /// obligatorio. Esta es la capa de CONFIGURACIÓN gobernada; el aprovisionamiento real de la VM y el runtime RPA
+  /// llegan en un incremento posterior (TODO E8-2).
+  /// Estación virtual (máquina) asignada; null = sin estación. SetNull: retirar/borrar la estación NO borra el agente.
+  estacionVirtualId    String?
+  estacionVirtual      EstacionVirtual?   @relation(fields: [estacionVirtualId], references: [id], onDelete: SetNull)
+  /// Gate de salida a internet (E8). false = el agente NO puede hacer llamadas salientes; true la HABILITA, pero la
+  /// salida SIEMPRE sigue pasando por `HttpClientService` (SSRF, allowlist, timeout, tamaño): la bandera es un gate
+  /// ADICIONAL, nunca un bypass de esas protecciones. Cambio sensible auditado (E13).
+  salidaInternet       Boolean            @default(false)
+  /// Parámetros de ejecución extensibles (p. ej. horario de operación, límites). JSON para no migrar el esquema por
+  /// cada parámetro nuevo. Los agentes previos quedan con `{}`.
+  parametrosEjecucion  Json               @default("{}")
   workspaceId          String
   workspace            Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   tools                AgentTool[]
@@ -533,6 +548,7 @@ model Agent {
 
   @@index([workspaceId])
   @@index([workspaceId, reportaAAgentId])
+  @@index([estacionVirtualId])
 }
 
 /// Registro persistente de cada ejecución de un agente (instrumentación defensiva, RX-14): da los KPIs reales
@@ -2391,4 +2407,37 @@ model AuditLog {
   @@index([workspaceId, createdAt])
   @@index([workspaceId, targetType, targetId])
   @@index([workspaceId, action, createdAt])
+}
+
+// ===================== Parámetros de ejecución del empleado digital (E8 · estación virtual + salida a internet) ======
+
+/// Estado de una estación virtual (E8). ACTIVA = disponible para asignar y operar; SUSPENDIDA = pausada
+/// temporalmente (sigue asignada, no operativa); RETIRADA = baja lógica (no se ofrece para asignar, se conserva el
+/// histórico). Enum propio y NO `EstadoEstructura`: el ciclo de vida de una máquina (suspensión/retiro) difiere del de
+/// una pieza de estructura organizacional (ACTIVA/SUSPENDIDA/CERRADA), y "RETIRADA" describe el decomiso del recurso.
+enum EstadoEstacion {
+  ACTIVA
+  SUSPENDIDA
+  RETIRADA
+}
+
+/// Estación virtual (E8): máquina (real o lógica) que se asigna a un empleado digital para trabajar. Esta es la capa de
+/// CONFIGURACIÓN gobernada del recurso; el aprovisionamiento real de la VM y el runtime RPA llegan en un incremento
+/// posterior (TODO E8-2). NUNCA guarda credenciales ni secretos: `proveedor` es solo una etiqueta; cualquier secreto se
+/// nombra por su clave de bóveda (`{{ secrets.NOMBRE }}`), jamás su valor. Multi-tenant por `workspaceId`.
+model EstacionVirtual {
+  id          String         @id @default(cuid())
+  workspaceId String
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  nombre      String
+  descripcion String?
+  estado      EstadoEstacion @default(ACTIVA)
+  /// Etiqueta no secreta del proveedor de la máquina ("interna" | "azure" | "aws" ...). NUNCA credenciales.
+  proveedor   String?
+  agentes     Agent[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@unique([workspaceId, nombre])
+  @@index([workspaceId])
 }

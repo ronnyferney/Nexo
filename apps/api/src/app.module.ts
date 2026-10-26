@@ -25,6 +25,7 @@ import { DurabilityModule } from './modules/durability/durability.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ConnectorsModule } from './modules/connectors/connectors.module';
 import { EdgeModule } from './modules/edge/edge.module';
+import { ExecutionParamsModule } from './modules/execution-params/execution-params.module';
 import { GovernanceModule } from './modules/governance/governance.module';
 import { GroupsModule } from './modules/groups/groups.module';
 import { HealthModule } from './modules/health/health.module';
@@ -94,6 +95,7 @@ import { WorkspacesModule } from './modules/workspaces/workspaces.module';
     AgentsModule,
     CargosModule,
     HierarchyModule,
+    ExecutionParamsModule,
     CrewsModule,
     CopilotModule,
     SkillsModule,

@@ -24,6 +24,13 @@ export const AUDIT_ACTIONS = {
   CUADRILLA_INSTANCIADA: 'CUADRILLA_INSTANCIADA',
   /// Cambio de la línea de mando entre empleados digitales (E3/RF32). Actor humano, agente y supervisor previo/nuevo.
   JERARQUIA_MODIFICADA: 'JERARQUIA_MODIFICADA',
+  /// Ciclo de vida de una estación virtual (E8). Actor humano, estación y, en el retiro, su estado previo/nuevo.
+  ESTACION_VIRTUAL_CREADA: 'ESTACION_VIRTUAL_CREADA',
+  ESTACION_VIRTUAL_MODIFICADA: 'ESTACION_VIRTUAL_MODIFICADA',
+  ESTACION_VIRTUAL_RETIRADA: 'ESTACION_VIRTUAL_RETIRADA',
+  /// Cambio de los parámetros de ejecución de un empleado digital (E8). Actor humano, agente y, para el cambio
+  /// sensible de `salidaInternet`, su valor anterior/nuevo (dirección debe poder auditar quién abrió la salida).
+  PARAMETROS_EJECUCION_MODIFICADOS: 'PARAMETROS_EJECUCION_MODIFICADOS',
 } as const;
 
 /** Código de acción auditable. Texto abierto (`string`): se recomienda usar las constantes de `AUDIT_ACTIONS`. */
