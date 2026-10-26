@@ -21,7 +21,17 @@ describe('SidebarComponent', () => {
   let auth: ReturnType<typeof makeAuth>;
   let platform: { isPlatformAdmin: ReturnType<typeof signal<boolean>> };
 
+  const links = () => el.querySelectorAll<HTMLAnchorElement>('nav a.nav-link');
+  const groupHeads = () => el.querySelectorAll<HTMLButtonElement>('nav button.group-head');
+  const headByLabel = (label: string) =>
+    [...groupHeads()].find((b) => b.querySelector('.g-label')?.textContent?.trim() === label)!;
+
   beforeEach(async () => {
+    try {
+      localStorage.clear();
+    } catch {
+      /* sin almacenamiento */
+    }
     auth = makeAuth();
     platform = { isPlatformAdmin: signal(false) };
     await TestBed.configureTestingModule({
@@ -37,29 +47,76 @@ describe('SidebarComponent', () => {
     fixture.detectChanges();
   });
 
-  it('renderiza la marca y la navegación principal accesible', () => {
+  it('renderiza la marca, el filtro y la navegación principal accesible', () => {
     expect(el.querySelector('.brand')?.getAttribute('aria-label')).toContain('Nexo');
     expect(el.querySelector('nav')?.getAttribute('aria-label')).toBe('Navegación principal');
-    // Los 20 ítems del portal están siempre presentes.
-    const portalLinks = el.querySelectorAll('[aria-labelledby="nav-portal"] a');
-    expect(portalLinks.length).toBe(20);
+    expect(el.querySelector('.filter input')?.getAttribute('aria-label')).toBe('Buscar en el menú');
   });
 
-  it('oculta las secciones de administración y plataforma sin los roles correspondientes', () => {
-    expect(el.querySelector('[aria-labelledby="nav-admin"]')).toBeNull();
-    expect(el.querySelector('[aria-labelledby="nav-platform"]')).toBeNull();
+  it('un VIEWER solo ve los 20 enlaces comunes y ninguna ruta de admin/plataforma', () => {
+    expect(links().length).toBe(20);
+    const paths = [...links()].map((a) => a.getAttribute('href') ?? '');
+    expect(paths.some((p) => p.startsWith('/admin'))).toBeFalse();
+    expect(paths.some((p) => p.startsWith('/platform'))).toBeFalse();
   });
 
-  it('muestra la sección de administración cuando el usuario es admin', () => {
+  it('presenta las secciones como encabezados colapsables accesibles', () => {
+    const heads = groupHeads();
+    // work, agents, comms, org, governance, finance (home está fijada; admin/plataforma ocultas al VIEWER).
+    expect(heads.length).toBe(6);
+    for (const h of heads) {
+      expect(h.getAttribute('aria-expanded')).toBeTruthy();
+      expect(h.getAttribute('aria-controls')).toBeTruthy();
+    }
+  });
+
+  it('pliega y despliega una sección al pulsar su encabezado', () => {
+    const head = headByLabel('Agentes');
+    expect(head.getAttribute('aria-expanded')).toBe('true');
+    expect(el.querySelector('#grp-items-agents')).not.toBeNull();
+    head.click();
+    fixture.detectChanges();
+    expect(head.getAttribute('aria-expanded')).toBe('false');
+    expect(el.querySelector('#grp-items-agents')).toBeNull();
+  });
+
+  it('marca el ítem activo según la ruta con aria-current', () => {
+    // La ruta inicial del router de pruebas es «/»: se activa «Inicio».
+    const active = el.querySelector('a.nav-link.active');
+    expect(active?.getAttribute('aria-current')).toBe('page');
+    expect(active?.getAttribute('href')).toBe('/');
+  });
+
+  it('filtra los ítems por texto y muestra el estado vacío sin coincidencias', () => {
+    const input = el.querySelector('.filter input') as HTMLInputElement;
+    input.value = 'skills';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    const paths = [...links()].map((a) => a.getAttribute('href'));
+    expect(paths).toEqual(['/skills']);
+
+    input.value = 'xyz-no-existe';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(links().length).toBe(0);
+    expect(el.querySelector('nav .empty')).not.toBeNull();
+  });
+
+  it('muestra los enlaces de administración cuando el usuario es admin', () => {
     auth.isAdmin.set(true);
     fixture.detectChanges();
-    expect(el.querySelector('[aria-labelledby="nav-admin"]')).not.toBeNull();
+    expect(headByLabel('Administración')).toBeDefined();
+    const paths = [...links()].map((a) => a.getAttribute('href') ?? '');
+    expect(paths).toContain('/admin/politicas');
+    expect(paths.some((p) => p.startsWith('/platform'))).toBeFalse();
   });
 
   it('muestra la sección de plataforma cuando es admin de plataforma', () => {
     platform.isPlatformAdmin.set(true);
     fixture.detectChanges();
-    expect(el.querySelector('[aria-labelledby="nav-platform"]')).not.toBeNull();
+    const paths = [...links()].map((a) => a.getAttribute('href') ?? '');
+    expect(paths).toContain('/platform');
+    expect(paths).toContain('/platform/oauth-apps');
   });
 
   it('muestra el bloque de usuario y el nombre del workspace activo', () => {

@@ -1,69 +1,131 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { NavigationEnd, Router, RouterLink, RouterLinkActive } from '@angular/router';
+import { NavigationEnd, Router, RouterLink } from '@angular/router';
 import { filter, map } from 'rxjs';
 import { AuthService } from '../core/auth.service';
 import { PlatformApi } from '../core/platform.api';
 import { IconComponent } from '../shared/icon.component';
+import {
+  activeGroupId,
+  activeItemPath,
+  filterGroups,
+  NAV_GROUPS,
+  normalize,
+  visibleGroups,
+} from './sidebar.util';
 
-/** Un ítem de navegación de la barra lateral. */
-export interface NavItem {
-  path: string;
-  label: string;
-  icon: string;
-  /** Si es `true`, el ítem solo se marca activo con coincidencia exacta de ruta. */
-  exact: boolean;
+export type { NavGroup, NavItem } from './sidebar.util';
+
+/** Clave de `localStorage` donde se guardan los ids de los grupos plegados (por visor). */
+const COLLAPSE_STORE_KEY = 'nexo.sidebar.collapsed';
+
+/** Lee los grupos plegados de `localStorage`; degrada a vacío si no hay almacenamiento o el dato es inválido. */
+function loadCollapsed(): ReadonlySet<string> {
+  try {
+    const raw = localStorage.getItem(COLLAPSE_STORE_KEY);
+    if (!raw) return new Set();
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? new Set(parsed.filter((x): x is string => typeof x === 'string')) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+/** Persiste los grupos plegados; si el almacenamiento no está disponible, no hace nada. */
+function saveCollapsed(ids: ReadonlySet<string>): void {
+  try {
+    localStorage.setItem(COLLAPSE_STORE_KEY, JSON.stringify([...ids]));
+  } catch {
+    // almacenamiento no disponible (modo privado estricto): el pliegue no se recuerda, pero la UI sigue funcionando
+  }
 }
 
 /**
- * Barra lateral (Sidebar) del «chrome» de la aplicación: marca, navegación por secciones
- * (Portal, Administración, Plataforma según el rol), selector de workspace y menú de usuario.
+ * Barra lateral (Sidebar) del «chrome» de la aplicación, al estilo de una app empresarial (WMS/fleet):
+ * marca, filtro rápido, navegación por secciones agrupadas y colapsables, selector de workspace y menú
+ * de usuario.
  *
- * Es presentación pura sobre el estado de sesión (`AuthService`/`PlatformApi`): no define rutas
- * ni modifica la lógica de navegación, solo refleja la URL actual para marcar el ítem activo.
+ * Es presentación pura sobre el estado de sesión (`AuthService`/`PlatformApi`) y la URL actual: la
+ * arquitectura de información y la lógica (grupos, filtrado, ítem/grupo activo) viven en `sidebar.util.ts`.
+ * El pliegue de cada sección se recuerda por visor en `localStorage`.
  *
  * Uso: `<nx-sidebar />` dentro del shell. El `:host` usa `display: contents` para que el
- * `<aside>` sea el hijo flex directo del shell y la maqueta no cambie respecto a la versión previa.
+ * `<aside>` sea el hijo flex directo del shell.
  */
 @Component({
   selector: 'nx-sidebar',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, RouterLinkActive, IconComponent],
+  imports: [RouterLink, IconComponent],
   template: `
     <aside class="sidebar">
       <a class="brand" routerLink="/" aria-label="Nexo: ir al inicio">
         <img class="insignia" src="brand/insignia.png" width="38" height="38" alt="" />
         <span class="wordmark" aria-hidden="true"><strong>Nexo</strong><small lang="en">AI Agents Platform</small></span>
       </a>
-      <nav aria-label="Navegación principal">
-        <div class="nav-section" id="nav-portal">Portal</div>
-        <div class="nav-group" role="group" aria-labelledby="nav-portal">
-          @for (item of portalNav; track item.path) {
-            <a [routerLink]="item.path" [class.active]="portalActive() === item.path" [attr.aria-current]="portalActive() === item.path ? 'page' : null">
-              <nx-icon [name]="item.icon" />{{ item.label }}
-            </a>
-          }
-        </div>
-        @if (auth.isAdmin()) {
-          <div class="nav-section admin" id="nav-admin">Administración</div>
-          <div class="nav-group" role="group" aria-labelledby="nav-admin">
-            @for (item of adminNav; track item.path) {
-              <a [routerLink]="item.path" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: item.exact }">
-                <nx-icon [name]="item.icon" />{{ item.label }}
-              </a>
-            }
-          </div>
+      <div class="filter">
+        <nx-icon name="search" [size]="15" aria-hidden="true" />
+        <input
+          type="search"
+          [value]="query()"
+          (input)="query.set($any($event.target).value)"
+          placeholder="Buscar en el menú…"
+          aria-label="Buscar en el menú"
+        />
+        @if (query()) {
+          <button type="button" class="clear" title="Limpiar búsqueda" aria-label="Limpiar búsqueda" (click)="query.set('')">
+            <nx-icon name="x" [size]="14" />
+          </button>
         }
-        @if (platform.isPlatformAdmin()) {
-          <div class="nav-section platform" id="nav-platform">Plataforma Nexo</div>
-          <div class="nav-group" role="group" aria-labelledby="nav-platform">
-            @for (item of platformNav; track item.path) {
-              <a [routerLink]="item.path" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: item.exact }">
-                <nx-icon [name]="item.icon" />{{ item.label }}
-              </a>
+      </div>
+      <nav aria-label="Navegación principal">
+        @for (group of groups(); track group.id) {
+          @if (group.pinned) {
+            <div class="nav-group" role="group" [attr.aria-label]="group.label">
+              @for (item of group.items; track item.path) {
+                <a
+                  class="nav-link"
+                  [routerLink]="item.path"
+                  [class.active]="activeItem() === item.path"
+                  [attr.aria-current]="activeItem() === item.path ? 'page' : null"
+                  [title]="item.label"
+                >
+                  <nx-icon [name]="item.icon" />{{ item.label }}
+                </a>
+              }
+            </div>
+          } @else {
+            <button
+              type="button"
+              class="group-head"
+              [id]="'grp-head-' + group.id"
+              [class.active]="activeGroup() === group.id"
+              [attr.aria-expanded]="isExpanded(group.id)"
+              [attr.aria-controls]="'grp-items-' + group.id"
+              (click)="toggle(group.id)"
+            >
+              <nx-icon class="g-ico" [name]="group.icon" [size]="16" />
+              <span class="g-label">{{ group.label }}</span>
+              <nx-icon class="chev" [name]="isExpanded(group.id) ? 'chevronUp' : 'chevronDown'" [size]="15" />
+            </button>
+            @if (isExpanded(group.id)) {
+              <div class="nav-group" role="group" [id]="'grp-items-' + group.id" [attr.aria-labelledby]="'grp-head-' + group.id">
+                @for (item of group.items; track item.path) {
+                  <a
+                    class="nav-link sub"
+                    [routerLink]="item.path"
+                    [class.active]="activeItem() === item.path"
+                    [attr.aria-current]="activeItem() === item.path ? 'page' : null"
+                    [title]="item.label"
+                  >
+                    <nx-icon [name]="item.icon" />{{ item.label }}
+                  </a>
+                }
+              </div>
             }
-          </div>
+          }
+        } @empty {
+          <p class="empty">Sin resultados.</p>
         }
       </nav>
       <div class="spacer"></div>
@@ -97,17 +159,32 @@ export interface NavItem {
     .wordmark { display: flex; flex-direction: column; gap: 1px; }
     .wordmark strong { display: block; font-size: 17px; font-weight: 800; line-height: 1.1; color: #fff; }
     .wordmark small { display: block; font-size: 11.5px; font-weight: 400; line-height: 1.2; color: #a9b1d6; }
+    /* Filtro rápido: campo oscuro con ícono de lupa y botón de limpiar. */
+    .filter { position: relative; display: flex; align-items: center; margin-bottom: 10px; }
+    .filter nx-icon { position: absolute; left: 10px; color: #8f98c2; pointer-events: none; }
+    .filter input { width: 100%; background: #0e1838; color: #fff; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 9px; padding: 8px 30px 8px 32px; font: inherit; font-size: 13px; }
+    .filter input::placeholder { color: #8f98c2; }
+    .filter input:focus-visible { border-color: var(--brand-cyan, #16C7F4); outline: none; }
+    .filter .clear { position: absolute; right: 6px; display: grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: 6px; background: transparent; color: #a3acd3; cursor: pointer; }
+    .filter .clear:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
     nav { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
     .nav-group { display: flex; flex-direction: column; gap: 2px; }
-    .nav-section { font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #8f98c2; padding: 4px 12px 6px; }
-    .nav-section.admin, .nav-section.platform { margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
-    .nav-section.platform { color: #b9a3f5; }
-    nav a { position: relative; display: flex; gap: 11px; align-items: center; padding: 9px 12px; border-radius: 9px; color: #c0c7e3; font-weight: 500; }
-    nav a:hover { background: rgba(255, 255, 255, 0.06); color: #fff; }
+    /* Encabezado de sección colapsable: botón ancho completo, con ícono, etiqueta y chevron. */
+    .group-head { display: flex; align-items: center; gap: 11px; width: 100%; margin-top: 8px; padding: 8px 12px; border: 0; border-radius: 9px; background: transparent; color: #8f98c2; font: inherit; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; text-align: left; }
+    .group-head:first-of-type { margin-top: 2px; }
+    .group-head:hover { background: rgba(255, 255, 255, 0.06); color: #c9d1ec; }
+    .group-head .g-label { flex: 1; min-width: 0; }
+    .group-head .chev { color: #6f78a2; transition: color 0.15s; }
+    .group-head.active { color: #fff; }
+    .group-head.active .g-ico { color: var(--brand-cyan, #16C7F4); }
+    nav a.nav-link { position: relative; display: flex; gap: 11px; align-items: center; padding: 9px 12px; border-radius: 9px; color: #c0c7e3; font-weight: 500; }
+    nav a.nav-link.sub { padding-left: 24px; }
+    nav a.nav-link:hover { background: rgba(255, 255, 255, 0.06); color: #fff; }
     /* Activo: fondo azul eléctrico translúcido (texto blanco > 12:1) e indicador cian (> 3:1 sobre el azul profundo). */
-    nav a.active { background: rgba(18, 91, 234, 0.28); color: #fff; box-shadow: inset 0 0 0 1px rgba(22, 199, 244, 0.18); }
-    nav a.active::before { content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: var(--brand-gradient, linear-gradient(135deg, #125BEA, #16C7F4, #8550E9)); }
-    nav a.active nx-icon { color: var(--brand-cyan, #16C7F4); }
+    nav a.nav-link.active { background: rgba(18, 91, 234, 0.28); color: #fff; box-shadow: inset 0 0 0 1px rgba(22, 199, 244, 0.18); }
+    nav a.nav-link.active::before { content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: var(--brand-gradient, linear-gradient(135deg, #125BEA, #16C7F4, #8550E9)); }
+    nav a.nav-link.active nx-icon { color: var(--brand-cyan, #16C7F4); }
+    .empty { color: #8f98c2; font-size: 12.5px; padding: 8px 12px; }
     .spacer { flex: 1; }
     .ws { margin-bottom: 10px; background: #111c45; color: #fff; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 8px; padding: 7px; }
     .user { display: flex; align-items: center; gap: 10px; padding: 10px 6px 0; border-top: 1px solid rgba(255, 255, 255, 0.08); }
@@ -116,7 +193,8 @@ export interface NavItem {
     .who { flex: 1; min-width: 0; }
     .who strong { display: block; color: #fff; font-size: 13px; }
     .who small { display: block; color: #a3acd3; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    @media (max-width: 900px) { .sidebar { width: 100%; height: auto; position: relative; border-right: 0; border-bottom: 1px solid rgba(255, 255, 255, 0.08); } .brand { padding-bottom: 12px; } nav { flex-direction: row; overflow-x: auto; align-items: center; } .nav-group { flex-direction: row; } .nav-section { padding: 0 8px; white-space: nowrap; } .nav-section.admin, .nav-section.platform { margin: 0 0 0 8px; padding: 0 8px; border-top: 0; border-left: 1px solid rgba(255, 255, 255, 0.08); } nav a { white-space: nowrap; } nav a.active::before { left: 8px; right: 8px; top: auto; bottom: 0; width: auto; height: 3px; border-radius: 3px 3px 0 0; } .spacer, .user, .ws { display: none; } }
+    /* Móvil: la barra pasa a cabecera a lo ancho; la navegación se desplaza en vertical con tope de alto. */
+    @media (max-width: 900px) { .sidebar { width: 100%; height: auto; position: relative; border-right: 0; border-bottom: 1px solid rgba(255, 255, 255, 0.08); } .brand { padding-bottom: 10px; } nav { max-height: 55vh; } .spacer, .user, .ws { display: none; } }
   `,
 })
 export class SidebarComponent {
@@ -130,54 +208,38 @@ export class SidebarComponent {
     ),
     { initialValue: this.router.url },
   );
-  /** Entrada activa del portal: la coincidencia más específica (así `/agents/explore` no activa también `/agents`). */
-  protected readonly portalActive = computed(() => {
-    const path = this.url().split(/[?#]/)[0];
-    const matches = this.portalNav.filter((i) => (i.exact ? path === i.path : path === i.path || path.startsWith(`${i.path}/`)));
-    return matches.sort((a, b) => b.path.length - a.path.length)[0]?.path ?? null;
-  });
-  protected readonly portalNav: NavItem[] = [
-    { path: '/', label: 'Inicio', icon: 'dashboard', exact: true },
-    { path: '/trabajo', label: 'Mi trabajo', icon: 'checkCircle', exact: false },
-    { path: '/trabajo/objetivos', label: 'Objetivos', icon: 'target', exact: false },
-    { path: '/mensajes', label: 'Mensajes', icon: 'send', exact: false },
-    { path: '/canales', label: 'Canales', icon: 'branch', exact: false },
-    { path: '/agents', label: 'Agentes', icon: 'bot', exact: false },
-    { path: '/agents/explore', label: 'Explorar agentes', icon: 'search', exact: false },
-    { path: '/cargos', label: 'Cargos', icon: 'layers', exact: false },
-    { path: '/skills', label: 'Skills', icon: 'sparkles', exact: false },
-    { path: '/knowledge', label: 'Conocimiento', icon: 'book', exact: false },
-    { path: '/routines', label: 'Rutinas', icon: 'calendar', exact: false },
-    { path: '/supervision', label: 'Supervisión', icon: 'inbox', exact: false },
-    { path: '/aprobaciones', label: 'Aprobaciones', icon: 'checkCircle', exact: false },
-    { path: '/excepciones', label: 'Excepciones', icon: 'alert', exact: false },
-    { path: '/workflows', label: 'Flujos', icon: 'flow', exact: false },
-    { path: '/executions', label: 'Ejecuciones', icon: 'history', exact: false },
-    { path: '/agent-runs', label: 'Historial de tareas', icon: 'list', exact: false },
-    { path: '/integrations', label: 'Apps conectadas', icon: 'puzzle', exact: false },
-    { path: '/connectors', label: 'Conectores', icon: 'plug', exact: false },
-    { path: '/my-usage', label: 'Mi consumo', icon: 'wallet', exact: false },
-  ];
-  protected readonly adminNav: NavItem[] = [
-    { path: '/admin', label: 'Costos', icon: 'chart', exact: true },
-    { path: '/admin/providers', label: 'IA conectada', icon: 'cpu', exact: false },
-    { path: '/admin/organization', label: 'Organización', icon: 'building', exact: false },
-    { path: '/admin/estructura', label: 'Estructura', icon: 'layers', exact: false },
-    { path: '/admin/dimensiones', label: 'Dimensiones', icon: 'hash', exact: false },
-    { path: '/admin/groups', label: 'Grupos', icon: 'users', exact: false },
-    { path: '/admin/budgets', label: 'Presupuestos', icon: 'wallet', exact: false },
-    { path: '/admin/politicas', label: 'Políticas', icon: 'scale', exact: false },
-    { path: '/admin/suspension', label: 'Suspensión', icon: 'stop', exact: false },
-    { path: '/admin/alerts', label: 'Alertas', icon: 'bell', exact: false },
-    { path: '/admin/edges', label: 'Nexo Edge', icon: 'server', exact: false },
-    { path: '/admin/security', label: 'Seguridad', icon: 'shield', exact: false },
-    { path: '/admin/settings', label: 'Ajustes', icon: 'settings', exact: false },
-  ];
-  protected readonly platformNav: NavItem[] = [
-    { path: '/platform', label: 'Éxito de clientes', icon: 'trophy', exact: true },
-    { path: '/platform/copilot-quality', label: 'Calidad del Copilot', icon: 'sparkles', exact: false },
-    { path: '/platform/oauth-apps', label: 'Apps de inicio de sesión', icon: 'plug', exact: false },
-  ];
+  /** Texto del filtro rápido. */
+  protected readonly query = signal('');
+  /** Ids de grupos plegados por el usuario, persistidos por visor. */
+  private readonly collapsed = signal<ReadonlySet<string>>(loadCollapsed());
+
+  /** Grupos visibles según el rol: se descartan ítems y grupos que el usuario no puede ver. */
+  private readonly visible = computed(() =>
+    visibleGroups(NAV_GROUPS, { isAdmin: this.auth.isAdmin(), isPlatformAdmin: !!this.platform.isPlatformAdmin() }),
+  );
+  /** Grupos finalmente mostrados: los visibles, filtrados por el texto de búsqueda. */
+  protected readonly groups = computed(() => filterGroups(this.visible(), this.query()));
+  /** `true` si hay una búsqueda activa (fuerza el despliegue de todas las secciones con coincidencias). */
+  protected readonly filtering = computed(() => normalize(this.query()) !== '');
+  /** Ruta del ítem activo (coincidencia más específica) y grupo que lo contiene. */
+  protected readonly activeItem = computed(() => activeItemPath(this.visible(), this.url()));
+  protected readonly activeGroup = computed(() => activeGroupId(this.visible(), this.url()));
+
+  /** Una sección se ve desplegada si hay búsqueda, si contiene al ítem activo o si no está plegada. */
+  protected isExpanded(id: string): boolean {
+    if (this.filtering()) return true;
+    if (this.activeGroup() === id) return true;
+    return !this.collapsed().has(id);
+  }
+
+  /** Pliega o despliega la sección y persiste el estado. */
+  protected toggle(id: string): void {
+    const next = new Set(this.collapsed());
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    this.collapsed.set(next);
+    saveCollapsed(next);
+  }
 
   workspaceName() {
     const me = this.auth.me();
