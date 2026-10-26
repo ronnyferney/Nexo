@@ -2524,3 +2524,87 @@ model Reaccion {
   @@unique([publicacionId, autorUserId, tipo])
   @@index([workspaceId, publicacionId])
 }
+
+// --- Canales externos (E14 · ADR 0015 D1/D4/D5) ---
+
+/// Tipo de canal externo (ADR 0015 D4).
+enum CanalTipo {
+  CORREO
+  WHATSAPP
+  VOZ
+}
+
+/// Estado de vigencia de una cuenta de canal.
+enum CanalCuentaEstado {
+  ACTIVA
+  SUSPENDIDA
+  RETIRADA
+}
+
+/// Dirección de un mensaje de canal.
+enum DireccionMensaje {
+  SALIENTE
+  ENTRANTE
+}
+
+/// Estado de un mensaje de canal. SIMULADO = despachado por el adaptador simulado (QA), sin salida de red.
+enum EstadoMensajeCanal {
+  PENDIENTE
+  ENVIADO
+  ENTREGADO
+  FALLIDO
+  SIMULADO
+}
+
+/// Cuenta de canal externo por empresa (ADR 0015 D1/D4). Identidad por empresa; credenciales SOLO por `secretRef`
+/// (nombre de la clave de bóveda), NUNCA el secreto en claro ni en `config`. `workspaceId`/`empresaId` son
+/// referencias blandas (se validan en servicio), consistente con el resto de la estructura empresarial.
+model CanalCuenta {
+  id          String            @id @default(cuid())
+  workspaceId String
+  /// Empresa (OrgUnit tipo EMPRESA) dueña de la cuenta. Referencia blanda.
+  empresaId   String
+  tipo        CanalTipo
+  /// Proveedor concreto (m365 | gmail | smtp | twilio | meta | simulado | ...). Selecciona el adaptador.
+  proveedor   String
+  estado      CanalCuentaEstado @default(ACTIVA)
+  /// Nombre de la clave de bóveda con las credenciales; NUNCA el secreto. Null = sin credenciales (adaptador inactivo).
+  secretRef   String?
+  /// Identidad del canal (remitente, etc.), SIN secretos.
+  config      Json              @default("{}")
+  mensajes    MensajeCanal[]
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@unique([workspaceId, empresaId, tipo, proveedor])
+  @@index([workspaceId, tipo])
+}
+
+/// Mensaje de canal (envío/recepción), idempotente por workspace. Vínculo opcional a trabajo (E5, referencias blandas).
+model MensajeCanal {
+  id                 String             @id @default(cuid())
+  workspaceId        String
+  canalCuentaId      String
+  canalCuenta        CanalCuenta        @relation(fields: [canalCuentaId], references: [id], onDelete: Cascade)
+  direccion          DireccionMensaje   @default(SALIENTE)
+  /// Clave de idempotencia del envío (única por workspace): un reintento no duplica.
+  idempotencyKey     String
+  /// Vínculo a tarea (E5) que origina el mensaje.
+  tareaId            String?
+  /// Vínculo a misión (E5) que origina el mensaje.
+  misionId           String?
+  destino            String
+  asunto             String?
+  cuerpo             String
+  estado             EstadoMensajeCanal @default(PENDIENTE)
+  /// Id del proveedor (dedup de webhooks, conciliación).
+  proveedorMensajeId String?
+  error              String?
+  /// Aprobación de E6 si el envío la requirió (referencia blanda).
+  aprobacionId       String?
+  createdAt          DateTime           @default(now())
+
+  @@unique([workspaceId, idempotencyKey])
+  @@index([workspaceId, canalCuentaId])
+  @@index([workspaceId, tareaId])
+}
