@@ -318,6 +318,9 @@ model Workspace {
   decisionesPolitica        DecisionPolitica[]
   aprobaciones              Aprobacion[]
   suspensiones              Suspension[]
+  dimensiones               Dimension[]
+  dimensionValues           DimensionValue[]
+  dimensionAssignments      DimensionAssignment[]
 }
 
 /// Catálogo de cargos (RF03): perfil reutilizable del empleado digital con propósito, funciones, entregables,
@@ -830,6 +833,10 @@ model UsageRecord {
   routingReason    String?
   /// Rol del tramo en la orquestación (ADR 0010 D5): `draft`/`verify`/nombre de rol. `null` sin enrutamiento.
   role             String?
+  /// Snapshot histórico de las dimensiones configurables (ADR 0011 D8/RF46/QA16): mapa `{ dimensionCodigo: valor }`
+  /// congelado al momento del hecho económico. Aditivo; los registros previos quedan `{}`. NO altera el cálculo del
+  /// costo (ADR 0002 intacto): es solo una etiqueta analítica para pivotar en las consolas, no un libro mayor paralelo.
+  dimensiones      Json        @default("{}")
   createdAt        DateTime    @default(now())
 
   @@index([workspaceId, createdAt])
@@ -939,6 +946,100 @@ model AsignacionOrganizacional {
   @@index([workspaceId, agentId])
   @@index([workspaceId, userId])
   @@index([workspaceId, lineaNegocioId])
+}
+
+// ===================== Marco de dimensiones configurables (ADR 0011 · D8, estilo NetSuite / SAP CO-PA) =====================
+// Etiquetado analítico ortogonal a todo lo anterior: el cliente define sus dimensiones y valores SIN tocar el esquema y
+// cualquier ejecución/tarea/costo se etiqueta con ellas para reportar y consolidar por cualquier combinación (pivot).
+// Las tres dimensiones de negocio (D3) se exponen también como `Dimension` de sistema (`esSistema=true`,
+// `tipoValor=REFERENCIA`) que apuntan a `LineaNegocio`/`Sede`/`CentroCosto` SIN duplicar datos. Etiquetar NO concede
+// acceso (D6/RF46). El permiso efectivo sigue siendo rol + share + empresa.
+
+/// Tipo de valor de una dimensión (ADR 0011 D8). `LISTA` = valores propios (`DimensionValue`); `REFERENCIA` = apunta a
+/// una entidad existente (LineaNegocio/Sede/OrgUnit...); `TEXTO`/`NUMERO` = valor literal en el etiquetado.
+enum DimensionTipoValor {
+  LISTA
+  REFERENCIA
+  TEXTO
+  NUMERO
+}
+
+/// Definición de una dimensión analítica (ADR 0011 D8). Metadato de configuración, versionado por vigencia. El cliente
+/// crea las suyas (Proyecto, Cliente, Producto, Campaña) sin migración; las 3 integradas se siembran con `esSistema`.
+model Dimension {
+  id                             String             @id @default(cuid())
+  workspaceId                    String
+  workspace                      Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// `null` = aplica a toda la organización (grupo); si no, a una empresa (OrgUnit EMPRESA). Validado en servicio.
+  empresaId                      String?
+  codigo                         String
+  nombre                         String
+  tipoValor                      DimensionTipoValor @default(LISTA)
+  /// Si `tipoValor = REFERENCIA`: entidad apuntada ("LineaNegocio" | "Sede" | "CentroCosto" | "OrgUnit" ...).
+  referenciaEntidad              String?
+  /// Si sus valores forman árbol (roll-up tipo NetSuite). Sin ciclos en `DimensionValue.padreId` (validado en servicio).
+  jerarquica                     Boolean            @default(false)
+  obligatoria                    Boolean            @default(false)
+  /// Se valida al despachar/registrar trabajo con efecto económico (RF11/RF45): sin su valor, no se etiqueta.
+  obligatoriaParaEfectoEconomico Boolean            @default(false)
+  /// Entidades/acciones etiquetables ("ejecucion" | "tarea" | "costo" | "agente" | "unidad" | "linea" | "servicio"...).
+  aplicaA                        String[]           @default([])
+  /// Las 3 integradas de D3 (línea de negocio, sede, centro de costo). No se editan ni borran por el cliente.
+  esSistema                      Boolean            @default(false)
+  estado                         EstadoEstructura   @default(ACTIVA)
+  vigenteDesde                   DateTime?
+  vigenteHasta                   DateTime?
+  valores                        DimensionValue[]
+  createdAt                      DateTime           @default(now())
+  updatedAt                      DateTime           @updatedAt
+
+  // Unicidad de `codigo` por (workspaceId, empresaId) (D8). Para empresas concretas la cubre este índice; para las
+  // dimensiones de organización (empresaId IS NULL, donde Postgres trata los NULL como distintos) la unicidad la
+  // garantiza un índice parcial único creado por SQL manual en la migración ("Dimension_codigo_org_wide").
+  @@unique([workspaceId, empresaId, codigo])
+  @@index([workspaceId, empresaId])
+}
+
+/// Valor de una dimensión `LISTA` (ADR 0011 D8), jerárquico opcional (`padreId`). Un valor no ACTIVO o fuera de vigencia
+/// NO es asignable a trabajo nuevo pero se conserva para el histórico y los reportes del periodo en que estuvo vigente.
+model DimensionValue {
+  id           String           @id @default(cuid())
+  workspaceId  String
+  workspace    Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  dimensionId  String
+  dimension    Dimension        @relation(fields: [dimensionId], references: [id], onDelete: Cascade)
+  codigo       String
+  nombre       String
+  padreId      String?
+  padre        DimensionValue?  @relation("DimensionValueTree", fields: [padreId], references: [id], onDelete: SetNull)
+  hijos        DimensionValue[] @relation("DimensionValueTree")
+  estado       EstadoEstructura @default(ACTIVA)
+  vigenteDesde DateTime?
+  vigenteHasta DateTime?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@unique([dimensionId, codigo])
+  @@index([workspaceId, dimensionId])
+}
+
+/// Etiquetado (ADR 0011 D8): vincula una entidad etiquetable (`targetType` + `targetId`) con una dimensión y su valor
+/// (`dimensionValueId` para LISTA/REFERENCIA, o `valorLiteral` para TEXTO/NUMERO). Una misma ejecución lleva N
+/// dimensiones. Filtra por `workspaceId`. NO concede acceso (D6). Referencias blandas validadas en servicio.
+model DimensionAssignment {
+  id               String    @id @default(cuid())
+  workspaceId      String
+  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  dimensionId      String
+  dimensionValueId String?
+  valorLiteral     String?
+  targetType       String
+  targetId         String
+  createdAt        DateTime  @default(now())
+
+  @@unique([workspaceId, dimensionId, targetType, targetId])
+  @@index([workspaceId, targetType, targetId])
+  @@index([workspaceId, dimensionId, dimensionValueId])
 }
 
 // ===================== Estudio de agentes y n8n (ADR 0003) =====================

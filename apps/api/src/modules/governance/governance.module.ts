@@ -11,6 +11,10 @@ import {
 import { ApprovalsService } from './actions/approvals.service';
 import { PolicyService } from './actions/policy.service';
 import { SuspensionsService } from './actions/suspensions.service';
+import { ConsolasService } from './dimensiones/consolas.service';
+import { DimensionSeedService } from './dimensiones/dimension-seed.service';
+import { ConsolasController, DimensionesController } from './dimensiones/dimensiones.controller';
+import { DimensionesService } from './dimensiones/dimensiones.service';
 import { AsignacionesService } from './estructura/asignaciones.service';
 import { CatalogosService } from './estructura/catalogos.service';
 import { EstructuraController } from './estructura/estructura.controller';
@@ -36,6 +40,8 @@ import { UsageService } from './usage.service';
     GovernanceAdminController,
     InvitationsPublicController,
     EstructuraController,
+    DimensionesController,
+    ConsolasController,
     PoliciesController,
     ActionsController,
     ApprovalsController,
@@ -48,6 +54,9 @@ import { UsageService } from './usage.service';
     InvitationsService,
     CatalogosService,
     AsignacionesService,
+    DimensionSeedService,
+    DimensionesService,
+    ConsolasService,
     PolicyService,
     ApprovalsService,
     SuspensionsService,
@@ -58,6 +67,7 @@ import { UsageService } from './usage.service';
     BudgetsService,
     CatalogosService,
     AsignacionesService,
+    DimensionesService,
     PolicyService,
     ApprovalsService,
     SuspensionsService,

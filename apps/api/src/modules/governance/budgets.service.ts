@@ -21,6 +21,11 @@ export interface UsageContext {
   routingReason?: string | null;
   /** Rol del tramo (ADR 0010 D5): `draft`/`verify`/nombre de rol; `null` sin enrutamiento. */
   role?: string | null;
+  /**
+   * Snapshot de dimensiones configurables (ADR 0011 D8): mapa `{ dimensionCodigo: valor }` congelado al momento del
+   * hecho. Opcional y aditivo: si no se informa, la columna queda en su default `{}`. NO afecta el cálculo del costo.
+   */
+  dimensiones?: Prisma.InputJsonValue;
 }
 
 export interface SpendPlan {
