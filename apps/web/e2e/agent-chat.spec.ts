@@ -16,12 +16,12 @@ test.describe('Chat del agente', () => {
     const errors = trackPageErrors(page);
     await createEmptyAgent(page);
 
-    const panel = page.getByRole('tabpanel');
-    const composer = page.getByLabel('Mensaje');
+    const panel = page.locator('#chat-panel');
+    const composer = page.getByLabel('Mensaje', { exact: true });
     await expect(composer).toBeVisible();
 
     // El botón enviar está deshabilitado sin texto (anti-doble-envío / compositor RX-4).
-    const send = page.getByRole('button', { name: 'Enviar' });
+    const send = page.getByRole('button', { name: 'Enviar', exact: true });
     await expect(send).toBeDisabled();
 
     await composer.fill('Hola, ¿qué puedes hacer?');
@@ -67,19 +67,19 @@ test.describe('Chat del agente', () => {
     await expect(diagnostics).toBeFocused();
 
     // El panel está asociado a la pestaña activa (aria-labelledby apunta a su id).
-    const panel = page.getByRole('tabpanel');
+    const panel = page.locator('#chat-panel');
     await expect(panel).toHaveAttribute('aria-labelledby', 'chat-tab-diagnostics');
   });
 
   test('«Nueva» reinicia la conversación y vuelve a la vista Conversación', async ({ page }) => {
     await createEmptyAgent(page);
-    const composer = page.getByLabel('Mensaje');
+    const composer = page.getByLabel('Mensaje', { exact: true });
     await composer.fill('Primer mensaje');
-    await page.getByRole('button', { name: 'Enviar' }).click();
-    await expect(page.getByRole('tabpanel').getByText('Primer mensaje')).toBeVisible();
+    await page.getByRole('button', { name: 'Enviar', exact: true }).click();
+    await expect(page.locator('#chat-panel').getByText('Primer mensaje')).toBeVisible();
 
     await page.getByRole('button', { name: /Nueva/ }).click();
-    await expect(page.getByRole('tabpanel').getByText('Primer mensaje')).toHaveCount(0);
+    await expect(page.locator('#chat-panel').getByText('Primer mensaje')).toHaveCount(0);
     await expect(page.getByRole('tab', { name: /Conversación/ })).toHaveAttribute('aria-selected', 'true');
     // Estado vacío de la conversación.
     await expect(page.getByText('Converse con su agente')).toBeVisible();
@@ -87,7 +87,7 @@ test.describe('Chat del agente', () => {
 
   test('el compositor envía con Enter y no envía con Mayús+Enter', async ({ page }) => {
     await createEmptyAgent(page);
-    const composer = page.getByLabel('Mensaje');
+    const composer = page.getByLabel('Mensaje', { exact: true });
     await composer.focus();
     await composer.type('Línea uno');
     await page.keyboard.press('Shift+Enter');
@@ -95,7 +95,7 @@ test.describe('Chat del agente', () => {
     // Mayús+Enter inserta salto de línea, no envía: el texto sigue en el compositor.
     await expect(composer).toHaveValue(/Línea uno\s+línea dos/);
     await page.keyboard.press('Enter');
-    await expect(page.getByRole('tabpanel').getByText(/Línea uno/)).toBeVisible();
+    await expect(page.locator('#chat-panel').getByText(/Línea uno/)).toBeVisible();
     await expect(composer).toHaveValue('');
   });
 });

@@ -17,9 +17,14 @@ const chromeBin = process.env['CHROME_BIN'];
 export default defineConfig({
   testDir: '.',
   testMatch: '**/*.spec.ts',
-  timeout: 60_000,
+  // Amplio para absorber la espera del limitador de alta de usuarios (10/min por IP): una prueba puede tener que
+  // aguardar a que se libere la ventana antes de registrar su usuario. El trabajo efectivo de cada prueba es rápido.
+  timeout: 150_000,
   expect: { timeout: 10_000 },
   fullyParallel: true,
+  // Limitamos la concurrencia: con demasiados workers, el registro + alta de agente + streaming del LLM mock en
+  // paralelo saturan la API de pruebas y producen timeouts intermitentes. Dos workers dan una suite estable.
+  workers: process.env['PW_WORKERS'] ? Number(process.env['PW_WORKERS']) : 2,
   forbidOnly: !!process.env['CI'],
   retries: process.env['CI'] ? 1 : 0,
   reporter: process.env['CI'] ? [['github'], ['html', { open: 'never' }]] : [['list']],

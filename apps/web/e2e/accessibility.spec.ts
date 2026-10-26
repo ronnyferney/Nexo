@@ -77,7 +77,7 @@ test.describe('Accesibilidad — detalle del agente y chat', () => {
     await expect(tablist.locator('[aria-selected="true"]')).toHaveCount(1);
 
     // El panel es un tabpanel con región viva para anunciar la respuesta en curso.
-    const panel = page.getByRole('tabpanel');
+    const panel = page.locator('#chat-panel');
     await expect(panel).toHaveAttribute('aria-live', 'polite');
   });
 
@@ -86,7 +86,7 @@ test.describe('Accesibilidad — detalle del agente y chat', () => {
     await assertIconButtonsHaveNames(page);
 
     // El compositor es alcanzable y etiquetado.
-    const composer = page.getByLabel('Mensaje');
+    const composer = page.getByLabel('Mensaje', { exact: true });
     await composer.focus();
     await expect(composer).toBeFocused();
 

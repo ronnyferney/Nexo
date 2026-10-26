@@ -29,7 +29,23 @@ export async function registerNewUser(page: Page, overrides: Partial<TestUser> =
   await page.getByLabel('Empresa o espacio de trabajo').fill(user.workspaceName);
   await page.getByLabel('Correo').fill(user.email);
   await page.getByLabel('Contraseña').fill(user.password);
-  await page.getByRole('button', { name: /Crear cuenta/ }).click();
+
+  // `POST /auth/register` está limitado a 10 altas por minuto por IP (A5). Como toda la suite comparte la IP, al
+  // ejecutar muchas pruebas se agota la ventana y el alta responde 429 («Demasiadas solicitudes»). No es un fallo de
+  // la app: se reintenta esperando a que el limitador libere la ventana (bloqueo ~60 s). La espera es contra una
+  // condición concreta del entorno (el aviso de límite), no un `sleep` arbitrario para enmascarar un bug.
+  const throttle = page.getByText(/Demasiadas solicitudes/i);
+  const crear = page.getByRole('button', { name: /Crear cuenta/ });
+  for (let intento = 0; intento < 8; intento++) {
+    await crear.click();
+    const entro = await page
+      .waitForURL((url) => !/\/(register|login)/.test(new URL(url).pathname), { timeout: 8_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (entro) return user;
+    if (!(await throttle.isVisible().catch(() => false))) break; // otro problema: que lo evidencie la aserción final
+    await page.waitForTimeout(15_000); // esperar a que expire el bloqueo del limitador antes de reintentar
+  }
   // Tras el alta queda en la aplicación (no en /register ni /login).
   await expect(page).not.toHaveURL(/\/(register|login)/, { timeout: 15_000 });
   return user;
@@ -40,17 +56,47 @@ export async function registerNewUser(page: Page, overrides: Partial<TestUser> =
  * El agente nace con el proveedor `mock` determinista del entorno de pruebas.
  */
 export async function createEmptyAgent(page: Page, name = 'Agente de prueba QA'): Promise<string> {
-  await page.goto('/agents/new');
-  // La ruta de experto puede estar tras un botón; si ya se ve el campo, se usa directo.
+  // `?modo=experto` enfoca directamente el formulario mínimo (camino experto). El formulario se muestra
+  // siempre en la vista por defecto de /agents/new, así que basta esperar a que su campo nombre esté visible.
+  await page.goto('/agents/new?modo=experto');
   const nameField = page.getByLabel('Nombre del agente');
-  if (!(await nameField.isVisible().catch(() => false))) {
-    await page.getByRole('button', { name: /crear(lo)? vac[ií]o/i }).click();
-  }
+  await expect(nameField).toBeVisible({ timeout: 15_000 });
   await nameField.fill(name);
   await page.getByRole('button', { name: /Crear agente/ }).click();
-  await expect(page).toHaveURL(/\/agents\/[^/]+$/, { timeout: 15_000 });
+  // Espera a que se navegue al detalle del agente: su id real (no la propia ruta «/agents/new»). Si la creación
+  // falla, aquí se evidencia (no más tarde con un id «new» engañoso).
+  await expect(page).toHaveURL(/\/agents\/(?!new(\?|$))[^/?]+/, { timeout: 15_000 });
   const url = new URL(page.url());
   return url.pathname.split('/').pop()!;
+}
+
+/**
+ * Crea una estación virtual mediante la API autenticada (cookie de sesión + doble envío CSRF por la cookie
+ * `nexo_csrf`). Se usa como semilla porque el formulario de alta en `/admin/estaciones-virtuales` está bloqueado por
+ * un defecto de la app (el guard de validación no recalcula al escribir; ver el reporte de QA). Devuelve el nombre.
+ */
+export async function seedEstacionVirtual(page: Page, nombre: string): Promise<string> {
+  const cookies = await page.context().cookies();
+  const csrf = cookies.find((c) => c.name === 'nexo_csrf')?.value ?? '';
+  const res = await page.request.post('/api/estaciones-virtuales', {
+    headers: { 'X-CSRF-Token': csrf, 'content-type': 'application/json' },
+    data: { nombre, proveedor: 'interna', descripcion: 'Estación de pruebas E2E' },
+  });
+  expect(res.ok(), `No se pudo sembrar la estación (HTTP ${res.status()})`).toBeTruthy();
+  return nombre;
+}
+
+/**
+ * Navega por el menú lateral como lo haría un usuario: escribe en el buscador del menú (lo que fuerza a desplegar
+ * las secciones con coincidencias) y pulsa el enlace con la etiqueta pedida. `label` debe ser la etiqueta exacta del
+ * ítem de navegación (ver `layout/sidebar.util.ts`). Deja el buscador limpio al terminar.
+ */
+export async function irPorMenu(page: Page, label: string): Promise<void> {
+  const buscar = page.getByRole('searchbox', { name: 'Buscar en el menú' });
+  await buscar.fill(label);
+  const nav = page.getByRole('navigation', { name: 'Navegación principal' });
+  await nav.getByRole('link', { name: label, exact: true }).click();
+  await buscar.fill('');
 }
 
 /**
@@ -61,7 +107,12 @@ export function trackPageErrors(page: Page): { assertClean: () => void } {
   const consoleErrors: string[] = [];
   const serverErrors: string[] = [];
   page.on('console', (msg) => {
-    if (msg.type() === 'error') consoleErrors.push(msg.text());
+    if (msg.type() !== 'error') return;
+    const text = msg.text();
+    // Los fallos de carga de recurso (p. ej. el sondeo de sesión que responde 401 estando sin sesión) son ruido de
+    // red del navegador, no errores de lógica de la app. Los 5xx se vigilan aparte con el listener de `response`.
+    if (/Failed to load resource/i.test(text)) return;
+    consoleErrors.push(text);
   });
   page.on('pageerror', (err) => consoleErrors.push(err.message));
   page.on('response', (res) => {
