@@ -27,7 +27,8 @@ export default defineConfig({
     baseURL: BASE_URL,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
+    // El vídeo requiere el binario ffmpeg (no siempre presente en el contenedor). Opt-in por entorno.
+    video: process.env['E2E_VIDEO'] === 'true' ? 'retain-on-failure' : 'off',
     // En el contenedor no existe un display; Chromium corre sin sandbox como root.
     launchOptions: {
       ...(chromeBin ? { executablePath: chromeBin } : {}),
