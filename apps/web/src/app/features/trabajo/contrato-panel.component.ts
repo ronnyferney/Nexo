@@ -9,6 +9,7 @@ import { IconComponent } from '../../shared/icon.component';
 import { EmptyStateComponent } from '../../shared/empty-state.component';
 import { EvidenciasListComponent } from './evidencias-list.component';
 import { ValidacionesListComponent } from './validaciones-list.component';
+import { PasaportePanelComponent } from './pasaporte-panel.component';
 import {
   avancesResultado,
   estadoResultadoMeta,
@@ -31,7 +32,14 @@ type Formulario = 'none' | 'contrato' | 'evidencia' | 'verificar';
   selector: 'nx-contrato-panel',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, IconComponent, EmptyStateComponent, EvidenciasListComponent, ValidacionesListComponent],
+  imports: [
+    FormsModule,
+    IconComponent,
+    EmptyStateComponent,
+    EvidenciasListComponent,
+    ValidacionesListComponent,
+    PasaportePanelComponent,
+  ],
   template: `
     <section class="card resultado">
       <header class="card-title">
@@ -206,6 +214,12 @@ type Formulario = 'none' | 'contrato' | 'evidencia' | 'verificar';
         <h3>Verificaciones</h3>
         <nx-validaciones-list [validaciones]="contrato()?.validaciones ?? []" />
       </div>
+
+      @if (contrato(); as c) {
+        @if (aceptado()) {
+          <nx-pasaporte-panel [contratoId]="c.id" [estado]="c.estado" [canEdit]="canEdit()" />
+        }
+      }
     </section>
   `,
   styles: `
