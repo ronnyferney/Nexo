@@ -1798,6 +1798,108 @@ model PasaporteResultado {
   @@index([workspaceId, contratoResultadoId])
 }
 
+/// Estado del ciclo de vida de una plantilla de Cuadrilla (ADR 0014 · D1). BORRADOR se edita libremente; PUBLICADA es
+/// instanciable y sus versiones publicadas son inmutables; RETIRADA deja de ofrecerse pero NO rompe las instancias ya
+/// creadas (misma disciplina que `Cargo.activo`).
+enum CuadrillaEstado {
+  BORRADOR
+  PUBLICADA
+  RETIRADA
+}
+
+/// Cuadrilla (ADR 0014 · D1): plantilla de equipo de empleados digitales GOBERNADA y 100 % DECLARATIVA. Es la respuesta
+/// de Nexo a "no empezar de cero" sin los riesgos del ecosistema abierto: instanciar una Cuadrilla NO ejecuta código ni
+/// concede acceso a datos. La identidad estable vive aquí (nombre, propósito, proceso objetivo, ciclo de vida); la
+/// configuración vive en sus versiones (append-only). Multi-tenant por `workspaceId`.
+model CuadrillaPlantilla {
+  id              String               @id @default(cuid())
+  workspaceId     String
+  /// Empresa/área de alcance (ADR 0011). Referencia blanda: se valida en servicio, no concede acceso.
+  orgUnitId       String?
+  nombre          String
+  proposito       String?
+  procesoObjetivo String?
+  estado          CuadrillaEstado      @default(BORRADOR)
+  /// Humano que creó la plantilla (nunca un agente: respeta `AGENTE_NO_CREA_AGENTES` de E5).
+  creadaPorUserId String
+  versiones       CuadrillaVersion[]
+  instancias      CuadrillaInstancia[]
+  validFrom       DateTime             @default(now())
+  validTo         DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  @@index([workspaceId, estado])
+}
+
+/// Versión INMUTABLE y append-only de la configuración de una Cuadrilla (como `AgentVersion` de ADR 0004). Contiene
+/// SOLO datos declarativos: nunca código, hooks, comandos ni URLs de arranque (lo garantiza el validador declarativo de
+/// `crews`). Publicar no reescribe: crea una versión nueva.
+model CuadrillaVersion {
+  id                 String             @id @default(cuid())
+  workspaceId        String
+  plantillaId        String
+  plantilla          CuadrillaPlantilla @relation(fields: [plantillaId], references: [id], onDelete: Cascade)
+  version            Int
+  /// Metadatos declarativos de la versión (notas, criterios globales). Nunca código/hooks/URLs de arranque.
+  definicion         Json               @default("{}")
+  publicadaPorUserId String?
+  publicadaAt        DateTime?
+  miembros           CuadrillaMiembro[]
+  createdAt          DateTime           @default(now())
+
+  @@unique([workspaceId, plantillaId, version])
+}
+
+/// Un rol del equipo dentro de una versión (ADR 0014 · D1). Define `{ cargo + skills + conectores/operaciones sugeridos
+/// + política sugerida + criterios de resultado + nivel esperado + delegación permitida }`. Los conectores/skills son
+/// SUGERENCIAS, no concesiones: el acceso efectivo se concede aparte por el camino normal (shares, bóveda).
+model CuadrillaMiembro {
+  id                  String           @id @default(cuid())
+  workspaceId         String
+  versionId           String
+  version             CuadrillaVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  rol                 String
+  /// Cargo que desempeña el rol (ADR 0011). Referencia blanda.
+  cargoId             String?
+  /// Nivel jerárquico esperado (`NivelJerarquico`).
+  nivelEsperado       String?
+  skills              String[]         @default([])
+  /// Referencias a conector/operación SUGERIDAS; nunca una concesión de acceso.
+  conectoresSugeridos Json             @default("[]")
+  /// Referencia a `Politica` (E6) o su forma declarativa.
+  politicaSugerida    Json             @default("{}")
+  /// Forma declarativa de `ContratoResultado` (reglaValidacion, evidenciaExigida).
+  criteriosResultado  Json             @default("{}")
+  /// Ids de otros `CuadrillaMiembro` a los que puede delegar (subconjunto; la ejecución la gobierna E5 en runtime).
+  delegaA             String[]         @default([])
+  createdAt           DateTime         @default(now())
+
+  @@index([workspaceId, versionId])
+}
+
+/// Resultado de que un HUMANO instancie una versión de Cuadrilla para un proceso concreto (ADR 0014 · D1). Deja la
+/// trazabilidad `plantilla@versión -> agentes/objetivos creados` por referencia (ids). Crear la instancia NO concede
+/// acceso a datos: los permisos siguen siendo explícitos (ADR 0007).
+model CuadrillaInstancia {
+  id                   String             @id @default(cuid())
+  workspaceId          String
+  plantillaId          String
+  plantilla            CuadrillaPlantilla @relation(fields: [plantillaId], references: [id], onDelete: Cascade)
+  /// Versión exacta instanciada (trazabilidad plantilla@versión).
+  versionId            String
+  /// Humano que instanció (nunca un agente).
+  instanciadaPorUserId String
+  orgUnitId            String?
+  /// Ids de `Agent` creados (referencia blanda; sin permisos concedidos por sí misma).
+  agentesCreados       String[]           @default([])
+  /// Ids de `Objetivo` creados (referencia blanda).
+  objetivosCreados     String[]           @default([])
+  createdAt            DateTime           @default(now())
+
+  @@index([workspaceId, plantillaId])
+}
+
 /// Incumplimiento + plan de recuperación (RF31): alerta, responsable, plazo, y LÍMITES explícitos de reintentos,
 /// gasto y ciclos, con escalamiento al siguiente nivel digital. Al agotar el límite se declara (nunca queda activo
 /// indefinidamente ocultando un resultado no logrado). Lo detecta el cron de reconciliación existente.
