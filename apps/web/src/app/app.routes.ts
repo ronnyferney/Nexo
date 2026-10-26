@@ -55,6 +55,7 @@ export const routes: Routes = [
           { path: 'providers', loadComponent: () => import('./features/admin/providers.page').then((m) => m.ProvidersPage) },
           { path: 'organization', loadComponent: () => import('./features/admin/organization.page').then((m) => m.OrganizationPage) },
           { path: 'estructura', loadComponent: () => import('./features/admin/estructura/estructura.page').then((m) => m.EstructuraPage) },
+          { path: 'dimensiones', loadComponent: () => import('./features/admin/dimensiones/dimensiones.page').then((m) => m.DimensionesPage) },
           { path: 'groups', loadComponent: () => import('./features/admin/groups.page').then((m) => m.GroupsPage) },
           { path: 'budgets', loadComponent: () => import('./features/admin/budgets.page').then((m) => m.BudgetsPage) },
           { path: 'politicas', loadComponent: () => import('./features/gobierno/politicas.page').then((m) => m.PoliticasPage) },
