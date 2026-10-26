@@ -233,11 +233,35 @@ export class UpdateAgentDto extends PartialType(OmitType(CreateAgentDto, ['visib
 
 export const AGENT_SCOPES = ['mine', 'shared', 'workspace', 'all'] as const;
 
+/** Tope por defecto de agentes devueltos por `GET /agents` cuando no se pide `take` (evita findMany sin límite). */
+export const AGENTS_LIST_DEFAULT_TAKE = 200;
+/** Tope máximo que puede pedir un cliente vía `take`. */
+export const AGENTS_LIST_MAX_TAKE = 500;
+
 export class ListAgentsQueryDto {
   @ApiPropertyOptional({ enum: AGENT_SCOPES, description: 'Por defecto: todos los agentes que el usuario puede usar' })
   @IsOptional()
   @IsIn(AGENT_SCOPES)
   scope?: (typeof AGENT_SCOPES)[number];
+
+  @ApiPropertyOptional({
+    description: `Cuántos agentes devolver (paginación opcional; por defecto ${AGENTS_LIST_DEFAULT_TAKE}, máx. ${AGENTS_LIST_MAX_TAKE})`,
+    minimum: 1,
+    maximum: AGENTS_LIST_MAX_TAKE,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(AGENTS_LIST_MAX_TAKE)
+  take?: number;
+
+  @ApiPropertyOptional({ description: 'Cuántos agentes saltar (paginación opcional)', minimum: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  skip?: number;
 }
 
 export class SetVisibilityDto {

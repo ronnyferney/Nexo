@@ -49,7 +49,7 @@ export class AgentsController {
 
   @Get()
   list(@CurrentAuth() a: AuthContext, @Query() q: ListAgentsQueryDto) {
-    return this.agents.list(a, q.scope);
+    return this.agents.list(a, q.scope, { take: q.take, skip: q.skip });
   }
 
   /** Agentes de equipo o empresa que el usuario puede usar y que no son suyos. */

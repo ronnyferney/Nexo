@@ -30,21 +30,76 @@ import { clasificarRiesgo, type EntradaClasificacionRiesgo, type ResultadoClasif
 @Injectable()
 export class SensitiveActionsService implements OnApplicationBootstrap {
   private readonly logger = new Logger(SensitiveActionsService.name);
+  /**
+   * Caché process-local de workspaces cuyo catálogo base ya está garantizado. Evita el SELECT repetido de
+   * `ensureForWorkspace` en cada evaluación de política/listado. Un workspace nuevo entra al set en su primer acceso;
+   * la BD sigue siendo la fuente de verdad e idempotente, así que el comportamiento observable no cambia.
+   */
+  private readonly sembrados = new Set<string>();
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
   ) {}
 
+  /**
+   * Siembra al arranque SIN barrer en serie los workspaces: una sola consulta de diferencia de conjuntos trae los que
+   * no tienen el catálogo base de sistema y se siembran en un único `createMany` idempotente. En régimen estable es una
+   * sola consulta y cero inserciones; el tiempo ya no escala con el nº de workspaces.
+   */
   async onApplicationBootstrap(): Promise<void> {
-    const workspaces = await this.prisma.workspace.findMany({ select: { id: true } });
-    let total = 0;
-    for (const w of workspaces) total += await this.ensureForWorkspace(w.id);
-    if (total) this.logger.log(`Catálogo base de acciones sensibles sembrado: ${total} en ${workspaces.length} ws`);
+    const t0 = Date.now();
+    const pendientes = await this.workspacesSinCatalogo();
+    const total = pendientes.length ? await this.seedLote(pendientes) : 0;
+    this.logger.log(
+      `Bootstrap acciones sensibles: ${total} entrada(s) en ${pendientes.length} workspace(s) pendiente(s) ` +
+        `(${Date.now() - t0}ms)`,
+    );
+  }
+
+  /** Workspaces que NO tienen el catálogo base de sistema completo (empresaId IS NULL). Una sola consulta. */
+  private async workspacesSinCatalogo(): Promise<string[]> {
+    const rows = await this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT w."id"
+      FROM "Workspace" w
+      WHERE (
+        SELECT COUNT(*) FROM "TipoAccionSensible" t
+        WHERE t."workspaceId" = w."id" AND t."esSistema" = true AND t."empresaId" IS NULL
+      ) < ${CATALOGO_BASE_ACCIONES_SENSIBLES.length}
+    `;
+    return rows.map((r) => r.id);
+  }
+
+  /** Inserta en un solo `createMany` las entradas base que falten en el lote (ON CONFLICT DO NOTHING). */
+  private async seedLote(workspaceIds: string[]): Promise<number> {
+    const data: Prisma.TipoAccionSensibleCreateManyInput[] = workspaceIds.flatMap((workspaceId) =>
+      CATALOGO_BASE_ACCIONES_SENSIBLES.map((def) => ({
+        workspaceId,
+        empresaId: null,
+        codigo: def.codigo,
+        nombre: def.nombre,
+        requiereAprobacion: def.requiereAprobacion,
+        requiereDobleAprobacion: def.requiereDobleAprobacion,
+        nivelRiesgoPorDefecto: def.nivelRiesgoPorDefecto,
+        esSistema: true,
+        activo: true,
+      })),
+    );
+    try {
+      const { count } = await this.prisma.tipoAccionSensible.createMany({ data, skipDuplicates: true });
+      for (const id of workspaceIds) this.sembrados.add(id);
+      return count;
+    } catch (err) {
+      // Alta concurrente desde otra réplica: el índice parcial único ya las creó. No es un error.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') return 0;
+      throw err;
+    }
   }
 
   /** Garantiza el catálogo base de sistema del workspace (empresaId = null). Devuelve cuántas entradas creó. */
   async ensureForWorkspace(workspaceId: string): Promise<number> {
+    // Red de seguridad perezosa: si ya lo garantizamos en este proceso, no consultamos de nuevo.
+    if (this.sembrados.has(workspaceId)) return 0;
     const existentes = await this.prisma.tipoAccionSensible.findMany({
       where: { workspaceId, empresaId: null },
       select: { codigo: true },
@@ -74,6 +129,8 @@ export class SensitiveActionsService implements OnApplicationBootstrap {
         throw err;
       }
     }
+    // Catálogo garantizado (lo creamos o ya estaba): entra a la caché para no repetir el SELECT.
+    this.sembrados.add(workspaceId);
     return creadas;
   }
 

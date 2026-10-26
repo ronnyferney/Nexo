@@ -12,6 +12,7 @@ import type { AgentEvent } from '../llm/llm-provider';
 import { OrgService } from '../governance/org.service';
 import { AgentRuntimeService, toolName, type AgentWithTools, type RunContext } from './agent-runtime.service';
 import {
+  AGENTS_LIST_DEFAULT_TAKE,
   CreateAgentDto,
   CreateAgentExampleDto,
   SetAgentKnowledgeDto,
@@ -71,13 +72,18 @@ export class AgentsService {
    * `GET /agents?scope=` (ADR 0007). Sin ámbito: todos los que el usuario puede usar como miembro (los suyos, los
    * compartidos y los de la empresa). `all` (solo ADMIN/OWNER) incluye los privados de otros, como `ADMIN_VIEW`.
    */
-  async list(auth: AuthContext, scope?: AgentScope) {
+  async list(auth: AuthContext, scope?: AgentScope, page?: { take?: number; skip?: number }) {
     const where = scope ? await this.access.scopeWhere(auth, scope) : await this.access.usableWhere(auth);
     if (!where) return [];
+    // Paginación ADITIVA (ADR 0007): la respuesta sigue siendo un array (el front consume `Agent[]`). Sin `take`
+    // se aplica un tope por defecto para no traer la tabla completa; el máximo lo valida el DTO.
+    const take = page?.take ?? AGENTS_LIST_DEFAULT_TAKE;
     const rows = await this.prisma.agent.findMany({
       where,
       include: { _count: { select: { tools: true } } },
       orderBy: { updatedAt: 'desc' },
+      take,
+      ...(page?.skip ? { skip: page.skip } : {}),
     });
     const [permissions, owners, conversations] = await Promise.all([
       this.access.permissions(auth, rows),
