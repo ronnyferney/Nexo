@@ -13,6 +13,7 @@ import { EmptyStateComponent } from '../../shared/empty-state.component';
 import { RelativeTimePipe } from '../../shared/relative-time.pipe';
 import { PageHeaderComponent } from '../../layout/page-header.component';
 import { ContratoPanelComponent } from './contrato-panel.component';
+import { HandoffPanelComponent } from '../mensajes/handoff-panel.component';
 import {
   estadoTareaMeta,
   PRIORIDAD_LABEL,
@@ -43,6 +44,7 @@ import {
     RelativeTimePipe,
     PageHeaderComponent,
     ContratoPanelComponent,
+    HandoffPanelComponent,
   ],
   template: `
     <div class="page">
@@ -151,6 +153,12 @@ import {
               <nx-empty-state icon="checkCircle" title="Sin incumplimientos" description="No hay planes de recuperación abiertos." />
             }
           </section>
+
+          <nx-handoff-panel
+            [tareaId]="t.id"
+            [canEdit]="canEdit()"
+            [ejecutorAgentId]="t.responsableAgentId"
+            (changed)="load()" />
         </div>
       }
     </div>

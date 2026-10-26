@@ -37,6 +37,8 @@ export const routes: Routes = [
       { path: 'trabajo', loadComponent: () => import('./features/trabajo/mi-trabajo.page').then((m) => m.MiTrabajoPage) },
       { path: 'trabajo/objetivos', loadComponent: () => import('./features/trabajo/objetivos.page').then((m) => m.ObjetivosPage) },
       { path: 'trabajo/tareas/:id', loadComponent: () => import('./features/trabajo/tarea-detalle.page').then((m) => m.TareaDetallePage) },
+      { path: 'mensajes', loadComponent: () => import('./features/mensajes/bandeja.page').then((m) => m.BandejaPage) },
+      { path: 'canales', loadComponent: () => import('./features/mensajes/canales.page').then((m) => m.CanalesPage) },
       { path: 'routines', loadComponent: () => import('./features/routines/routines.page').then((m) => m.RoutinesPage) },
       { path: 'supervision', loadComponent: () => import('./features/supervision/supervision.page').then((m) => m.SupervisionPage) },
       { path: 'account', loadComponent: () => import('./features/account/account.page').then((m) => m.AccountPage) },

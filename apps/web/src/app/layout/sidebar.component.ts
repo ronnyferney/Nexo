@@ -140,6 +140,8 @@ export class SidebarComponent {
     { path: '/', label: 'Inicio', icon: 'dashboard', exact: true },
     { path: '/trabajo', label: 'Mi trabajo', icon: 'checkCircle', exact: false },
     { path: '/trabajo/objetivos', label: 'Objetivos', icon: 'target', exact: false },
+    { path: '/mensajes', label: 'Mensajes', icon: 'send', exact: false },
+    { path: '/canales', label: 'Canales', icon: 'branch', exact: false },
     { path: '/agents', label: 'Agentes', icon: 'bot', exact: false },
     { path: '/agents/explore', label: 'Explorar agentes', icon: 'search', exact: false },
     { path: '/cargos', label: 'Cargos', icon: 'layers', exact: false },
