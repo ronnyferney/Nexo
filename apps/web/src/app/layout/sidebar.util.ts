@@ -118,6 +118,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { path: '/admin/suspension', label: 'Suspensión', icon: 'stop', exact: false, scope: 'admin' },
       { path: '/admin/alerts', label: 'Alertas', icon: 'bell', exact: false, scope: 'admin' },
       { path: '/admin/security', label: 'Seguridad', icon: 'shield', exact: false, scope: 'admin' },
+      { path: '/auditoria', label: 'Auditoría', icon: 'lock', exact: false, scope: 'admin' },
     ],
   },
   {

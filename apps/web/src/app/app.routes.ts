@@ -48,6 +48,7 @@ export const routes: Routes = [
       { path: 'excepciones', loadComponent: () => import('./features/excepciones/excepciones.page').then((m) => m.ExcepcionesPage) },
       { path: 'resultados', loadComponent: () => import('./features/resultados/resultados.page').then((m) => m.ResultadosPage) },
       { path: 'consola-gerencial', canActivate: [adminGuard], loadComponent: () => import('./features/consola-gerencial/consola-gerencial.page').then((m) => m.ConsolaGerencialPage) },
+      { path: 'auditoria', canActivate: [adminGuard], loadComponent: () => import('./features/auditoria/auditoria.page').then((m) => m.AuditoriaPage) },
       { path: 'account', loadComponent: () => import('./features/account/account.page').then((m) => m.AccountPage) },
       { path: 'my-usage', loadComponent: () => import('./features/usage/my-usage.page').then((m) => m.MyUsagePage) },
       { path: 'settings', redirectTo: 'admin/security', pathMatch: 'full' },
