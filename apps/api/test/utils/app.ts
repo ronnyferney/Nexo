@@ -46,7 +46,8 @@ export async function createTestApp(opts: { throttle?: boolean } = {}): Promise<
     .overrideProvider(getSharedConfigToken())
     .useValue({ connection: e2eRedis() })
     .compile();
-  const app = moduleRef.createNestApplication<NestExpressApplication>({ logger: ['error'] });
+  // `rawBody: true` como en `main.ts`: expone `req.rawBody` para la firma HMAC de los webhooks de canales (E14).
+  const app = moduleRef.createNestApplication<NestExpressApplication>({ logger: ['error'], rawBody: true });
   app.set('trust proxy', app.get(ConfigService).getOrThrow<TrustProxy>('trustProxy'));
   app.setGlobalPrefix('api');
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));

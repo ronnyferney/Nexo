@@ -10,7 +10,8 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import type { TrustProxy } from './config/trust-proxy';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
+  // `rawBody: true` expone `req.rawBody` (cuerpo crudo) para verificar firmas HMAC de webhooks (canales externos, E14).
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true, rawBody: true });
   const config = app.get(ConfigService);
   app.useLogger(app.get(Logger));
   // IP real del cliente detrás de ALB → nginx (A5): sin esto, el limitador ve a todos los clientes con la IP del proxy.

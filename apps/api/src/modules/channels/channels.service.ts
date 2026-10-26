@@ -1,11 +1,12 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import type { CanalCuenta, EstadoMensajeCanal, Prisma } from '@prisma/client';
 import type { AuthContext } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import { ActionGatewayService } from '../governance/actions/action-gateway.service';
 import { SecretsService } from '../workspaces/secrets.service';
 import { CHANNEL_ADAPTERS, type ChannelAdapter } from './domain/channel-adapter';
-import type { CanalRuntime } from './domain/channel.types';
+import type { CanalRuntime, WebhookSolicitud } from './domain/channel.types';
 import type { CreateCanalCuentaDto, EnviarMensajeDto, UpdateCanalCuentaDto } from './dto/channel.dto';
 
 const json = (v: unknown) => (v ?? {}) as Prisma.InputJsonValue;
@@ -34,9 +35,17 @@ export class ChannelsService {
     private readonly prisma: PrismaService,
     private readonly secrets: SecretsService,
     private readonly gateway: ActionGatewayService,
+    private readonly audit: AuditService,
     @Inject(CHANNEL_ADAPTERS) adapters: ChannelAdapter[],
   ) {
-    this.adapters = new Map(adapters.map((a) => [a.proveedor, a]));
+    // Registro por `proveedor` y por `alias` (p. ej. `meta` → `whatsapp_meta`), sin ramas `if (proveedor === ...)`.
+    this.adapters = new Map();
+    for (const a of adapters) {
+      for (const clave of [a.proveedor, ...(a.alias ?? [])]) {
+        if (this.adapters.has(clave)) throw new Error(`Clave de proveedor de canal duplicada: ${clave}`);
+        this.adapters.set(clave, a);
+      }
+    }
   }
 
   // ---------- Cuentas de canal ----------
@@ -217,8 +226,93 @@ export class ChannelsService {
       asunto: dto.asunto,
       cuerpo: dto.cuerpo,
       idempotencyKey: dto.idempotencyKey,
+      plantilla: dto.plantilla,
+      adjunto: dto.adjunto,
     });
     return { estado: res.estado, proveedorMensajeId: res.proveedorMensajeId ?? null, error: res.error ?? null };
+  }
+
+  // ---------- Webhooks entrantes ----------
+  /**
+   * Recepción de webhook (ADR 0015 D1/D6). Endpoint PÚBLICO: la "autenticación" es la VERIFICACIÓN DE FIRMA del
+   * proveedor con el secreto de la cuenta (no hay sesión). Secuencia: localizar la cuenta por id → confirmar que el
+   * `:proveedor` de la ruta selecciona el mismo adaptador → verificar firma (firma inválida ⇒ 401 + auditoría, sin
+   * registrar nada) → traducir el payload a eventos → registrar `MensajeCanal` ENTRANTE idempotente por
+   * `proveedorMensajeId` y aplicar actualizaciones de estado a los salientes. El contenido entrante es dato NO
+   * confiable (no habilita herramientas ni cambia políticas).
+   */
+  async recibirWebhook(proveedor: string, cuentaId: string, solicitud: WebhookSolicitud) {
+    const cuenta = await this.prisma.canalCuenta.findUnique({ where: { id: cuentaId } });
+    // No se filtra la existencia de la cuenta a un no autenticado: 404 genérico salvo que todo cuadre.
+    if (!cuenta) throw new NotFoundException('Webhook no reconocido');
+    const adapter = this.adapters.get(proveedor);
+    if (!adapter || adapter !== this.adapters.get(cuenta.proveedor))
+      throw new NotFoundException('Webhook no reconocido');
+    if (!adapter.verificarFirma || !adapter.traducirWebhook) {
+      throw new NotFoundException('Webhook no reconocido');
+    }
+
+    const runtime = await this.runtime(cuenta);
+    if (!adapter.verificarFirma(runtime, solicitud)) {
+      await this.audit.append(cuenta.workspaceId, {
+        actorType: 'SYSTEM',
+        action: 'canal.webhook.firma_invalida',
+        targetType: 'CanalCuenta',
+        targetId: cuenta.id,
+        resumen: `Webhook de ${cuenta.proveedor} rechazado: firma inválida`,
+      });
+      throw new UnauthorizedException('Firma de webhook inválida');
+    }
+
+    const eventos = adapter.traducirWebhook(solicitud);
+    let entrantes = 0;
+    let estados = 0;
+    for (const ev of eventos) {
+      if (ev.tipo === 'MENSAJE') {
+        if (await this.registrarEntrante(cuenta, ev.proveedorMensajeId, ev.origen ?? 'desconocido', ev.cuerpo ?? '')) {
+          entrantes += 1;
+        }
+      } else if (ev.tipo === 'ESTADO' && ev.estado) {
+        const res = await this.prisma.mensajeCanal.updateMany({
+          where: {
+            workspaceId: cuenta.workspaceId,
+            canalCuentaId: cuenta.id,
+            direccion: 'SALIENTE',
+            proveedorMensajeId: ev.proveedorMensajeId,
+          },
+          data: { estado: ev.estado },
+        });
+        estados += res.count;
+      }
+    }
+    return { ok: true, entrantes, estados };
+  }
+
+  /** Registra un entrante idempotente por `proveedorMensajeId` (redelivery no duplica). `destino` = remitente externo. */
+  private async registrarEntrante(
+    cuenta: CanalCuenta,
+    proveedorMensajeId: string,
+    origen: string,
+    cuerpo: string,
+  ): Promise<boolean> {
+    try {
+      await this.prisma.mensajeCanal.create({
+        data: {
+          workspaceId: cuenta.workspaceId,
+          canalCuentaId: cuenta.id,
+          direccion: 'ENTRANTE',
+          idempotencyKey: `in:${cuenta.proveedor}:${proveedorMensajeId}`,
+          destino: origen,
+          cuerpo,
+          estado: 'ENTREGADO',
+          proveedorMensajeId,
+        },
+      });
+      return true;
+    } catch (err) {
+      if ((err as { code?: string }).code === 'P2002') return false; // redelivery idempotente
+      throw err;
+    }
   }
 
   // ---------- Internos ----------

@@ -2603,10 +2603,12 @@ enum DireccionMensaje {
 }
 
 /// Estado de un mensaje de canal. SIMULADO = despachado por el adaptador simulado (QA), sin salida de red.
+/// LEIDO = acuse de lectura del destinatario (WhatsApp Meta `read` / Twilio `read`); E14 incremento 2.
 enum EstadoMensajeCanal {
   PENDIENTE
   ENVIADO
   ENTREGADO
+  LEIDO
   FALLIDO
   SIMULADO
 }

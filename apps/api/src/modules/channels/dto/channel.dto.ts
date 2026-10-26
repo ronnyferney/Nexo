@@ -1,6 +1,19 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { CanalCuentaEstado, CanalTipo } from '@prisma/client';
-import { IsEnum, IsObject, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsEnum,
+  IsIn,
+  IsObject,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  MinLength,
+  ValidateNested,
+} from 'class-validator';
 import { SECRET_NAME_PATTERN } from '../../connectors/domain/secret-refs';
 
 /** Proveedor: etiqueta corta en minúsculas (m365 | gmail | smtp | twilio | meta | simulado | ...). */
@@ -39,6 +52,60 @@ export class CreateCanalCuentaDto {
 
 export class UpdateCanalCuentaDto extends PartialType(CreateCanalCuentaDto) {}
 
+/** Plantilla aprobada de WhatsApp (Meta/Twilio): nombre, idioma y parámetros posicionales del cuerpo, SIN secretos. */
+export class PlantillaMensajeDto {
+  @ApiProperty({ description: 'Nombre de la plantilla aprobada (Meta) o Content SID (Twilio)' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(512)
+  nombre!: string;
+
+  @ApiPropertyOptional({ description: 'Idioma BCP-47 (ej. es, es_AR, en_US)', default: 'es' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  idioma?: string;
+
+  @ApiPropertyOptional({ type: [String], description: 'Parámetros posicionales del cuerpo; NUNCA secretos' })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  @MaxLength(1000, { each: true })
+  parametros?: string[];
+}
+
+/** Adjunto por referencia (URL pública o media id del proveedor); nunca binarios en el cuerpo (ADR 0015/0008). */
+export class AdjuntoMensajeDto {
+  @ApiProperty({ enum: ['imagen', 'documento', 'audio', 'video'] })
+  @IsIn(['imagen', 'documento', 'audio', 'video'])
+  tipo!: 'imagen' | 'documento' | 'audio' | 'video';
+
+  @ApiPropertyOptional({ description: 'URL pública del adjunto (validada por el egress seguro)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  url?: string;
+
+  @ApiPropertyOptional({ description: 'Id de media previamente subido al proveedor (alternativa a url)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(256)
+  mediaId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(256)
+  nombreArchivo?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(1024)
+  caption?: string;
+}
+
 export class EnviarMensajeDto {
   @ApiProperty({ description: 'Destino (correo, número, ...)' })
   @IsString()
@@ -75,11 +142,23 @@ export class EnviarMensajeDto {
   @IsString()
   @MaxLength(64)
   misionId?: string;
+
+  @ApiPropertyOptional({ type: PlantillaMensajeDto, description: 'Plantilla WhatsApp; si viene, se envía plantilla' })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PlantillaMensajeDto)
+  plantilla?: PlantillaMensajeDto;
+
+  @ApiPropertyOptional({ type: AdjuntoMensajeDto, description: 'Adjunto por referencia' })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AdjuntoMensajeDto)
+  adjunto?: AdjuntoMensajeDto;
 }
 
 /** Filtro opcional de la bandeja de mensajes. */
 export class ListMensajesQueryDto {
-  @ApiPropertyOptional({ enum: ['PENDIENTE', 'ENVIADO', 'ENTREGADO', 'FALLIDO', 'SIMULADO'] })
+  @ApiPropertyOptional({ enum: ['PENDIENTE', 'ENVIADO', 'ENTREGADO', 'LEIDO', 'FALLIDO', 'SIMULADO'] })
   @IsOptional()
   @IsString()
   estado?: string;

@@ -1,6 +1,21 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  type RawBodyRequest,
+} from '@nestjs/common';
+import { ApiBearerAuth, ApiExcludeEndpoint, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
+import type { Request } from 'express';
 import { CurrentAuth, type AuthContext } from '../../common/decorators/current-user.decorator';
+import { Public } from '../../common/decorators/public.decorator';
 import { MinRole } from '../../common/decorators/roles.decorator';
 import { ChannelsService } from './channels.service';
 import { CreateCanalCuentaDto, EnviarMensajeDto, ListMensajesQueryDto, UpdateCanalCuentaDto } from './dto/channel.dto';
@@ -65,5 +80,29 @@ export class ChannelsController {
   @Get(':cuentaId/mensajes')
   mensajes(@CurrentAuth() a: AuthContext, @Param('cuentaId') cuentaId: string, @Query() query: ListMensajesQueryDto) {
     return this.channels.listMensajes(a.workspaceId, cuentaId, query.estado);
+  }
+
+  /**
+   * Webhook entrante de un proveedor (Meta/Twilio). Endpoint PÚBLICO (sin sesión): la autenticación es la VERIFICACIÓN
+   * DE FIRMA del proveedor con el secreto de la cuenta (`X-Hub-Signature-256` de Meta sobre el cuerpo crudo;
+   * `X-Twilio-Signature` sobre url+params). Firma inválida ⇒ 401. Se usa el cuerpo CRUDO (`req.rawBody`, por
+   * `rawBody: true` en el bootstrap) para la firma HMAC de Meta y la URL absoluta para la de Twilio. Throttling por IP.
+   */
+  @Public()
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
+  @ApiExcludeEndpoint()
+  @HttpCode(200)
+  @Post('webhooks/:proveedor/:cuentaId')
+  webhook(
+    @Param('proveedor') proveedor: string,
+    @Param('cuentaId') cuentaId: string,
+    @Req() req: RawBodyRequest<Request>,
+  ) {
+    const headers: Record<string, string> = {};
+    for (const [k, v] of Object.entries(req.headers))
+      headers[k.toLowerCase()] = Array.isArray(v) ? v.join(',') : (v ?? '');
+    const rawBody = req.rawBody?.toString('utf8') ?? JSON.stringify(req.body ?? {});
+    const url = `${req.protocol}://${req.get('host') ?? ''}${req.originalUrl}`;
+    return this.channels.recibirWebhook(proveedor, cuentaId, { headers, body: req.body, rawBody, url });
   }
 }
