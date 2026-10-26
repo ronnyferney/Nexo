@@ -63,7 +63,7 @@ export class DestinoImputacionDto {
 
 /** Define el reparto COMPLETO de un servicio para un periodo (reemplaza el anterior de ese periodo, atómico). */
 export class SetRepartoDto {
-  @ApiProperty({ description: 'Clave de periodo coherente con BudgetLedger (p. ej. "2026-M10")' })
+  @ApiProperty({ description: 'Clave de periodo mensual "YYYY-MM" (p. ej. "2026-10"); la consolidación reconoce este formato' })
   @IsString()
   @MaxLength(20)
   periodoKey!: string;

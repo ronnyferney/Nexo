@@ -118,6 +118,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     items: [
       { path: '/admin', label: 'Costos', icon: 'chart', exact: true, scope: 'admin' },
       { path: '/admin/budgets', label: 'Presupuestos', icon: 'wallet', exact: false, scope: 'admin' },
+      { path: '/admin/imputacion', label: 'Imputación de costos', icon: 'scale', exact: false, scope: 'admin' },
       { path: '/my-usage', label: 'Mi consumo', icon: 'wallet', exact: false, scope: 'all' },
     ],
   },

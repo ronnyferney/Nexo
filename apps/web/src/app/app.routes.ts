@@ -59,6 +59,7 @@ export const routes: Routes = [
           { path: 'dimensiones', loadComponent: () => import('./features/admin/dimensiones/dimensiones.page').then((m) => m.DimensionesPage) },
           { path: 'groups', loadComponent: () => import('./features/admin/groups.page').then((m) => m.GroupsPage) },
           { path: 'budgets', loadComponent: () => import('./features/admin/budgets.page').then((m) => m.BudgetsPage) },
+          { path: 'imputacion', loadComponent: () => import('./features/finanzas/imputacion.page').then((m) => m.ImputacionPage) },
           { path: 'politicas', loadComponent: () => import('./features/gobierno/politicas.page').then((m) => m.PoliticasPage) },
           { path: 'suspension', loadComponent: () => import('./features/gobierno/suspension.page').then((m) => m.SuspensionPage) },
           { path: 'alerts', loadComponent: () => import('./features/admin/alerts.page').then((m) => m.AlertsPage) },
