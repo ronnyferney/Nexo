@@ -69,6 +69,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { path: '/agents', label: 'Agentes', icon: 'bot', exact: true, scope: 'all' },
       { path: '/agents/explore', label: 'Explorar agentes', icon: 'search', exact: false, scope: 'all' },
       { path: '/cargos', label: 'Cargos', icon: 'layers', exact: false, scope: 'all' },
+      { path: '/organigrama', label: 'Organigrama', icon: 'orgchart', exact: false, scope: 'all' },
       { path: '/cuadrillas', label: 'Cuadrillas', icon: 'users', exact: false, scope: 'all' },
       { path: '/skills', label: 'Skills', icon: 'sparkles', exact: false, scope: 'all' },
       { path: '/knowledge', label: 'Conocimiento', icon: 'book', exact: false, scope: 'all' },

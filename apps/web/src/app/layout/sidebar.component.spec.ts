@@ -53,8 +53,8 @@ describe('SidebarComponent', () => {
     expect(el.querySelector('.filter input')?.getAttribute('aria-label')).toBe('Buscar en el menú');
   });
 
-  it('un VIEWER solo ve los 22 enlaces comunes y ninguna ruta de admin/plataforma', () => {
-    expect(links().length).toBe(22);
+  it('un VIEWER solo ve los 23 enlaces comunes y ninguna ruta de admin/plataforma', () => {
+    expect(links().length).toBe(23);
     const paths = [...links()].map((a) => a.getAttribute('href') ?? '');
     expect(paths.some((p) => p.startsWith('/admin'))).toBeFalse();
     expect(paths.some((p) => p.startsWith('/platform'))).toBeFalse();
