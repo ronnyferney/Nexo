@@ -138,6 +138,8 @@ export class SidebarComponent {
   });
   protected readonly portalNav: NavItem[] = [
     { path: '/', label: 'Inicio', icon: 'dashboard', exact: true },
+    { path: '/trabajo', label: 'Mi trabajo', icon: 'checkCircle', exact: false },
+    { path: '/trabajo/objetivos', label: 'Objetivos', icon: 'target', exact: false },
     { path: '/agents', label: 'Agentes', icon: 'bot', exact: false },
     { path: '/agents/explore', label: 'Explorar agentes', icon: 'search', exact: false },
     { path: '/cargos', label: 'Cargos', icon: 'layers', exact: false },
