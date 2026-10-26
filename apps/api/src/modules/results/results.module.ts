@@ -9,6 +9,8 @@ import { IndicadoresController } from './indicadores/indicadores.controller';
 import { IndicadoresService } from './indicadores/indicadores.service';
 import { ObjetivosController } from './objetivos.controller';
 import { ObjetivosService } from './objetivos.service';
+import { ContractPassportController, PassportsController } from './pasaporte.controller';
+import { PasaporteService } from './pasaporte.service';
 import { TareasController } from './tareas.controller';
 import { TareasService } from './tareas.service';
 import { ValidacionService } from './validacion.service';
@@ -27,6 +29,8 @@ import { ValidacionService } from './validacion.service';
     ContratosController,
     IncumplimientosController,
     IndicadoresController,
+    ContractPassportController,
+    PassportsController,
   ],
   providers: [
     ObjetivosService,
@@ -36,6 +40,7 @@ import { ValidacionService } from './validacion.service';
     IncumplimientosService,
     IndicadoresService,
     AgentVerificationService,
+    PasaporteService,
   ],
   exports: [IncumplimientosService],
 })

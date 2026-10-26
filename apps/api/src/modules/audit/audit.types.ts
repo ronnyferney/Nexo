@@ -15,6 +15,8 @@ export const AUDIT_ACTIONS = {
   AGENTE_PUBLICADO: 'AGENTE_PUBLICADO',
   AGENTE_SUSPENDIDO: 'AGENTE_SUSPENDIDO',
   ACCESO_SENSIBLE: 'ACCESO_SENSIBLE',
+  /// Emisión de un pasaporte de resultado (ADR 0014 · E14): ancla el pasaporte a la cadena de hash de E13.
+  PASAPORTE_EMITIDO: 'PASAPORTE_EMITIDO',
 } as const;
 
 /** Código de acción auditable. Texto abierto (`string`): se recomienda usar las constantes de `AUDIT_ACTIONS`. */

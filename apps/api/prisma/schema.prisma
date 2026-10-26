@@ -1712,6 +1712,9 @@ model ContratoResultado {
   comprometidoAt     DateTime?
   validaciones       ValidacionResultado[]
   evidencias         Evidencia[]
+  /// Pasaportes de resultado emitidos (ADR 0014 · E14). Back-relation aditiva y opcional: un contrato aceptado sin
+  /// pasaporte sigue siendo válido (compatibilidad hacia atrás). Append-only; la reapertura emite uno nuevo.
+  pasaportes         PasaporteResultado[]
   createdAt          DateTime              @default(now())
   updatedAt          DateTime              @updatedAt
 
@@ -1763,6 +1766,36 @@ model Evidencia {
 
   @@index([workspaceId, contratoResultadoId])
   @@index([workspaceId, tareaId])
+}
+
+/// Pasaporte de resultado (ADR 0014 · E14): cadena de custodia verificable de extremo a extremo de un
+/// `ContratoResultado` ACEPTADO. Se compone por REFERENCIAS + HASHES (nunca copia de datos sensibles) y se ANCLA a la
+/// cadena de hash del `AuditLog` (E13): la entrada `PASAPORTE_EMITIDO` que lo registró le presta su `seq`/`hash`. El
+/// `documentHash` es el sha256 del cuerpo canónico (mismo algoritmo determinista de `audit.hashing`). Es INMUTABLE y
+/// append-only: si el resultado se reabre/corrige se emite uno nuevo con `reemplazaAId` apuntando al anterior, nunca se
+/// reescribe. Multi-tenant por `workspaceId`. Verificable por un tercero sin acceso a los datos subyacentes.
+model PasaporteResultado {
+  id                  String            @id @default(cuid())
+  workspaceId         String
+  contratoResultadoId String
+  contrato            ContratoResultado @relation(fields: [contratoResultadoId], references: [id], onDelete: Cascade)
+  tareaId             String?
+  /// Cuerpo canónico por REFERENCIA + HASH; nunca copia de datos sensibles. Forma:
+  /// { agentes[], transferencias[], ejecuciones[], conectores[], aprobaciones[], validaciones[], usageRecords[],
+  ///   auditSeqs[], totales }.
+  documentoRef        Json              @default("{}")
+  /// Hash determinista del cuerpo canónico (algoritmo de `audit.hashing`): recomputarlo detecta alteración de lo referenciado.
+  documentHash        String
+  /// Anclaje a la cadena de auditoría inmutable (E13): `seq` e `id` de la entrada `PASAPORTE_EMITIDO` que lo registró.
+  auditSeq            Int
+  auditEntryId        String
+  /// Pasaporte anterior si el resultado se reabrió/corrigió (append-only; nunca se reescribe el previo).
+  reemplazaAId        String?
+  emitidoPorUserId    String?
+  createdAt           DateTime          @default(now())
+
+  @@unique([workspaceId, contratoResultadoId, documentHash])
+  @@index([workspaceId, contratoResultadoId])
 }
 
 /// Incumplimiento + plan de recuperación (RF31): alerta, responsable, plazo, y LÍMITES explícitos de reintentos,
