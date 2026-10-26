@@ -314,6 +314,10 @@ model Workspace {
   transferencias            ContratoTransferencia[]
   canales                   Canal[]
   hilosCanal                HiloCanal[]
+  politicas                 Politica[]
+  decisionesPolitica        DecisionPolitica[]
+  aprobaciones              Aprobacion[]
+  suspensiones              Suspension[]
 }
 
 /// Catálogo de cargos (RF03): perfil reutilizable del empleado digital con propósito, funciones, entregables,
@@ -1741,4 +1745,159 @@ model HiloCanal {
   updatedAt    DateTime  @updatedAt
 
   @@index([workspaceId, canalId])
+}
+
+// --- Gobierno de acciones (E6 · ADR 0013 D1-D4) ---
+
+/// Efecto de una política/decisión. Gana el control más restrictivo: DENY > REQUIRE_APPROVAL(2) > REQUIRE_APPROVAL(1) > ALLOW.
+enum PolicyEffect {
+  ALLOW
+  DENY
+  REQUIRE_APPROVAL
+}
+
+/// Ciclo de vida de una política. Un cambio no reescribe: archiva la versión vigente y crea otra (RF11).
+enum PolicyStatus {
+  BORRADOR
+  ACTIVA
+  ARCHIVADA
+}
+
+enum ApprovalRisk {
+  BAJO
+  MEDIO
+  ALTO
+}
+
+/// Estados de una aprobación (RF12). PENDIENTE → APROBADA|RECHAZADA|AJUSTE → EJECUTADA|CADUCADA|INVALIDADA.
+enum ApprovalStatus {
+  PENDIENTE
+  APROBADA
+  RECHAZADA
+  AJUSTE
+  EJECUTADA
+  CADUCADA
+  INVALIDADA
+}
+
+/// Alcance de una suspensión de emergencia (RF13).
+enum SuspensionScope {
+  AGENTE
+  PROCESO
+  CONECTOR
+  ORGANIZACION
+}
+
+/// Regla de política declarativa y versionada (RF11). El selector es JSON validado (NUNCA `eval`). Un cambio crea una
+/// versión nueva (la anterior pasa a ARCHIVADA), de modo que cada `DecisionPolitica` referencia una versión inmutable.
+model Politica {
+  id                String       @id @default(cuid())
+  workspaceId       String
+  workspace         Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// Empresa (OrgUnit tipo EMPRESA) a la que aplica; null = todo el workspace. Referencia blanda.
+  empresaId         String?
+  nombre            String
+  /// Tipo de acción al que aplica (EMAIL_SEND | PAYMENT | DATA_DELETE | ...). Texto abierto y extensible.
+  tipoAccion        String
+  /// Selector declarativo: agente/usuario/org/recurso/destinatario/monto/dato/horario.
+  selector          Json         @default("{}")
+  efecto            PolicyEffect
+  /// Nº de aprobaciones distintas requeridas cuando el efecto es REQUIRE_APPROVAL (1 o 2).
+  requiredApprovals Int          @default(1)
+  /// Si el solicitante puede aprobarse a sí mismo (por defecto NO; aplica también al superempleado, RF40/QA13).
+  allowSelfApproval Boolean      @default(false)
+  version           Int          @default(1)
+  vigenteDesde      DateTime     @default(now())
+  vigenteHasta      DateTime?
+  estado            PolicyStatus @default(ACTIVA)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@index([workspaceId, tipoAccion, estado])
+  @@index([workspaceId, empresaId])
+}
+
+/// Registro inmutable de cada evaluación del motor de políticas (feeds AuditLog, E13). Nunca guarda razonamiento del
+/// modelo, solo hechos estructurados y códigos auditables.
+model DecisionPolitica {
+  id                String       @id @default(cuid())
+  workspaceId       String
+  workspace         Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  tipoAccion        String
+  actionContextHash String
+  efecto            PolicyEffect
+  requiredApprovals Int          @default(0)
+  /// Qué políticas/versiones dispararon la decisión: [{ policyId, version, efecto, requiredApprovals }].
+  policyVersions    Json         @default("[]")
+  /// Código auditable del motivo (p. ej. DENEGACION_POR_DEFECTO, SUSPENDIDO), nunca texto libre del modelo.
+  motivo            String
+  aprobacionId      String?
+  createdAt         DateTime     @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, actionContextHash])
+}
+
+/// Bandeja de aprobaciones (RF12). El `contentHash` fija el contenido aprobado; recomputarlo al ejecutar detecta
+/// cualquier cambio (QA03). `decisiones` lleva las firmas (dos distintas si requiredApprovals=2; sin autoaprobación).
+model Aprobacion {
+  id                 String         @id @default(cuid())
+  workspaceId        String
+  workspace          Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  empresaId          String?
+  /// Tarea de negocio (E4) que la originó. Referencia blanda.
+  tareaId            String?
+  proposito          String?
+  tipoAccion         String
+  /// Operación/plantilla + parámetros exactos.
+  operacion          Json           @default("{}")
+  /// Identidad de ejecución: { agentId, agentVersionId, herramienta }.
+  identidadEjec      Json           @default("{}")
+  destinatarios      Json           @default("[]")
+  contenido          Json           @default("{}")
+  adjuntos           Json?
+  contentHash        String
+  importe            Decimal?       @db.Decimal(18, 2)
+  moneda             String?
+  riesgo             ApprovalRisk   @default(MEDIO)
+  evidencia          Json?
+  requiredApprovals  Int            @default(1)
+  allowSelfApproval  Boolean        @default(false)
+  /// Solicitante (humano y/o agente) para prohibir la autoaprobación. Referencias blandas.
+  solicitanteUserId  String?
+  solicitanteAgentId String?
+  /// Unidad para revalidar presupuesto antes del efecto (reutiliza `budgets`). Referencia blanda.
+  orgUnitId          String?
+  /// Firmas: [{ actorUserId, decision, comentario, at }]. Dos actorUserId distintos si requiredApprovals=2.
+  decisiones         Json           @default("[]")
+  estado             ApprovalStatus @default(PENDIENTE)
+  expiresAt          DateTime
+  decisionPoliticaId String?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  @@index([workspaceId, estado])
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, tareaId])
+}
+
+/// Interruptor de emergencia por agente/proceso/conector/organización (RF13). El `ActionGateway` consulta las activas
+/// antes de todo efecto. La reactivación exige actor + motivo; todo queda registrado.
+model Suspension {
+  id               String          @id @default(cuid())
+  workspaceId      String
+  workspace        Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  alcance          SuspensionScope
+  /// Id del agente/flujo/conector/empresa alcanzado. Referencia blanda.
+  targetId         String
+  activa           Boolean         @default(true)
+  motivo           String
+  actorUserId      String?
+  createdAt        DateTime        @default(now())
+  reactivadaPor    String?
+  reactivadaMotivo String?
+  reactivadaAt     DateTime?
+
+  @@index([workspaceId, activa])
+  @@index([workspaceId, alcance, targetId])
 }
