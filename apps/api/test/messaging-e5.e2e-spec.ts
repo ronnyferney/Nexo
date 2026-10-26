@@ -115,18 +115,16 @@ describe('Mensajería y handoff E5 (e2e)', () => {
     expect(execution?.tareaId).toBe(tarea.id);
     expect(execution?.secuenciaSegmento).toBe(1);
     // El estado persistido ES la entrada del segmento entrante: no se rehace el trabajo confirmado.
-    expect((execution?.input as { estadoAlcanzado?: { pasoConfirmado?: string } })?.estadoAlcanzado?.pasoConfirmado).toBe(
-      'cobro-emitido',
-    );
+    expect(
+      (execution?.input as { estadoAlcanzado?: { pasoConfirmado?: string } })?.estadoAlcanzado?.pasoConfirmado,
+    ).toBe('cobro-emitido');
 
     // La tarea pasó al responsable entrante (trazabilidad de quién continúa).
     const tareaView = await prisma.tarea.findUnique({ where: { id: tarea.id } });
     expect(tareaView?.responsableAgentId).toBe('agente-2');
 
     // Aceptar de nuevo NO duplica (idempotencia por estado).
-    await owner.api
-      .post(`/transferencias/${transferencia.id}/aceptar`, { messageId: `acc2-${uid()}` })
-      .expect(400);
+    await owner.api.post(`/transferencias/${transferencia.id}/aceptar`, { messageId: `acc2-${uid()}` }).expect(400);
 
     // Un segundo handoff (segmento 2) se puede rechazar: devuelve sin encolar nada.
     const t2 = (
@@ -178,12 +176,10 @@ describe('Mensajería y handoff E5 (e2e)', () => {
   });
 
   it('coordinación (RF36): una solicitud de un hilo se convierte en tarea autorizada (idempotente)', async () => {
-    const canal = (
-      await owner.api.post('/canales', { tipo: 'MISION', nombre: `Misión ${uid()}` }).expect(201)
-    ).body as { id: string };
-    const hilo = (
-      await owner.api.post(`/canales/${canal.id}/hilos`, { asunto: 'Necesitamos un informe' }).expect(201)
-    ).body as { id: string };
+    const canal = (await owner.api.post('/canales', { tipo: 'MISION', nombre: `Misión ${uid()}` }).expect(201))
+      .body as { id: string };
+    const hilo = (await owner.api.post(`/canales/${canal.id}/hilos`, { asunto: 'Necesitamos un informe' }).expect(201))
+      .body as { id: string };
 
     const tarea = (
       await owner.api.post(`/hilos/${hilo.id}/convertir-en-tarea`, { titulo: 'Informe trimestral' }).expect(201)
@@ -191,9 +187,8 @@ describe('Mensajería y handoff E5 (e2e)', () => {
     expect(tarea.id).toBeTruthy();
 
     // Idempotente: convertir de nuevo devuelve la MISMA tarea (no crea otra).
-    const otra = (
-      await owner.api.post(`/hilos/${hilo.id}/convertir-en-tarea`, { titulo: 'Otra vez' }).expect(201)
-    ).body as { id: string };
+    const otra = (await owner.api.post(`/hilos/${hilo.id}/convertir-en-tarea`, { titulo: 'Otra vez' }).expect(201))
+      .body as { id: string };
     expect(otra.id).toBe(tarea.id);
   });
 

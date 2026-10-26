@@ -15,6 +15,13 @@ import {
   UpdatePoliticaDto,
 } from './dto/actions.dto';
 import { PolicyService } from './policy.service';
+import { SensitiveActionsService } from './sensitive-actions.service';
+import {
+  ClasificarRiesgoDto,
+  CreateTipoAccionSensibleDto,
+  ListTiposAccionSensibleQueryDto,
+  UpdateTipoAccionSensibleDto,
+} from './dto/sensitive-actions.dto';
 import { SuspensionsService } from './suspensions.service';
 
 /** Políticas (RF11). CRUD solo ADMIN; un cambio versiona (no reescribe). */
@@ -102,6 +109,44 @@ export class ApprovalsController {
   @HttpCode(200)
   decide(@CurrentAuth() a: AuthContext, @Param('id') id: string, @Body() dto: ApprovalDecisionBodyDto) {
     return this.approvals.decide(a.workspaceId, id, a, dto);
+  }
+}
+
+/**
+ * Catálogo configurable de acciones sensibles + clasificación de riesgo (E6+ · puntos 7 y 8). Lectura para cualquier
+ * miembro (VIEWER+); configurar banderas/umbrales/riesgo exige ADMIN. Todo se acota por `workspaceId` de `@CurrentAuth()`.
+ */
+@ApiTags('governance-sensitive-actions')
+@ApiBearerAuth()
+@Controller('gobierno')
+export class SensitiveActionsController {
+  constructor(private readonly sensitiveActions: SensitiveActionsService) {}
+
+  /** Catálogo efectivo (VIEWER+): base de sistema + configuraciones de empresa (la de empresa prevalece por codigo). */
+  @Get('acciones-sensibles')
+  list(@CurrentAuth() a: AuthContext, @Query() q: ListTiposAccionSensibleQueryDto) {
+    return this.sensitiveActions.listarEfectivo(a.workspaceId, q.empresaId);
+  }
+
+  /** Alta de un tipo de acción sensible (ADMIN). */
+  @MinRole('ADMIN')
+  @Post('acciones-sensibles')
+  create(@CurrentAuth() a: AuthContext, @Body() dto: CreateTipoAccionSensibleDto) {
+    return this.sensitiveActions.create(a.workspaceId, dto, a);
+  }
+
+  /** Configura banderas/umbrales/riesgo de un tipo de acción sensible (ADMIN). */
+  @MinRole('ADMIN')
+  @Patch('acciones-sensibles/:id')
+  update(@CurrentAuth() a: AuthContext, @Param('id') id: string, @Body() dto: UpdateTipoAccionSensibleDto) {
+    return this.sensitiveActions.update(a.workspaceId, id, dto, a);
+  }
+
+  /** Clasificación de riesgo de prueba (VIEWER+): DESCONOCIDO/contradictorio/sin evidencia → detener y escalar. */
+  @Post('riesgo/clasificar')
+  @HttpCode(200)
+  clasificar(@CurrentAuth() a: AuthContext, @Body() dto: ClasificarRiesgoDto) {
+    return this.sensitiveActions.clasificar(a.workspaceId, dto);
   }
 }
 

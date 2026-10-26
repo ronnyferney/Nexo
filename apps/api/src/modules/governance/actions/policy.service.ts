@@ -8,6 +8,7 @@ import { actionContextHash } from '../policy/hashing';
 import { evaluate } from '../policy/policy-engine';
 import type { ActionContext, PolicyDecision, PolicyRule, PolicySelector } from '../policy/policy.types';
 import type { CreatePoliticaDto, UpdatePoliticaDto } from './dto/actions.dto';
+import { SensitiveActionsService } from './sensitive-actions.service';
 
 export interface EvaluateResult {
   decision: PolicyDecision;
@@ -24,6 +25,7 @@ export class PolicyService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly sensitiveActions: SensitiveActionsService,
   ) {}
 
   list(workspaceId: string, filtro: { tipoAccion?: string; estado?: string } = {}) {
@@ -160,7 +162,12 @@ export class PolicyService {
       allowSelfApproval: p.allowSelfApproval,
     }));
 
-    const decision = evaluate({ ctx, rules });
+    // El catálogo de acciones sensibles (E6+ · punto 7) es un INSUMO ADITIVO del motor: la entrada efectiva del
+    // `tipoAccion` (empresa > workspace) aporta su exigencia de aprobación simple/doble y su nivel de riesgo. Gana el
+    // control más restrictivo junto a las políticas de BD; sin entrada, el comportamiento previo se conserva.
+    const catalogo = await this.sensitiveActions.efectivoParaTipo(workspaceId, ctx.empresaId ?? null, ctx.tipoAccion);
+
+    const decision = evaluate({ ctx, rules, catalogo });
 
     const registro = await this.prisma.decisionPolitica.create({
       data: {

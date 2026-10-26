@@ -104,8 +104,10 @@ describe('Empleado digital: cargos, expediente y ciclo de vida (E2 · RF02-RF06)
     let cargoId: string;
 
     beforeAll(async () => {
-      cargoId = ((await owner.api.post('/cargos', { nombre: 'Cargo expediente', nivel: 'EMPLEADO' }).expect(201))
-        .body as CargoView).id;
+      cargoId = (
+        (await owner.api.post('/cargos', { nombre: 'Cargo expediente', nivel: 'EMPLEADO' }).expect(201))
+          .body as CargoView
+      ).id;
     });
 
     it('acepta, persiste y devuelve cargoId/responsable/suplente', async () => {

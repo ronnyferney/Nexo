@@ -51,7 +51,12 @@ describe('Pasaporte de resultado E14 (e2e)', () => {
   /** Crea un contrato de resultado con regla determinista + evidencia, y lo lleva hasta PENDIENTE_VALIDACION. */
   async function contratoEnValidacion(s: Session, ejecutorAgentId = 'agente-ejecutor', duenoUserId = 'dueno-ejecutor') {
     const objetivo = (
-      await s.api.post('/objetivos', { codigo: `OBJ-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, nombre: 'Recaudo' }).expect(201)
+      await s.api
+        .post('/objetivos', {
+          codigo: `OBJ-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          nombre: 'Recaudo',
+        })
+        .expect(201)
     ).body as { id: string };
     const tarea = (
       await s.api
@@ -81,7 +86,10 @@ describe('Pasaporte de resultado E14 (e2e)', () => {
     await s.api.post(`/contratos/${contrato.id}/avanzar`, { estado: 'EN_PRODUCCION' }).expect(201);
     await s.api.post(`/contratos/${contrato.id}/avanzar`, { estado: 'PENDIENTE_VALIDACION' }).expect(201);
     await s.api
-      .post(`/contratos/${contrato.id}/evidencias`, { tipo: 'confirmacion_tesoreria', referencia: { externalId: 'TX-1' } })
+      .post(`/contratos/${contrato.id}/evidencias`, {
+        tipo: 'confirmacion_tesoreria',
+        referencia: { externalId: 'TX-1' },
+      })
       .expect(201);
     return { tareaId: tarea.id, contratoId: contrato.id };
   }
@@ -109,7 +117,9 @@ describe('Pasaporte de resultado E14 (e2e)', () => {
     expect(p.reemplazaAId).toBeNull();
 
     // La entrada de auditoría ancla el pasaporte: misma seq, acción PASAPORTE_EMITIDO, targetId = id del pasaporte.
-    const entry = await prismaOf(app).auditLog.findFirst({ where: { id: p.auditEntryId, workspaceId: owner.workspaceId } });
+    const entry = await prismaOf(app).auditLog.findFirst({
+      where: { id: p.auditEntryId, workspaceId: owner.workspaceId },
+    });
     expect(entry?.seq).toBe(p.auditSeq);
     expect(entry?.action).toBe('PASAPORTE_EMITIDO');
     expect(entry?.targetType).toBe('PasaporteResultado');

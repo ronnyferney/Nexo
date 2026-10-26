@@ -152,7 +152,9 @@ describe('Indicadores de resultado E10 (e2e)', () => {
     // Sin evidencia: la verificación determinista devuelve el resultado.
     const { contratoId } = await tareaEnValidacion(owner, { conEvidencia: false });
     const dev = (
-      await owner.api.post(`/contratos/${contratoId}/validar`, { modo: 'DETERMINISTA', contexto: { ok: true } }).expect(201)
+      await owner.api
+        .post(`/contratos/${contratoId}/validar`, { modo: 'DETERMINISTA', contexto: { ok: true } })
+        .expect(201)
     ).body as { estadoResultado: string };
     expect(dev.estadoResultado).toBe('DEVUELTO_INCUMPLIDO');
 

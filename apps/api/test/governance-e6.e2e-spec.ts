@@ -33,7 +33,11 @@ describe('Gobierno de acciones E6 (e2e)', () => {
 
   it('solo ADMIN gestiona políticas (VIEWER y EDITOR no mutan)', async () => {
     await viewer.api.post('/admin/policies', { nombre: 'x', tipoAccion: 'EMAIL_SEND', efecto: 'ALLOW' }).expect(403);
-    await crearPolitica(admin1, { nombre: 'Correos requieren aprobación', tipoAccion: 'EMAIL_SEND', efecto: 'REQUIRE_APPROVAL' });
+    await crearPolitica(admin1, {
+      nombre: 'Correos requieren aprobación',
+      tipoAccion: 'EMAIL_SEND',
+      efecto: 'REQUIRE_APPROVAL',
+    });
   });
 
   it('una política DENY bloquea la acción y registra la decisión', async () => {
@@ -72,8 +76,9 @@ describe('Gobierno de acciones E6 (e2e)', () => {
     await owner.api.post(`/approvals/${out.aprobacionId}/decision`, { decision: 'APRUEBA' }).expect(400);
 
     // Un aprobador distinto sí.
-    const aprobada = (await admin1.api.post(`/approvals/${out.aprobacionId}/decision`, { decision: 'APRUEBA' }).expect(200))
-      .body as { estado: string };
+    const aprobada = (
+      await admin1.api.post(`/approvals/${out.aprobacionId}/decision`, { decision: 'APRUEBA' }).expect(200)
+    ).body as { estado: string };
     expect(aprobada.estado).toBe('APROBADA');
   });
 
@@ -127,15 +132,17 @@ describe('Gobierno de acciones E6 (e2e)', () => {
     ).body as { estado: string; aprobacionId: string; requiredApprovals: number };
     expect(out.requiredApprovals).toBe(2);
 
-    const tras1 = (await admin1.api.post(`/approvals/${out.aprobacionId}/decision`, { decision: 'APRUEBA' }).expect(200))
-      .body as { estado: string };
+    const tras1 = (
+      await admin1.api.post(`/approvals/${out.aprobacionId}/decision`, { decision: 'APRUEBA' }).expect(200)
+    ).body as { estado: string };
     expect(tras1.estado).toBe('PENDIENTE');
 
     // El mismo aprobador no cuenta dos veces.
     await admin1.api.post(`/approvals/${out.aprobacionId}/decision`, { decision: 'APRUEBA' }).expect(400);
 
-    const tras2 = (await admin2.api.post(`/approvals/${out.aprobacionId}/decision`, { decision: 'APRUEBA' }).expect(200))
-      .body as { estado: string };
+    const tras2 = (
+      await admin2.api.post(`/approvals/${out.aprobacionId}/decision`, { decision: 'APRUEBA' }).expect(200)
+    ).body as { estado: string };
     expect(tras2.estado).toBe('APROBADA');
   });
 
@@ -149,10 +156,16 @@ describe('Gobierno de acciones E6 (e2e)', () => {
     await admin1.api.post(`/approvals/${pend.aprobacionId}/decision`, { decision: 'APRUEBA' }).expect(200);
 
     // Suspensión por AGENTE (solo ADMIN).
-    await viewer.api.post('/admin/suspensions', { alcance: 'AGENTE', targetId: 'agente-bloqueado', motivo: 'Incidente' }).expect(403);
+    await viewer.api
+      .post('/admin/suspensions', { alcance: 'AGENTE', targetId: 'agente-bloqueado', motivo: 'Incidente' })
+      .expect(403);
     const susp = (
       await admin1.api
-        .post('/admin/suspensions', { alcance: 'AGENTE', targetId: 'agente-bloqueado', motivo: 'Incidente de seguridad' })
+        .post('/admin/suspensions', {
+          alcance: 'AGENTE',
+          targetId: 'agente-bloqueado',
+          motivo: 'Incidente de seguridad',
+        })
         .expect(201)
     ).body as { id: string; activa: boolean };
     expect(susp.activa).toBe(true);
@@ -178,8 +191,9 @@ describe('Gobierno de acciones E6 (e2e)', () => {
     await owner.api.post(`/actions/approvals/${pend.aprobacionId}/execute`, {}).expect(403);
 
     // Reactivación con actor + motivo.
-    const react = (await admin1.api.post(`/admin/suspensions/${susp.id}/reactivate`, { motivo: 'Resuelto' }).expect(200))
-      .body as { activa: boolean; reactivadaMotivo: string; reactivadaPor: string | null };
+    const react = (
+      await admin1.api.post(`/admin/suspensions/${susp.id}/reactivate`, { motivo: 'Resuelto' }).expect(200)
+    ).body as { activa: boolean; reactivadaMotivo: string; reactivadaPor: string | null };
     expect(react.activa).toBe(false);
     expect(react.reactivadaMotivo).toBe('Resuelto');
     expect(react.reactivadaPor).toBe(admin1.userId);

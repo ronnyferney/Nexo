@@ -66,9 +66,9 @@ describe('Jerarquía de empleados digitales (E2E · E3)', () => {
     expect(nodoSub.reportaAAgentId).toBe(jefe);
 
     // Auditoría: el cambio dejó una entrada JERARQUIA_MODIFICADA sobre el agente subordinado.
-    const audit = (
-      await owner.api.get(`/auditoria?action=JERARQUIA_MODIFICADA&targetId=${sub}`).expect(200)
-    ).body as { items: { action: string; targetId: string; metadata: Record<string, unknown> }[] };
+    const audit = (await owner.api.get(`/auditoria?action=JERARQUIA_MODIFICADA&targetId=${sub}`).expect(200)).body as {
+      items: { action: string; targetId: string; metadata: Record<string, unknown> }[];
+    };
     expect(audit.items.length).toBeGreaterThanOrEqual(1);
     expect(audit.items[0]).toMatchObject({ action: 'JERARQUIA_MODIFICADA', targetId: sub });
     expect(audit.items[0].metadata).toMatchObject({ agentId: sub, supervisorNuevo: jefe });

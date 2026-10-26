@@ -128,9 +128,11 @@ describe('Canales externos E14 (e2e)', () => {
 
   it('cuenta M365 sin credenciales → envío FALLIDO con causa, sin intentar red', async () => {
     const cuentaM365 = (
-      await crearCuenta(owner, { proveedor: 'm365', tipo: 'CORREO', config: { remitente: 'buzon@empresa.test' } }).expect(
-        201,
-      )
+      await crearCuenta(owner, {
+        proveedor: 'm365',
+        tipo: 'CORREO',
+        config: { remitente: 'buzon@empresa.test' },
+      }).expect(201)
     ).body as { id: string; secretRef: string | null };
     expect(cuentaM365.secretRef).toBeNull();
     const res = (
@@ -145,7 +147,9 @@ describe('Canales externos E14 (e2e)', () => {
     expect(res.estado).toBe('FALLIDO');
     expect(res.error).toContain('sin credenciales');
     // `test` de credenciales también reporta inactivo (sin red).
-    const prueba = (await owner.api.post(`/canales-externos/${cuentaM365.id}/test`).expect(200)).body as { ok: boolean };
+    const prueba = (await owner.api.post(`/canales-externos/${cuentaM365.id}/test`).expect(200)).body as {
+      ok: boolean;
+    };
     expect(prueba.ok).toBe(false);
   });
 

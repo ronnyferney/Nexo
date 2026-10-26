@@ -129,13 +129,17 @@ describe('Durabilidad avanzada E7 (e2e)', () => {
     await viewer.api.post(`/excepciones/${exc.id}/reasignar`, { duenoUserId: viewer.userId }).expect(403);
 
     // EDITOR sí.
-    await editor.api.post(`/excepciones/${exc.id}/info`, { nota: 'Revisado', siguienteAccion: 'Corregir nodo' }).expect(200);
-    const reasignada = (await editor.api.post(`/excepciones/${exc.id}/reasignar`, { duenoUserId: owner.userId }).expect(200))
-      .body as Excepcion;
+    await editor.api
+      .post(`/excepciones/${exc.id}/info`, { nota: 'Revisado', siguienteAccion: 'Corregir nodo' })
+      .expect(200);
+    const reasignada = (
+      await editor.api.post(`/excepciones/${exc.id}/reasignar`, { duenoUserId: owner.userId }).expect(200)
+    ).body as Excepcion;
     expect(reasignada.duenoUserId).toBe(owner.userId);
 
-    const conciliada = (await editor.api.post(`/excepciones/${exc.id}/conciliar`, { resultado: 'CONFIRMADO' }).expect(200))
-      .body as Excepcion;
+    const conciliada = (
+      await editor.api.post(`/excepciones/${exc.id}/conciliar`, { resultado: 'CONFIRMADO' }).expect(200)
+    ).body as Excepcion;
     expect(conciliada.estado).toBe('CONCILIADA');
 
     // Ya cerrada: no admite más acciones.

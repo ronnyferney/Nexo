@@ -330,7 +330,9 @@ describe('Estudio de agentes · perfil, skills, conocimiento, ejemplos y respald
 
       // Se asigna una estación virtual con la salida a internet DESHABILITADA.
       const estacion = (
-        await owner.api.post('/estaciones-virtuales', { nombre: 'Estación sin internet', proveedor: 'interna' }).expect(201)
+        await owner.api
+          .post('/estaciones-virtuales', { nombre: 'Estación sin internet', proveedor: 'interna' })
+          .expect(201)
       ).body as { id: string };
       await owner.api
         .put(`/execution-params/${gated}`, { estacionVirtualId: estacion.id, salidaInternet: false })

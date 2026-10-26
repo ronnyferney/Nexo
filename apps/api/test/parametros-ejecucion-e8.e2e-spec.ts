@@ -54,9 +54,8 @@ describe('Parámetros de ejecución del empleado digital (E2E · E8)', () => {
     expect(leido).toMatchObject({ estacionVirtualId: estacion, salidaInternet: true });
 
     // Auditoría: creación de estación y cambio de parámetros (con salidaInternet anterior/nuevo).
-    const estAudit = (
-      await owner.api.get(`/auditoria?action=ESTACION_VIRTUAL_CREADA&targetId=${estacion}`).expect(200)
-    ).body as { items: unknown[] };
+    const estAudit = (await owner.api.get(`/auditoria?action=ESTACION_VIRTUAL_CREADA&targetId=${estacion}`).expect(200))
+      .body as { items: unknown[] };
     expect(estAudit.items.length).toBeGreaterThanOrEqual(1);
 
     const parAudit = (
@@ -114,7 +113,9 @@ describe('Parámetros de ejecución del empleado digital (E2E · E8)', () => {
 
     // EDITOR no crea estaciones (infraestructura = ADMIN) pero sí fija parámetros del expediente.
     await editor.api.post('/estaciones-virtuales', { nombre: 'Editor no crea' }).expect(403);
-    await editor.api.put(`/execution-params/${agent.id}`, { estacionVirtualId: estacion, salidaInternet: true }).expect(200);
+    await editor.api
+      .put(`/execution-params/${agent.id}`, { estacionVirtualId: estacion, salidaInternet: true })
+      .expect(200);
   });
 
   it('la baja lógica de la estación (RETIRADA) no rompe el agente asignado', async () => {
@@ -134,9 +135,8 @@ describe('Parámetros de ejecución del empleado digital (E2E · E8)', () => {
     expect(params.estacionVirtualId).toBe(estacion);
 
     // El retiro quedó auditado.
-    const audit = (
-      await owner.api.get(`/auditoria?action=ESTACION_VIRTUAL_RETIRADA&targetId=${estacion}`).expect(200)
-    ).body as { items: { metadata: Record<string, unknown> }[] };
+    const audit = (await owner.api.get(`/auditoria?action=ESTACION_VIRTUAL_RETIRADA&targetId=${estacion}`).expect(200))
+      .body as { items: { metadata: Record<string, unknown> }[] };
     expect(audit.items.length).toBeGreaterThanOrEqual(1);
     expect(audit.items[0].metadata).toMatchObject({ estadoNuevo: 'RETIRADA' });
   });

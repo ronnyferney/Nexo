@@ -499,9 +499,9 @@ describe('B2 · uso único del state OAuth de proveedores IA entre réplicas (E2
     const { code, state } = openrouter.authorize((start.body as { authorizeUrl: string }).authorizeUrl);
     const before = openrouter.exchanges;
     const results = await Promise.all([callback(a, { code, state }), callback(b, { code, state })]);
-    const outcomes = results.map((r) => new URL(r.headers.location as string).searchParams.get('llm')).sort();
+    const outcomes = results.map((r) => new URL(r.headers.location).searchParams.get('llm')).sort();
     expect(outcomes).toEqual(['connected', 'error']);
-    expect(results.map((r) => reason(r.headers.location as string))).toContain('invalid_state');
+    expect(results.map((r) => reason(r.headers.location))).toContain('invalid_state');
     expect(openrouter.exchanges - before).toBe(1);
   });
 });

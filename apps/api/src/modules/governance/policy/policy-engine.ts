@@ -1,5 +1,6 @@
 import type {
   ActionContext,
+  CatalogoAccionEfectivo,
   EvaluateInput,
   MatchedPolicy,
   PolicyDecision,
@@ -122,9 +123,36 @@ function platformContributions(ctx: ActionContext, matchedCount: number, sensiti
   return out;
 }
 
+/**
+ * Contribuciones del catálogo de acciones sensibles (E6+ · punto 7). ADITIVAS: la exigencia de aprobación simple/doble
+ * del catálogo compite con las políticas de BD y los controles de plataforma; gana el control más restrictivo. No
+ * DENIEGA por sí sola (la denegación por defecto de tipos sensibles sigue siendo responsabilidad de la lista/políticas):
+ * el catálogo clasifica y exige aprobación, no bloquea. La doble aprobación implica aprobación.
+ */
+function catalogContributions(catalogo: CatalogoAccionEfectivo | null | undefined): Contribution[] {
+  if (!catalogo) return [];
+  if (catalogo.requiereDobleAprobacion) {
+    return [
+      {
+        efecto: 'REQUIRE_APPROVAL',
+        requiredApprovals: 2,
+        allowSelfApproval: false,
+        motivo: 'CATALOGO_DOBLE_APROBACION',
+      },
+    ];
+  }
+  if (catalogo.requiereAprobacion) {
+    return [
+      { efecto: 'REQUIRE_APPROVAL', requiredApprovals: 1, allowSelfApproval: false, motivo: 'CATALOGO_APROBACION' },
+    ];
+  }
+  return [];
+}
+
 export function evaluate(input: EvaluateInput): PolicyDecision {
   const { ctx } = input;
   const sensitive = input.sensitiveActionTypes ?? SENSITIVE_ACTION_TYPES;
+  const nivelRiesgo = input.catalogo?.nivelRiesgoPorDefecto ?? null;
 
   const matchedRules = input.rules.filter((r) => selectorMatches(r, ctx));
   const ruleContribs: Contribution[] = matchedRules.map((r) => ({
@@ -135,11 +163,16 @@ export function evaluate(input: EvaluateInput): PolicyDecision {
     matched: { policyId: r.id, version: r.version, efecto: r.efecto, requiredApprovals: r.requiredApprovals },
   }));
 
-  const contribs = [...ruleContribs, ...platformContributions(ctx, matchedRules.length, sensitive)];
+  const contribs = [
+    ...ruleContribs,
+    ...platformContributions(ctx, matchedRules.length, sensitive),
+    ...catalogContributions(input.catalogo),
+  ];
 
   const matched: MatchedPolicy[] = ruleContribs.map((c) => c.matched!).filter(Boolean);
 
-  // Sin ninguna contribución: acción no sensible sin política → ALLOW (compatibilidad con el gate de bajo riesgo).
+  // Sin ninguna contribución: acción no sensible sin política ni catálogo → ALLOW (compatibilidad con el gate de bajo
+  // riesgo del runtime).
   if (contribs.length === 0) {
     return {
       efecto: 'ALLOW',
@@ -147,6 +180,7 @@ export function evaluate(input: EvaluateInput): PolicyDecision {
       allowSelfApproval: true,
       motivo: 'SIN_POLITICA_APLICABLE',
       matched,
+      nivelRiesgo,
     };
   }
 
@@ -166,7 +200,14 @@ export function evaluate(input: EvaluateInput): PolicyDecision {
     const approvalContribs = contribs.filter((c) => c.efecto === 'REQUIRE_APPROVAL');
     const requiredApprovals = Math.max(...approvalContribs.map((c) => Math.max(1, c.requiredApprovals)));
     const allowSelfApproval = approvalContribs.every((c) => c.allowSelfApproval);
-    return { efecto: 'REQUIRE_APPROVAL', requiredApprovals, allowSelfApproval, motivo: winner.motivo, matched };
+    return {
+      efecto: 'REQUIRE_APPROVAL',
+      requiredApprovals,
+      allowSelfApproval,
+      motivo: winner.motivo,
+      matched,
+      nivelRiesgo,
+    };
   }
 
   return {
@@ -175,5 +216,6 @@ export function evaluate(input: EvaluateInput): PolicyDecision {
     allowSelfApproval: winner.efecto === 'ALLOW',
     motivo: winner.motivo,
     matched,
+    nivelRiesgo,
   };
 }

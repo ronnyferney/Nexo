@@ -89,6 +89,22 @@ export interface MatchedPolicy {
   requiredApprovals: number;
 }
 
+/** Nivel de riesgo (espejo PURO del enum Prisma `NivelRiesgo`, sin importar Prisma en el motor). */
+export type NivelRiesgoCatalogo = 'BAJO' | 'MEDIO' | 'ALTO' | 'CRITICO' | 'DESCONOCIDO';
+
+/**
+ * Entrada EFECTIVA del catálogo de acciones sensibles (E6+ · punto 7) resuelta para el `tipoAccion` del contexto (la
+ * entrada específica de empresa tiene prioridad sobre la de workspace). Es un INSUMO más del motor, ADITIVO a las
+ * políticas de BD: sus exigencias de aprobación compiten con las reglas y gana el control más restrictivo. Si no hay
+ * entrada (`undefined`), el comportamiento previo se conserva íntegro.
+ */
+export interface CatalogoAccionEfectivo {
+  codigo: string;
+  requiereAprobacion: boolean;
+  requiereDobleAprobacion: boolean;
+  nivelRiesgoPorDefecto: NivelRiesgoCatalogo;
+}
+
 export interface PolicyDecision {
   efecto: PolicyEffect;
   /** 0 para ALLOW/DENY; 1 o 2 para REQUIRE_APPROVAL (el más restrictivo de las reglas que ganaron). */
@@ -99,10 +115,14 @@ export interface PolicyDecision {
   motivo: string;
   /** Políticas de BD que coincidieron (para auditoría). */
   matched: MatchedPolicy[];
+  /** Nivel de riesgo por defecto del catálogo para esta acción (null si no hay entrada). Informativo/auditable. */
+  nivelRiesgo?: NivelRiesgoCatalogo | null;
 }
 
 export interface EvaluateInput {
   ctx: ActionContext;
   rules: PolicyRule[];
   sensitiveActionTypes?: readonly string[];
+  /** Entrada efectiva del catálogo de acciones sensibles para `ctx.tipoAccion`, si existe. */
+  catalogo?: CatalogoAccionEfectivo | null;
 }

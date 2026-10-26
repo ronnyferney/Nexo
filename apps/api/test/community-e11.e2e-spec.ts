@@ -89,8 +89,9 @@ describe('Comunidad interna E11 (e2e)', () => {
   });
 
   it('comentar y reaccionar; la reacción es idempotente por (publicación, autor, tipo)', async () => {
-    const pub = (await viewer.api.post('/comunidad/publicaciones', { tipo: 'APRENDIZAJE', cuerpo: 'React' }).expect(201))
-      .body as { id: string };
+    const pub = (
+      await viewer.api.post('/comunidad/publicaciones', { tipo: 'APRENDIZAJE', cuerpo: 'React' }).expect(201)
+    ).body as { id: string };
 
     await viewer.api.post(`/comunidad/publicaciones/${pub.id}/comentarios`, { cuerpo: 'Gran aporte' }).expect(201);
     const coment = (await owner.api.get(`/comunidad/publicaciones/${pub.id}/comentarios`).expect(200)).body as {
@@ -113,8 +114,9 @@ describe('Comunidad interna E11 (e2e)', () => {
   });
 
   it('marcar un APOYO como RESUELTA: solo el autor o un ADMIN', async () => {
-    const apoyo = (await viewer.api.post('/comunidad/publicaciones', { tipo: 'APOYO', cuerpo: 'Necesito ayuda' }).expect(201))
-      .body as { id: string };
+    const apoyo = (
+      await viewer.api.post('/comunidad/publicaciones', { tipo: 'APOYO', cuerpo: 'Necesito ayuda' }).expect(201)
+    ).body as { id: string };
 
     // Otro VIEWER distinto del autor no puede editar (403). Usamos owner como autor-ajeno pero owner es OWNER (admin+),
     // así que probamos con un segundo viewer.
@@ -122,13 +124,15 @@ describe('Comunidad interna E11 (e2e)', () => {
     await viewer2.api.patch(`/comunidad/publicaciones/${apoyo.id}`, { estado: 'RESUELTA' }).expect(403);
 
     // El autor sí.
-    const resuelta = (await viewer.api.patch(`/comunidad/publicaciones/${apoyo.id}`, { estado: 'RESUELTA' }).expect(200))
-      .body as { estado: string };
+    const resuelta = (
+      await viewer.api.patch(`/comunidad/publicaciones/${apoyo.id}`, { estado: 'RESUELTA' }).expect(200)
+    ).body as { estado: string };
     expect(resuelta.estado).toBe('RESUELTA');
 
     // Un ADMIN puede editar la publicación de otro.
-    const r2 = (await admin.api.patch(`/comunidad/publicaciones/${apoyo.id}`, { cuerpo: 'Editado por admin' }).expect(200))
-      .body as { cuerpo: string };
+    const r2 = (
+      await admin.api.patch(`/comunidad/publicaciones/${apoyo.id}`, { cuerpo: 'Editado por admin' }).expect(200)
+    ).body as { cuerpo: string };
     expect(r2.cuerpo).toBe('Editado por admin');
   });
 

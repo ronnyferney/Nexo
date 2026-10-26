@@ -25,7 +25,10 @@ describe('Resultados E4 (e2e)', () => {
   async function tareaConContratoEnValidacion(duenoUserId = 'dueno-ejecutor', ejecutorAgentId = 'agente-ejecutor') {
     const objetivo = (
       await owner.api
-        .post('/objetivos', { codigo: `OBJ-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, nombre: 'Recaudo Q4' })
+        .post('/objetivos', {
+          codigo: `OBJ-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          nombre: 'Recaudo Q4',
+        })
         .expect(201)
     ).body as { id: string };
 
@@ -59,7 +62,10 @@ describe('Resultados E4 (e2e)', () => {
     await owner.api.post(`/contratos/${contrato.id}/avanzar`, { estado: 'EN_PRODUCCION' }).expect(201);
     await owner.api.post(`/contratos/${contrato.id}/avanzar`, { estado: 'PENDIENTE_VALIDACION' }).expect(201);
     await owner.api
-      .post(`/contratos/${contrato.id}/evidencias`, { tipo: 'confirmacion_tesoreria', referencia: { externalId: 'TX-1' } })
+      .post(`/contratos/${contrato.id}/evidencias`, {
+        tipo: 'confirmacion_tesoreria',
+        referencia: { externalId: 'TX-1' },
+      })
       .expect(201);
     // La tarea pasa a EN_EJECUCION (estado operativo), ortogonal al estado del resultado.
     await owner.api.post(`/tareas/${tarea.id}/estado`, { estado: 'EN_EJECUCION' }).expect(201);
@@ -67,8 +73,9 @@ describe('Resultados E4 (e2e)', () => {
   }
 
   it('crea objetivos y tareas y las lista', async () => {
-    const obj = (await owner.api.post('/objetivos', { codigo: `OBJ-L-${Date.now()}`, nombre: 'Objetivo lista' }).expect(201))
-      .body as { id: string };
+    const obj = (
+      await owner.api.post('/objetivos', { codigo: `OBJ-L-${Date.now()}`, nombre: 'Objetivo lista' }).expect(201)
+    ).body as { id: string };
     await owner.api.post('/tareas', { titulo: 'Tarea lista', objetivoId: obj.id }).expect(201);
     const tareas = (await owner.api.get(`/tareas?objetivoId=${obj.id}`).expect(200)).body as unknown[];
     expect(tareas).toHaveLength(1);
@@ -78,11 +85,19 @@ describe('Resultados E4 (e2e)', () => {
     const { contratoId } = await tareaConContratoEnValidacion();
     // Agente verificador = agente ejecutor.
     await owner.api
-      .post(`/contratos/${contratoId}/validar`, { modo: 'ASISTIDA', verificadorAgentId: 'agente-ejecutor', critica: 'VEREDICTO: OK' })
+      .post(`/contratos/${contratoId}/validar`, {
+        modo: 'ASISTIDA',
+        verificadorAgentId: 'agente-ejecutor',
+        critica: 'VEREDICTO: OK',
+      })
       .expect(400);
     // Validador humano = dueño ejecutor.
     await owner.api
-      .post(`/contratos/${contratoId}/validar`, { modo: 'HUMANA', validadorUserId: 'dueno-ejecutor', veredicto: 'ACEPTA' })
+      .post(`/contratos/${contratoId}/validar`, {
+        modo: 'HUMANA',
+        validadorUserId: 'dueno-ejecutor',
+        veredicto: 'ACEPTA',
+      })
       .expect(400);
   });
 
@@ -108,8 +123,9 @@ describe('Resultados E4 (e2e)', () => {
   });
 
   it('la verificación determinista devuelve el resultado cuando falta la evidencia exigida', async () => {
-    const objetivo = (await owner.api.post('/objetivos', { codigo: `OBJ-D-${Date.now()}`, nombre: 'Sin evidencia' }).expect(201))
-      .body as { id: string };
+    const objetivo = (
+      await owner.api.post('/objetivos', { codigo: `OBJ-D-${Date.now()}`, nombre: 'Sin evidencia' }).expect(201)
+    ).body as { id: string };
     const tarea = (await owner.api.post('/tareas', { titulo: 'Sin evidencia', objetivoId: objetivo.id }).expect(201))
       .body as { id: string };
     const contrato = (
@@ -126,14 +142,17 @@ describe('Resultados E4 (e2e)', () => {
     await owner.api.post(`/contratos/${contrato.id}/avanzar`, { estado: 'PENDIENTE_VALIDACION' }).expect(201);
     // Regla cumple pero falta la evidencia 'factura': se devuelve.
     const val = (
-      await owner.api.post(`/contratos/${contrato.id}/validar`, { modo: 'DETERMINISTA', contexto: { ok: true } }).expect(201)
+      await owner.api
+        .post(`/contratos/${contrato.id}/validar`, { modo: 'DETERMINISTA', contexto: { ok: true } })
+        .expect(201)
     ).body as { estadoResultado: string };
     expect(val.estadoResultado).toBe('DEVUELTO_INCUMPLIDO');
   });
 
   it('declara el incumplimiento al agotar el límite de reintentos (RF31)', async () => {
-    const objetivo = (await owner.api.post('/objetivos', { codigo: `OBJ-I-${Date.now()}`, nombre: 'Incumplimiento' }).expect(201))
-      .body as { id: string };
+    const objetivo = (
+      await owner.api.post('/objetivos', { codigo: `OBJ-I-${Date.now()}`, nombre: 'Incumplimiento' }).expect(201)
+    ).body as { id: string };
     const tarea = (await owner.api.post('/tareas', { titulo: 'Con límite', objetivoId: objetivo.id }).expect(201))
       .body as { id: string };
     const inc = (

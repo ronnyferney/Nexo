@@ -317,6 +317,7 @@ model Workspace {
   canales                   Canal[]
   hilosCanal                HiloCanal[]
   politicas                 Politica[]
+  tiposAccionSensible       TipoAccionSensible[]
   decisionesPolitica        DecisionPolitica[]
   aprobaciones              Aprobacion[]
   suspensiones              Suspension[]
@@ -2111,6 +2112,17 @@ enum ApprovalRisk {
   ALTO
 }
 
+/// Nivel de riesgo de una acción/misión (punto 8 de las decisiones del patrocinador · E6+). DESCONOCIDO es un estado
+/// de primera clase, NO un sinónimo de "bajo": señales contradictorias o evidencia insuficiente caen aquí y el gobierno
+/// DETIENE Y ESCALA en lugar de automatizar. La coincidencia entre modelos NO sube ni baja este nivel: no es autoridad.
+enum NivelRiesgo {
+  BAJO
+  MEDIO
+  ALTO
+  CRITICO
+  DESCONOCIDO
+}
+
 /// Estados de una aprobación (RF12). PENDIENTE → APROBADA|RECHAZADA|AJUSTE → EJECUTADA|CADUCADA|INVALIDADA.
 enum ApprovalStatus {
   PENDIENTE
@@ -2157,6 +2169,49 @@ model Politica {
 
   @@index([workspaceId, tipoAccion, estado])
   @@index([workspaceId, empresaId])
+}
+
+/// Catálogo CONFIGURABLE de tipos de acción sensible (punto 7 de las decisiones del patrocinador · E6+). Da a cada
+/// empresa/workspace una clasificación que el `ActionGateway`/`PolicyEngine` CONSULTA para decidir aprobación simple o
+/// doble y el nivel de riesgo por defecto de un `tipoAccion` (= `codigo`). Es ADITIVO: la política explícita de BD y
+/// este catálogo se combinan y gana el control MÁS RESTRICTIVO; sin entrada, el comportamiento previo se conserva.
+/// Los UMBRALES MONETARIOS los define Finanzas: nacen NULOS y se configuran por empresa/moneda/operación (no se
+/// inventan aquí). Las entradas `esSistema=true` son la semilla de referencia: su `codigo` no se edita, sus banderas sí.
+model TipoAccionSensible {
+  id                      String      @id @default(cuid())
+  workspaceId             String
+  workspace               Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// Empresa (OrgUnit tipo EMPRESA) a la que aplica; null = aplica a todo el workspace. Referencia blanda. La entrada
+  /// específica de empresa tiene prioridad sobre la de workspace al resolver el catálogo efectivo de un `codigo`.
+  empresaId               String?
+  /// Código del tipo de acción (= `tipoAccion` del contexto): PAGO, CAMBIO_CUENTA_BANCARIA, ELEVACION_PRIVILEGIO,
+  /// BORRADO_CRITICO, PUBLICACION_OFICIAL, EMAIL_SEND, WHATSAPP_SEND, VOICE_CALL... Texto abierto y extensible.
+  codigo                  String
+  nombre                  String
+  /// Exige al menos una aprobación humana antes del efecto.
+  requiereAprobacion      Boolean     @default(false)
+  /// Exige DOS aprobadores humanos distintos (doble aprobación; implica `requiereAprobacion`).
+  requiereDobleAprobacion Boolean     @default(false)
+  /// Nivel de riesgo por defecto de esta acción (se combina con la clasificación dinámica; DESCONOCIDO detiene/escala).
+  nivelRiesgoPorDefecto   NivelRiesgo @default(DESCONOCIDO)
+  /// Umbral de monto a partir del cual aplica el control. NULO por defecto: lo fija Finanzas (no se inventa).
+  umbralMonto             Decimal?    @db.Decimal(18, 2)
+  /// Moneda del umbral/límite. NULA por defecto (la fija Finanzas junto al umbral).
+  moneda                  String?
+  /// Límite acumulado por periodo (para detección de fraccionamiento). NULO por defecto: lo fija Finanzas.
+  limiteAcumuladoPeriodo  Decimal?    @db.Decimal(18, 2)
+  /// Entrada de sistema/referencia sembrada por Nexo: su `codigo` no se edita (sí sus banderas, riesgo y umbrales).
+  esSistema               Boolean     @default(false)
+  activo                  Boolean     @default(true)
+  createdAt               DateTime    @default(now())
+  updatedAt               DateTime    @updatedAt
+
+  /// Unicidad por (workspace, empresa, codigo) para entradas específicas de empresa. La unicidad de las entradas de
+  /// workspace (empresaId IS NULL) la garantiza el índice parcial único `TipoAccionSensible_codigo_ws_wide` (SQL
+  /// manual en la migración, que Prisma no modela), igual que `Dimension_codigo_org_wide`.
+  @@unique([workspaceId, empresaId, codigo], name: "TipoAccionSensible_empresa_codigo")
+  @@index([workspaceId])
+  @@index([workspaceId, codigo, activo])
 }
 
 /// Registro inmutable de cada evaluación del motor de políticas (feeds AuditLog, E13). Nunca guarda razonamiento del

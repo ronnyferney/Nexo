@@ -55,13 +55,21 @@ describe('Auditoría inmutable E13 (e2e)', () => {
   async function generarHechos() {
     // Política (POLITICA_CREADA) que exige aprobación para EMAIL_SEND.
     await admin.api
-      .post('/admin/policies', { nombre: 'Correos con aprobación', tipoAccion: 'EMAIL_SEND', efecto: 'REQUIRE_APPROVAL' })
+      .post('/admin/policies', {
+        nombre: 'Correos con aprobación',
+        tipoAccion: 'EMAIL_SEND',
+        efecto: 'REQUIRE_APPROVAL',
+      })
       .expect(201);
 
     // Acción que requiere aprobación; el admin la concede (APROBACION_CONCEDIDA).
     const req = (
       await owner.api
-        .post('/actions', { tipoAccion: 'EMAIL_SEND', destinatarios: ['cliente@externo.com'], contenido: { cuerpo: 'Hola' } })
+        .post('/actions', {
+          tipoAccion: 'EMAIL_SEND',
+          destinatarios: ['cliente@externo.com'],
+          contenido: { cuerpo: 'Hola' },
+        })
         .expect(200)
     ).body as { aprobacionId: string };
     await admin.api.post(`/approvals/${req.aprobacionId}/decision`, { decision: 'APRUEBA' }).expect(200);

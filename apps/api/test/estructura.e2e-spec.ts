@@ -41,9 +41,7 @@ describe('Estructura empresarial (E2E)', () => {
         .expect(201);
       expect(area.body).toMatchObject({ tipo: 'AREA_FUNCIONAL', empresaId });
       // empresaId inexistente o que no es EMPRESA -> 400.
-      await owner.api
-        .post('/admin/org/units', { name: 'Mala', parentId: rootId, empresaId: 'no-existe' })
-        .expect(400);
+      await owner.api.post('/admin/org/units', { name: 'Mala', parentId: rootId, empresaId: 'no-existe' }).expect(400);
       await owner.api.post('/admin/org/units', { name: 'Mala2', parentId: rootId, empresaId: rootId }).expect(400);
     });
   });
@@ -73,7 +71,9 @@ describe('Estructura empresarial (E2E)', () => {
       await owner.api.patch(`/estructura/lineas-negocio/${id}`, { nombre: 'Seguros Generales' }).expect(200);
 
       // Código duplicado en la misma empresa -> 400; pero sí se permite el mismo código en otra empresa.
-      await owner.api.post('/estructura/lineas-negocio', { empresaId: empresaA, codigo: 'LN1', nombre: 'Dup' }).expect(400);
+      await owner.api
+        .post('/estructura/lineas-negocio', { empresaId: empresaA, codigo: 'LN1', nombre: 'Dup' })
+        .expect(400);
       await owner.api
         .post('/estructura/lineas-negocio', { empresaId: empresaB, codigo: 'LN1', nombre: 'Otra' })
         .expect(201);
@@ -86,10 +86,26 @@ describe('Estructura empresarial (E2E)', () => {
     });
 
     it('el filtro por empresa aísla los resultados (D1)', async () => {
-      await owner.api.post('/estructura/sedes', { empresaId: empresaA, codigo: 'S-A', nombre: 'Bogotá', zonaHoraria: 'America/Bogota' }).expect(201);
-      await owner.api.post('/estructura/sedes', { empresaId: empresaB, codigo: 'S-B', nombre: 'Madrid', zonaHoraria: 'Europe/Madrid' }).expect(201);
+      await owner.api
+        .post('/estructura/sedes', {
+          empresaId: empresaA,
+          codigo: 'S-A',
+          nombre: 'Bogotá',
+          zonaHoraria: 'America/Bogota',
+        })
+        .expect(201);
+      await owner.api
+        .post('/estructura/sedes', {
+          empresaId: empresaB,
+          codigo: 'S-B',
+          nombre: 'Madrid',
+          zonaHoraria: 'Europe/Madrid',
+        })
+        .expect(201);
 
-      const soloA = (await owner.api.get(`/estructura/sedes?empresaId=${empresaA}`).expect(200)).body as { empresaId: string }[];
+      const soloA = (await owner.api.get(`/estructura/sedes?empresaId=${empresaA}`).expect(200)).body as {
+        empresaId: string;
+      }[];
       expect(soloA.length).toBeGreaterThan(0);
       expect(soloA.every((s) => s.empresaId === empresaA)).toBe(true);
       expect(soloA.some((s) => s.empresaId === empresaB)).toBe(false);
@@ -106,9 +122,15 @@ describe('Estructura empresarial (E2E)', () => {
       await viewer.api.get('/estructura/lineas-negocio').expect(200);
       await viewer.api.get('/estructura/sedes').expect(200);
       await viewer.api.get('/estructura/centros-costo').expect(200);
-      await viewer.api.post('/estructura/lineas-negocio', { empresaId: empresaA, codigo: 'V1', nombre: 'No' }).expect(403);
-      await viewer.api.post('/estructura/sedes', { empresaId: empresaA, codigo: 'V2', nombre: 'No', zonaHoraria: 'America/Bogota' }).expect(403);
-      await viewer.api.post('/estructura/centros-costo', { empresaId: empresaA, codigo: 'V3', nombre: 'No' }).expect(403);
+      await viewer.api
+        .post('/estructura/lineas-negocio', { empresaId: empresaA, codigo: 'V1', nombre: 'No' })
+        .expect(403);
+      await viewer.api
+        .post('/estructura/sedes', { empresaId: empresaA, codigo: 'V2', nombre: 'No', zonaHoraria: 'America/Bogota' })
+        .expect(403);
+      await viewer.api
+        .post('/estructura/centros-costo', { empresaId: empresaA, codigo: 'V3', nombre: 'No' })
+        .expect(403);
     });
 
     it('otro workspace no ve ni accede a los recursos (aislamiento multi-tenant y por empresa)', async () => {
@@ -122,7 +144,9 @@ describe('Estructura empresarial (E2E)', () => {
       const suyas = (await otro.api.get('/estructura/lineas-negocio').expect(200)).body as unknown[];
       expect(suyas).toHaveLength(0);
       // Y no puede crear recursos apuntando a la empresa del otro (su empresaId no existe en su workspace).
-      await otro.api.post('/estructura/lineas-negocio', { empresaId: empresaA, codigo: 'ROB', nombre: 'Robo' }).expect(400);
+      await otro.api
+        .post('/estructura/lineas-negocio', { empresaId: empresaA, codigo: 'ROB', nombre: 'Robo' })
+        .expect(400);
     });
   });
 
@@ -138,9 +162,16 @@ describe('Estructura empresarial (E2E)', () => {
     });
 
     it('exige exactamente un sujeto y el destino acorde al tipo', async () => {
-      await owner.api.post('/estructura/asignaciones', { tipoAsignacion: 'FUNCIONAL_PRINCIPAL', orgUnitId: rootId }).expect(400);
       await owner.api
-        .post('/estructura/asignaciones', { agentId, userId: owner.userId, tipoAsignacion: 'FUNCIONAL_PRINCIPAL', orgUnitId: rootId })
+        .post('/estructura/asignaciones', { tipoAsignacion: 'FUNCIONAL_PRINCIPAL', orgUnitId: rootId })
+        .expect(400);
+      await owner.api
+        .post('/estructura/asignaciones', {
+          agentId,
+          userId: owner.userId,
+          tipoAsignacion: 'FUNCIONAL_PRINCIPAL',
+          orgUnitId: rootId,
+        })
         .expect(400);
       // Tipo LINEA sin lineaNegocioId -> 400.
       await owner.api.post('/estructura/asignaciones', { agentId, tipoAsignacion: 'LINEA' }).expect(400);
@@ -176,11 +207,24 @@ describe('Estructura empresarial (E2E)', () => {
 
     it('un agente atiende varias líneas con asignaciones transversales, sin duplicarse (RF42)', async () => {
       const empresa = await createEmpresa(owner, 'Multi', rootId);
-      const l1 = (await owner.api.post('/estructura/lineas-negocio', { empresaId: empresa, codigo: 'M1', nombre: 'L1' }).expect(201)).body as { id: string };
-      const l2 = (await owner.api.post('/estructura/lineas-negocio', { empresaId: empresa, codigo: 'M2', nombre: 'L2' }).expect(201)).body as { id: string };
-      await owner.api.post('/estructura/asignaciones', { agentId, tipoAsignacion: 'LINEA', lineaNegocioId: l1.id }).expect(201);
-      await owner.api.post('/estructura/asignaciones', { agentId, tipoAsignacion: 'LINEA', lineaNegocioId: l2.id }).expect(201);
-      const delAgente = (await owner.api.get(`/estructura/asignaciones?agentId=${agentId}`).expect(200)).body as unknown[];
+      const l1 = (
+        await owner.api
+          .post('/estructura/lineas-negocio', { empresaId: empresa, codigo: 'M1', nombre: 'L1' })
+          .expect(201)
+      ).body as { id: string };
+      const l2 = (
+        await owner.api
+          .post('/estructura/lineas-negocio', { empresaId: empresa, codigo: 'M2', nombre: 'L2' })
+          .expect(201)
+      ).body as { id: string };
+      await owner.api
+        .post('/estructura/asignaciones', { agentId, tipoAsignacion: 'LINEA', lineaNegocioId: l1.id })
+        .expect(201);
+      await owner.api
+        .post('/estructura/asignaciones', { agentId, tipoAsignacion: 'LINEA', lineaNegocioId: l2.id })
+        .expect(201);
+      const delAgente = (await owner.api.get(`/estructura/asignaciones?agentId=${agentId}`).expect(200))
+        .body as unknown[];
       // Varias filas de asignación para un mismo agente (no se clona el agente).
       expect(delAgente.length).toBeGreaterThanOrEqual(2);
     });

@@ -739,7 +739,7 @@ describe('B2 · uso único del state OAuth de conectores entre réplicas (E2E, R
       .redirects(0);
   const start = async () => {
     const res = await owner.api.post(`/connectors/${connectorId}/oauth/start`).expect(200);
-    const cookies = ([] as string[]).concat((res.headers['set-cookie'] as string[] | string | undefined) ?? []);
+    const cookies = ([] as string[]).concat(res.headers['set-cookie'] ?? []);
     const cookie = cookies.find(
       (c) => c.startsWith('nexo_connector_oauth=') && !c.startsWith('nexo_connector_oauth=;'),
     );
@@ -793,7 +793,7 @@ describe('B2 · uso único del state OAuth de conectores entre réplicas (E2E, R
     const { code, state, cookie } = await start();
     const issued = provider.issued;
     const results = await Promise.all([callback(a, { code, state }, cookie), callback(b, { code, state }, cookie)]);
-    const locations = results.map((r) => r.headers.location as string).sort();
+    const locations = results.map((r) => r.headers.location).sort();
     expect(locations).toEqual([
       `${webUrl}/connectors/${connectorId}?oauth=ok`,
       `${webUrl}/connectors?oauth=error&reason=invalid_state`,

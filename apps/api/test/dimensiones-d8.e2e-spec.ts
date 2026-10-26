@@ -31,7 +31,7 @@ describe('Dimensiones configurables D8 (E2E)', () => {
         inputTokens: 10,
         outputTokens: 10,
         costUsd: new Prisma.Decimal(costUsd.toFixed(8)),
-        dimensiones: dimensiones as Prisma.InputJsonValue,
+        dimensiones: dimensiones,
       },
     });
   }
@@ -121,9 +121,7 @@ describe('Dimensiones configurables D8 (E2E)', () => {
         .expect(201);
 
       // Falta el valor de "cliente" -> bloquea (409).
-      await owner.api
-        .post('/dimensiones/efecto-economico/validar', { aplicaA: 'costo', dimensiones: {} })
-        .expect(409);
+      await owner.api.post('/dimensiones/efecto-economico/validar', { aplicaA: 'costo', dimensiones: {} }).expect(409);
 
       // Con el valor presente, pasa.
       await owner.api
@@ -131,9 +129,7 @@ describe('Dimensiones configurables D8 (E2E)', () => {
         .expect(200);
 
       // Una acción cuya entidad no está en `aplicaA` no exige la dimensión.
-      await owner.api
-        .post('/dimensiones/efecto-economico/validar', { aplicaA: 'agente', dimensiones: {} })
-        .expect(200);
+      await owner.api.post('/dimensiones/efecto-economico/validar', { aplicaA: 'agente', dimensiones: {} }).expect(200);
     });
   });
 
@@ -142,7 +138,9 @@ describe('Dimensiones configurables D8 (E2E)', () => {
       const owner = await registerOwner(app, 'd8-inact');
       const workspaceId = owner.workspaceId;
       const dim = (
-        await owner.api.post('/dimensiones', { codigo: 'campania', nombre: 'Campaña', aplicaA: ['ejecucion'] }).expect(201)
+        await owner.api
+          .post('/dimensiones', { codigo: 'campania', nombre: 'Campaña', aplicaA: ['ejecucion'] })
+          .expect(201)
       ).body as { id: string };
       const valor = (
         await owner.api.post(`/dimensiones/${dim.id}/valores`, { codigo: 'Q1', nombre: 'Q1 2026' }).expect(201)
@@ -188,8 +186,18 @@ describe('Dimensiones configurables D8 (E2E)', () => {
         await owner.api.post('/dimensiones', { codigo: 'area_proy', nombre: 'Área', jerarquica: true }).expect(201)
       ).body as { id: string };
       dimId = dim.id;
-      alfaId = ((await owner.api.post(`/dimensiones/${dimId}/valores`, { codigo: 'A', nombre: 'A' }).expect(201)).body as { id: string }).id;
-      betaId = ((await owner.api.post(`/dimensiones/${dimId}/valores`, { codigo: 'B', nombre: 'B', padreId: alfaId }).expect(201)).body as { id: string }).id;
+      alfaId = (
+        (await owner.api.post(`/dimensiones/${dimId}/valores`, { codigo: 'A', nombre: 'A' }).expect(201)).body as {
+          id: string;
+        }
+      ).id;
+      betaId = (
+        (
+          await owner.api
+            .post(`/dimensiones/${dimId}/valores`, { codigo: 'B', nombre: 'B', padreId: alfaId })
+            .expect(201)
+        ).body as { id: string }
+      ).id;
     });
 
     it('la jerarquía de valores no admite ciclos', async () => {
@@ -203,7 +211,11 @@ describe('Dimensiones configurables D8 (E2E)', () => {
       await viewer.api.get('/dimensiones').expect(200);
       await viewer.api.post('/dimensiones', { codigo: 'x', nombre: 'X' }).expect(403);
       await viewer.api
-        .post(`/dimensiones/${dimId}/asignaciones`, { targetType: 'ejecucion', targetId: 'e1', dimensionValueId: alfaId })
+        .post(`/dimensiones/${dimId}/asignaciones`, {
+          targetType: 'ejecucion',
+          targetId: 'e1',
+          dimensionValueId: alfaId,
+        })
         .expect(403);
     });
 
@@ -218,7 +230,11 @@ describe('Dimensiones configurables D8 (E2E)', () => {
 
     it('etiquetar una ejecución con un valor no crea ningún permiso (solo una fila de etiqueta)', async () => {
       await owner.api
-        .post(`/dimensiones/${dimId}/asignaciones`, { targetType: 'ejecucion', targetId: 'exec-1', dimensionValueId: alfaId })
+        .post(`/dimensiones/${dimId}/asignaciones`, {
+          targetType: 'ejecucion',
+          targetId: 'exec-1',
+          dimensionValueId: alfaId,
+        })
         .expect(201);
       const etiquetas = (
         await owner.api.get(`/dimensiones/${dimId}/asignaciones?targetType=ejecucion&targetId=exec-1`).expect(200)
@@ -226,7 +242,11 @@ describe('Dimensiones configurables D8 (E2E)', () => {
       expect(etiquetas).toHaveLength(1);
       // Re-etiquetar la misma ejecución con la misma dimensión reemplaza (una etiqueta por dimensión), no duplica.
       await owner.api
-        .post(`/dimensiones/${dimId}/asignaciones`, { targetType: 'ejecucion', targetId: 'exec-1', dimensionValueId: betaId })
+        .post(`/dimensiones/${dimId}/asignaciones`, {
+          targetType: 'ejecucion',
+          targetId: 'exec-1',
+          dimensionValueId: betaId,
+        })
         .expect(201);
       const tras = (
         await owner.api.get(`/dimensiones/${dimId}/asignaciones?targetType=ejecucion&targetId=exec-1`).expect(200)

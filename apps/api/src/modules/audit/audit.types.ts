@@ -10,6 +10,9 @@ export const AUDIT_ACTIONS = {
   POLITICA_CREADA: 'POLITICA_CREADA',
   POLITICA_MODIFICADA: 'POLITICA_MODIFICADA',
   POLITICA_ARCHIVADA: 'POLITICA_ARCHIVADA',
+  /// Configuración (alta/cambio de banderas/umbrales/riesgo) de un tipo de acción sensible del catálogo (E6+ · punto
+  /// 7). Actor humano, tipo de acción (codigo) y, en metadata, los valores anterior/nuevo de las banderas y umbrales.
+  ACCION_SENSIBLE_CONFIGURADA: 'ACCION_SENSIBLE_CONFIGURADA',
   SUSPENSION_ACTIVADA: 'SUSPENSION_ACTIVADA',
   SUSPENSION_LEVANTADA: 'SUSPENSION_LEVANTADA',
   AGENTE_PUBLICADO: 'AGENTE_PUBLICADO',

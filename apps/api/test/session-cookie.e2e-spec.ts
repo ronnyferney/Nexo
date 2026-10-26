@@ -5,7 +5,7 @@ import { invitationToken, login, PASSWORD, registerOwner, uniqueEmail, type Sess
 
 /** Cookies `nombre=valor` de la respuesta, con sus atributos sin procesar. */
 function setCookies(res: request.Response): Record<string, string> {
-  const raw = ([] as string[]).concat((res.headers['set-cookie'] as string[] | string | undefined) ?? []);
+  const raw = ([] as string[]).concat(res.headers['set-cookie'] ?? []);
   return Object.fromEntries(raw.map((c) => [c.slice(0, c.indexOf('=')), c]));
 }
 

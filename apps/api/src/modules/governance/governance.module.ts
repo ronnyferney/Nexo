@@ -6,10 +6,12 @@ import {
   ActionsController,
   ApprovalsController,
   PoliciesController,
+  SensitiveActionsController,
   SuspensionsController,
 } from './actions/actions.controller';
 import { ApprovalsService } from './actions/approvals.service';
 import { PolicyService } from './actions/policy.service';
+import { SensitiveActionsService } from './actions/sensitive-actions.service';
 import { SuspensionsService } from './actions/suspensions.service';
 import { ConsolasService } from './dimensiones/consolas.service';
 import { DimensionSeedService } from './dimensiones/dimension-seed.service';
@@ -50,6 +52,7 @@ import { UsageService } from './usage.service';
     PoliciesController,
     ActionsController,
     ApprovalsController,
+    SensitiveActionsController,
     SuspensionsController,
   ],
   providers: [
@@ -65,6 +68,7 @@ import { UsageService } from './usage.service';
     DimensionesService,
     ConsolasService,
     PolicyService,
+    SensitiveActionsService,
     ApprovalsService,
     SuspensionsService,
     ActionGatewayService,
@@ -78,6 +82,7 @@ import { UsageService } from './usage.service';
     ConsolidacionService,
     DimensionesService,
     PolicyService,
+    SensitiveActionsService,
     ApprovalsService,
     SuspensionsService,
     ActionGatewayService,

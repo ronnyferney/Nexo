@@ -64,10 +64,10 @@ describe('Simulador local de proveedor IA con inicio de sesión (E2E)', () => {
       .expect(302);
     // La ventana emergente conserva `window.opener` (sin COOP same-origin) para avisar a la consola y cerrarse.
     expect(back.headers['cross-origin-opener-policy']).toBe('unsafe-none');
-    const callback = new URL(back.headers.location as string);
+    const callback = new URL(back.headers.location);
     const res = await http().get(`${callback.pathname}${callback.search}`).set('Cookie', llmOAuthCookie()).expect(302);
     expect(res.headers['cross-origin-opener-policy']).toBe('unsafe-none');
-    return new URL(res.headers.location as string);
+    return new URL(res.headers.location);
   }
 
   it('aparece en la galería con inicio de sesión y código disponibles', async () => {
