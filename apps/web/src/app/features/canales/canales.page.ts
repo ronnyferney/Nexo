@@ -18,14 +18,18 @@ import { IconComponent } from '../../shared/icon.component';
 import { JsonEditorComponent } from '../../shared/json-editor.component';
 import { RelativeTimePipe } from '../../shared/relative-time.pipe';
 import {
+  ADJUNTO_TIPOS,
   destinoPlaceholder,
+  esCanalWhatsApp,
   esProveedorSimulado,
   estadoCuentaMeta,
   estadoMensajeMeta,
   mensajeSecretRef,
   nuevaIdempotencyKey,
+  parsearParametrosPlantilla,
   tipoCanalMeta,
 } from './canales.util';
+import type { AdjuntoMensaje, AdjuntoTipo, PlantillaMensaje } from '../../core/channels.models';
 
 const TIPOS: CanalTipo[] = ['CORREO', 'WHATSAPP', 'VOZ'];
 const ESTADOS: CanalCuentaEstado[] = ['ACTIVA', 'SUSPENDIDA', 'RETIRADA'];
@@ -204,6 +208,18 @@ interface FormCuenta {
               <button class="btn ghost icon" (click)="cerrarPanel()" aria-label="Cerrar panel" title="Cerrar"><nx-icon name="x" /></button>
             </div>
 
+            @if (esWhatsApp(c)) {
+              <div class="callout info" role="note">
+                <nx-icon name="info" [size]="16" />
+                <span>
+                  WhatsApp (<code>whatsapp_meta</code> / <code>whatsapp_twilio</code>) admite <strong>plantillas</strong>
+                  aprobadas y <strong>adjuntos</strong> por referencia, y reporta el estado <strong>LEÍDO</strong> además
+                  de ENVIADO/ENTREGADO. Los mensajes entrantes llegan por <em>webhooks</em> configurados en el backend;
+                  no se activan desde esta pantalla.
+                </span>
+              </div>
+            }
+
             @if (canEdit()) {
               <form class="stack" (ngSubmit)="enviar(c)">
                 <div class="field">
@@ -219,7 +235,64 @@ interface FormCuenta {
                 <div class="field">
                   <label for="s-cuerpo">Mensaje</label>
                   <textarea id="s-cuerpo" name="cuerpo" class="input" rows="3" required [(ngModel)]="sCuerpo"></textarea>
+                  @if (esWhatsApp(c)) { <span class="hint">Fuera de la ventana de 24 h, WhatsApp exige una plantilla aprobada.</span> }
                 </div>
+
+                @if (esWhatsApp(c)) {
+                  <fieldset class="wa">
+                    <legend>Plantilla de WhatsApp</legend>
+                    <label class="check"><input type="checkbox" name="usarPlantilla" [(ngModel)]="sUsarPlantilla" /> Enviar con plantilla aprobada</label>
+                    @if (sUsarPlantilla) {
+                      <div class="grid2">
+                        <div class="field">
+                          <label for="s-pl-nombre">Nombre / Content SID</label>
+                          <input id="s-pl-nombre" name="plNombre" class="input mono" placeholder="recordatorio_cita" [(ngModel)]="sPlantillaNombre" />
+                        </div>
+                        <div class="field">
+                          <label for="s-pl-idioma">Idioma (BCP-47)</label>
+                          <input id="s-pl-idioma" name="plIdioma" class="input mono" placeholder="es" [(ngModel)]="sPlantillaIdioma" />
+                        </div>
+                      </div>
+                      <div class="field">
+                        <label for="s-pl-params">Parámetros del cuerpo (uno por línea)</label>
+                        <textarea id="s-pl-params" name="plParams" class="input mono" rows="3" placeholder="Ana&#10;jueves 10:00" [(ngModel)]="sPlantillaParams"></textarea>
+                        <span class="hint">Sustituyen las variables posicionales de la plantilla. Nunca escriba secretos aquí.</span>
+                      </div>
+                    }
+                  </fieldset>
+
+                  <fieldset class="wa">
+                    <legend>Adjunto (por referencia)</legend>
+                    <label class="check"><input type="checkbox" name="usarAdjunto" [(ngModel)]="sUsarAdjunto" /> Incluir un adjunto</label>
+                    @if (sUsarAdjunto) {
+                      <div class="grid2">
+                        <div class="field">
+                          <label for="s-adj-tipo">Tipo</label>
+                          <select id="s-adj-tipo" name="adjTipo" class="input" [(ngModel)]="sAdjTipo">
+                            @for (t of adjuntoTipos; track t) { <option [value]="t">{{ t }}</option> }
+                          </select>
+                        </div>
+                        <div class="field">
+                          <label for="s-adj-nombre">Nombre de archivo</label>
+                          <input id="s-adj-nombre" name="adjNombre" class="input" placeholder="factura.pdf" [(ngModel)]="sAdjNombre" />
+                        </div>
+                        <div class="field">
+                          <label for="s-adj-url">URL pública</label>
+                          <input id="s-adj-url" name="adjUrl" class="input mono" placeholder="https://…" [(ngModel)]="sAdjUrl" />
+                        </div>
+                        <div class="field">
+                          <label for="s-adj-media">o Media id del proveedor</label>
+                          <input id="s-adj-media" name="adjMedia" class="input mono" placeholder="media-123" [(ngModel)]="sAdjMediaId" />
+                        </div>
+                      </div>
+                      <div class="field">
+                        <label for="s-adj-caption">Descripción (caption)</label>
+                        <input id="s-adj-caption" name="adjCaption" class="input" [(ngModel)]="sAdjCaption" />
+                      </div>
+                      <span class="hint">Adjunto por referencia (URL pública o media id); nunca binarios. La URL pasa por el egress seguro.</span>
+                    }
+                  </fieldset>
+                }
                 <div class="grid2">
                   <div class="field">
                     <label for="s-tarea">Tarea (opcional)</label>
@@ -283,6 +356,10 @@ interface FormCuenta {
     .badge.sm { height: 18px; font-size: 10px; margin-left: 6px; }
     .danger-text { color: var(--danger); }
     tr.sel { background: var(--primary-50); }
+    .wa { border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin: 0; }
+    .wa legend { padding: 0 6px; font-size: 12px; color: var(--muted); }
+    .wa .grid2 { margin-top: 8px; }
+    .check { display: inline-flex; align-items: center; gap: 6px; }
     @media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }
   `,
 })
@@ -311,6 +388,7 @@ export class CanalesPage implements OnInit {
 
   readonly tipos = TIPOS;
   readonly estados = ESTADOS;
+  readonly adjuntoTipos = ADJUNTO_TIPOS;
   readonly tipoMeta = tipoCanalMeta;
   readonly estadoCuentaMeta = estadoCuentaMeta;
   readonly estadoMensajeMeta = estadoMensajeMeta;
@@ -325,6 +403,18 @@ export class CanalesPage implements OnInit {
   sCuerpo = '';
   sTareaId = '';
   sIdem = '';
+
+  // WhatsApp: plantilla y adjunto
+  sUsarPlantilla = false;
+  sPlantillaNombre = '';
+  sPlantillaIdioma = 'es';
+  sPlantillaParams = '';
+  sUsarAdjunto = false;
+  sAdjTipo: AdjuntoTipo = 'documento';
+  sAdjUrl = '';
+  sAdjMediaId = '';
+  sAdjNombre = '';
+  sAdjCaption = '';
 
   async ngOnInit() {
     void this.loadOrgUnits();
@@ -357,6 +447,10 @@ export class CanalesPage implements OnInit {
 
   esSandbox(c: CanalCuenta): boolean {
     return esProveedorSimulado(c.proveedor);
+  }
+
+  esWhatsApp(c: CanalCuenta): boolean {
+    return esCanalWhatsApp(c.tipo);
   }
 
   // ---------- Cuentas ----------
@@ -443,6 +537,16 @@ export class CanalesPage implements OnInit {
     this.sCuerpo = '';
     this.sTareaId = '';
     this.sIdem = nuevaIdempotencyKey();
+    this.sUsarPlantilla = false;
+    this.sPlantillaNombre = '';
+    this.sPlantillaIdioma = 'es';
+    this.sPlantillaParams = '';
+    this.sUsarAdjunto = false;
+    this.sAdjTipo = 'documento';
+    this.sAdjUrl = '';
+    this.sAdjMediaId = '';
+    this.sAdjNombre = '';
+    this.sAdjCaption = '';
     void this.loadMensajes(c.id);
   }
 
@@ -466,6 +570,32 @@ export class CanalesPage implements OnInit {
     }
   }
 
+  /** Arma la plantilla de WhatsApp si el canal es WhatsApp y el usuario la activó; si no, `undefined`. */
+  private construirPlantilla(c: CanalCuenta): PlantillaMensaje | undefined {
+    if (!this.esWhatsApp(c) || !this.sUsarPlantilla || !this.sPlantillaNombre.trim()) return undefined;
+    const parametros = parsearParametrosPlantilla(this.sPlantillaParams);
+    return {
+      nombre: this.sPlantillaNombre.trim(),
+      idioma: this.sPlantillaIdioma.trim() || undefined,
+      parametros: parametros.length ? parametros : undefined,
+    };
+  }
+
+  /** Arma el adjunto por referencia si el canal es WhatsApp y el usuario lo activó con url o media id; si no, `undefined`. */
+  private construirAdjunto(c: CanalCuenta): AdjuntoMensaje | undefined {
+    if (!this.esWhatsApp(c) || !this.sUsarAdjunto) return undefined;
+    const url = this.sAdjUrl.trim();
+    const mediaId = this.sAdjMediaId.trim();
+    if (!url && !mediaId) return undefined;
+    return {
+      tipo: this.sAdjTipo,
+      url: url || undefined,
+      mediaId: mediaId || undefined,
+      nombreArchivo: this.sAdjNombre.trim() || undefined,
+      caption: this.sAdjCaption.trim() || undefined,
+    };
+  }
+
   async enviar(c: CanalCuenta) {
     if (!this.sDestino.trim() || !this.sCuerpo.trim() || !this.sIdem.trim()) return;
     this.busy.set('send');
@@ -476,6 +606,8 @@ export class CanalesPage implements OnInit {
         cuerpo: this.sCuerpo,
         idempotencyKey: this.sIdem.trim(),
         tareaId: this.sTareaId.trim() || undefined,
+        plantilla: this.construirPlantilla(c),
+        adjunto: this.construirAdjunto(c),
       });
       const meta = estadoMensajeMeta(msg.estado);
       if (msg.estado === 'FALLIDO') this.toast.error(`Envío ${meta.label}: ${msg.error ?? 'sin detalle'}`);

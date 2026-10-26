@@ -1,5 +1,7 @@
 import {
+  ADJUNTO_TIPOS,
   agruparPorEmpresa,
+  esCanalWhatsApp,
   esNombreSecretoValido,
   esProveedorSimulado,
   esSimulado,
@@ -8,6 +10,7 @@ import {
   mensajeSecretRef,
   nuevaIdempotencyKey,
   pareceValorDeSecreto,
+  parsearParametrosPlantilla,
   tipoCanalMeta,
 } from './canales.util';
 
@@ -41,6 +44,24 @@ describe('canales.util', () => {
     it('ENVIADO y ENTREGADO avanzan de color', () => {
       expect(estadoMensajeMeta('ENVIADO').badge).toBe('primary');
       expect(estadoMensajeMeta('ENTREGADO').badge).toBe('success');
+    });
+    it('LEIDO (acuse de lectura de WhatsApp) es verde', () => {
+      expect(estadoMensajeMeta('LEIDO')).toEqual({ label: 'Leído', badge: 'success' });
+    });
+  });
+
+  describe('WhatsApp: plantillas y adjuntos', () => {
+    it('reconoce el canal WhatsApp', () => {
+      expect(esCanalWhatsApp('WHATSAPP')).toBeTrue();
+      expect(esCanalWhatsApp('CORREO')).toBeFalse();
+      expect(esCanalWhatsApp('VOZ')).toBeFalse();
+    });
+    it('parsea parámetros por línea, recortando y descartando vacíos', () => {
+      expect(parsearParametrosPlantilla('Ana\n  jueves 10:00 \n\n')).toEqual(['Ana', 'jueves 10:00']);
+      expect(parsearParametrosPlantilla('   ')).toEqual([]);
+    });
+    it('expone los tipos de adjunto admitidos', () => {
+      expect(ADJUNTO_TIPOS).toEqual(['imagen', 'documento', 'audio', 'video']);
     });
   });
 

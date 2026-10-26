@@ -43,6 +43,7 @@ export const routes: Routes = [
       { path: 'mensajes', loadComponent: () => import('./features/mensajes/bandeja.page').then((m) => m.BandejaPage) },
       { path: 'canales', loadComponent: () => import('./features/mensajes/canales.page').then((m) => m.CanalesPage) },
       { path: 'canales-externos', loadComponent: () => import('./features/canales/canales.page').then((m) => m.CanalesPage) },
+      { path: 'voz', loadComponent: () => import('./features/voz/voz.page').then((m) => m.VozPage) },
       { path: 'comunidad', loadComponent: () => import('./features/comunidad/comunidad.page').then((m) => m.ComunidadPage) },
       { path: 'routines', loadComponent: () => import('./features/routines/routines.page').then((m) => m.RoutinesPage) },
       { path: 'supervision', loadComponent: () => import('./features/supervision/supervision.page').then((m) => m.SupervisionPage) },

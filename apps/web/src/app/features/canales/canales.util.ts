@@ -56,6 +56,7 @@ export const ESTADO_MENSAJE_META: Record<EstadoMensajeCanal, Meta> = {
   PENDIENTE: { label: 'Pendiente', badge: 'warning' },
   ENVIADO: { label: 'Enviado', badge: 'primary' },
   ENTREGADO: { label: 'Entregado', badge: 'success' },
+  LEIDO: { label: 'Leído', badge: 'success' },
   FALLIDO: { label: 'Fallido', badge: 'danger' },
 };
 
@@ -101,6 +102,25 @@ export function mensajeSecretRef(texto: string): string | null {
   }
   return 'Nombre de secreto en MAYUSCULAS_CON_GUIONES (ej. M365_CLIENT_SECRET).';
 }
+
+// ============================ WhatsApp: plantillas y adjuntos ============================
+
+/** `true` si el canal es WhatsApp (habilita plantillas y adjuntos en el envío). */
+export const esCanalWhatsApp = (t: CanalTipo): boolean => t === 'WHATSAPP';
+
+/**
+ * Convierte el texto de parámetros de una plantilla (uno por línea) en la lista posicional que espera el backend.
+ * Descarta líneas vacías y recorta espacios. Aquí nunca van secretos.
+ */
+export function parsearParametrosPlantilla(texto: string): string[] {
+  return texto
+    .split('\n')
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+}
+
+/** Tipos de adjunto admitidos por el canal (ADR 0015/0008): por referencia, nunca binarios en el cuerpo. */
+export const ADJUNTO_TIPOS = ['imagen', 'documento', 'audio', 'video'] as const;
 
 // ============================ Clave de idempotencia ============================
 

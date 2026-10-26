@@ -13,8 +13,11 @@ export type CanalCuentaEstado = 'ACTIVA' | 'SUSPENDIDA' | 'RETIRADA';
 /** Dirección de un mensaje de canal. */
 export type DireccionMensaje = 'SALIENTE' | 'ENTRANTE';
 
-/** Estado de un mensaje. SIMULADO = despachado por el adaptador simulado (sandbox), sin salida de red. */
-export type EstadoMensajeCanal = 'PENDIENTE' | 'ENVIADO' | 'ENTREGADO' | 'FALLIDO' | 'SIMULADO';
+/**
+ * Estado de un mensaje. SIMULADO = despachado por el adaptador simulado (sandbox), sin salida de red.
+ * LEIDO = acuse de lectura del destinatario (WhatsApp Meta/Twilio `read`), posterior a ENTREGADO.
+ */
+export type EstadoMensajeCanal = 'PENDIENTE' | 'ENVIADO' | 'ENTREGADO' | 'LEIDO' | 'FALLIDO' | 'SIMULADO';
 
 /** Cuenta de canal externo por empresa (`GET /canales-externos`). `config` no contiene secretos. */
 export interface CanalCuenta {
@@ -68,6 +71,30 @@ export interface CreateCanalCuentaInput {
 /** Cuerpo de `PATCH /canales-externos/:id`. */
 export type UpdateCanalCuentaInput = Partial<CreateCanalCuentaInput>;
 
+/** Plantilla aprobada de WhatsApp (Meta/Twilio): nombre, idioma y parámetros posicionales del cuerpo, SIN secretos. */
+export interface PlantillaMensaje {
+  /** Nombre de la plantilla aprobada (Meta) o Content SID (Twilio). */
+  nombre: string;
+  /** Idioma BCP-47 (ej. es, es_AR, en_US); por defecto `es`. */
+  idioma?: string;
+  /** Parámetros posicionales del cuerpo; NUNCA secretos. */
+  parametros?: string[];
+}
+
+/** Tipo de adjunto por referencia (URL pública o media id del proveedor); nunca binarios en el cuerpo. */
+export type AdjuntoTipo = 'imagen' | 'documento' | 'audio' | 'video';
+
+/** Adjunto por referencia de un mensaje (ADR 0015/0008): URL pública o `mediaId` del proveedor, no binarios. */
+export interface AdjuntoMensaje {
+  tipo: AdjuntoTipo;
+  /** URL pública del adjunto (validada por el egress seguro). */
+  url?: string;
+  /** Id de media previamente subido al proveedor (alternativa a `url`). */
+  mediaId?: string;
+  nombreArchivo?: string;
+  caption?: string;
+}
+
 /** Cuerpo de `POST /canales-externos/:id/enviar`. Idempotente por `idempotencyKey`. */
 export interface EnviarMensajeInput {
   destino: string;
@@ -76,6 +103,10 @@ export interface EnviarMensajeInput {
   idempotencyKey: string;
   tareaId?: string;
   misionId?: string;
+  /** Plantilla WhatsApp; si viene, se envía plantilla en vez de texto libre. */
+  plantilla?: PlantillaMensaje;
+  /** Adjunto por referencia (WhatsApp y otros canales que lo soporten). */
+  adjunto?: AdjuntoMensaje;
 }
 
 /** Resultado de `POST /canales-externos/:id/test`. */
