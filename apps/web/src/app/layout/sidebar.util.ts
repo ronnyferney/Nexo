@@ -104,6 +104,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     icon: 'shield',
     items: [
       { path: '/supervision', label: 'Supervisión', icon: 'inbox', exact: false, scope: 'all' },
+      { path: '/resultados', label: 'Indicadores de resultado', icon: 'chart', exact: false, scope: 'all' },
       { path: '/excepciones', label: 'Excepciones', icon: 'alert', exact: false, scope: 'all' },
       { path: '/admin/politicas', label: 'Políticas', icon: 'scale', exact: false, scope: 'admin' },
       { path: '/admin/suspension', label: 'Suspensión', icon: 'stop', exact: false, scope: 'admin' },
