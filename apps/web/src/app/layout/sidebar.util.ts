@@ -83,6 +83,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     items: [
       { path: '/mensajes', label: 'Mensajes', icon: 'send', exact: false, scope: 'all' },
       { path: '/canales', label: 'Canales', icon: 'branch', exact: false, scope: 'all' },
+      { path: '/comunidad', label: 'Comunidad', icon: 'users', exact: false, scope: 'all' },
       { path: '/workflows', label: 'Flujos', icon: 'flow', exact: false, scope: 'all' },
       { path: '/executions', label: 'Ejecuciones', icon: 'history', exact: false, scope: 'all' },
     ],

@@ -16,8 +16,8 @@ describe('sidebar.util', () => {
     it('no tiene rutas duplicadas y cubre todos los enlaces (portal + admin + plataforma)', () => {
       const paths = NAV_GROUPS.flatMap((g) => g.items.map((i) => i.path));
       expect(new Set(paths).size).toBe(paths.length);
-      // 23 portal + 17 admin + 3 plataforma = 43 enlaces.
-      expect(paths.length).toBe(43);
+      // 24 portal + 17 admin + 3 plataforma = 44 enlaces.
+      expect(paths.length).toBe(44);
       expect(paths).toContain('/');
       expect(paths).toContain('/admin');
       expect(paths).toContain('/platform');
