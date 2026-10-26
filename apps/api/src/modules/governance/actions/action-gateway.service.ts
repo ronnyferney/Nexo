@@ -2,6 +2,8 @@ import { ForbiddenException, Inject, Injectable, Logger, NotFoundException, Opti
 import { Prisma, type Aprobacion } from '@prisma/client';
 import type { AuthContext } from '../../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { IdempotencyService } from '../../durability/idempotency/idempotency.service';
+import { ReconciliationService } from '../../durability/reconciliation/reconciliation.service';
 import { BudgetsService } from '../budgets.service';
 import { blockingUnit } from '../budget-policy';
 import { executionCheck } from '../policy/approval.rules';
@@ -43,6 +45,8 @@ export class ActionGatewayService {
     private readonly approvals: ApprovalsService,
     private readonly suspensions: SuspensionsService,
     private readonly budgets: BudgetsService,
+    private readonly idempotency: IdempotencyService,
+    private readonly reconciliation: ReconciliationService,
     @Optional() @Inject(ACTION_DISPATCHERS) dispatchers?: ActionDispatcher[],
   ) {
     this.dispatchers = new Map((dispatchers ?? []).map((d) => [d.tipoAccion, d]));
@@ -147,7 +151,7 @@ export class ActionGatewayService {
     }
 
     // ALLOW: revalida presupuesto + suspensión justo antes del efecto y despacha (seam).
-    const dispatch = await this.guardedDispatch(workspaceId, ctx, undefined, decisionId);
+    const dispatch = await this.guardedDispatch(workspaceId, ctx, undefined, dto.idempotencyKey ?? decisionId);
     return { estado: 'PERMITIDA', decisionId, motivo: decision.motivo, dispatch };
   }
 
@@ -187,7 +191,12 @@ export class ActionGatewayService {
     return { aprobacion: updated, dispatch };
   }
 
-  /** Revalida suspensión justo antes del efecto y delega en el despachador registrado (si existe). */
+  /**
+   * Revalida suspensión justo antes del efecto y delega en el despachador registrado (si existe). El despacho se
+   * protege con la idempotencia de E7 (RF17/QA04): una reejecución/redelivery con la misma clave devuelve el resultado
+   * previo SIN volver a despachar el efecto de negocio. Un despacho con resultado INCIERTO (la escritura pudo salir) no
+   * se reintenta a ciegas: se CONCILIA abriendo una excepción en la bandeja (RF20/RF21).
+   */
   private async guardedDispatch(
     workspaceId: string,
     ctx: ActionContext,
@@ -202,7 +211,27 @@ export class ActionGatewayService {
       this.logger.debug(`Sin despachador para ${ctx.tipoAccion}: acción gobernada pero no despachada (seam E14/E8).`);
       return { status: 'SEAM', detalle: 'Despacho no implementado (canales E14 / herramientas E8)' };
     }
-    return dispatcher.dispatch({ ctx, aprobacion, idempotencyKey });
+
+    const { resultado } = await this.idempotency.withIdempotency(
+      workspaceId,
+      idempotencyKey,
+      `ACTION_DISPATCH:${ctx.tipoAccion}`,
+      () => dispatcher.dispatch({ ctx, aprobacion, idempotencyKey }),
+      { contenido: { tipoAccion: ctx.tipoAccion, destinatarios: ctx.destinatarios, monto: ctx.monto } },
+    );
+
+    if (resultado.status === 'INCIERTO') {
+      const key = await this.idempotency.find(workspaceId, idempotencyKey);
+      await this.reconciliation.conciliarEscrituraIncierta(workspaceId, {
+        causa: 'DESPACHO_INCIERTO',
+        empresaId: ctx.empresaId ?? null,
+        procesoId: ctx.procesoId ?? null,
+        tareaId: aprobacion?.tareaId ?? null,
+        idempotencyKeyId: key?.id ?? null,
+        evidencia: { tipoAccion: ctx.tipoAccion, providerRef: resultado.providerRef ?? null },
+      });
+    }
+    return resultado;
   }
 
   private async invalidate(id: string, estado: 'INVALIDADA' | 'CADUCADA' | Aprobacion['estado']) {

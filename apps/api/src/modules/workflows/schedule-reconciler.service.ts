@@ -2,6 +2,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import type { Redis } from 'ioredis';
+import { ReconciliationService } from '../durability/reconciliation/reconciliation.service';
 import { IncumplimientosService } from '../results/incumplimientos.service';
 import { RoutinesService } from '../routines/routines.service';
 import { WORKFLOW_QUEUE } from './queue/workflow-queue.constants';
@@ -34,6 +35,7 @@ export class ScheduleReconcilerService implements OnApplicationBootstrap {
     private readonly routines: RoutinesService,
     @InjectQueue(WORKFLOW_QUEUE) private readonly queue: Queue,
     private readonly incumplimientos: IncumplimientosService,
+    private readonly reconciliation: ReconciliationService,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
@@ -48,6 +50,12 @@ export class ScheduleReconcilerService implements OnApplicationBootstrap {
       await this.incumplimientos.barrer();
     } catch (err) {
       this.logger.error(`No se pudo barrer incumplimientos al arrancar: ${(err as Error).message}`);
+    }
+    try {
+      // E7/RF20: conciliación inicial de escrituras inciertas (claves caducadas); luego lo repite `JOB_DURABILITY_SWEEP`.
+      await this.reconciliation.reconciliarPendientes();
+    } catch (err) {
+      this.logger.error(`No se pudo conciliar escrituras inciertas al arrancar: ${(err as Error).message}`);
     }
   }
 

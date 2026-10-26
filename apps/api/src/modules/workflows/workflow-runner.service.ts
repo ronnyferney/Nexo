@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AgentsService } from '../agents/agents.service';
 import { ConnectorsService } from '../connectors/connectors.service';
+import { ExcepcionesService } from '../durability/excepciones/excepciones.service';
 import {
   ConditionExecutor,
   DelayExecutor,
@@ -36,6 +37,7 @@ export class WorkflowRunnerService {
     connectors: ConnectorsService,
     agents: AgentsService,
     private readonly workflows: WorkflowsService,
+    private readonly excepciones: ExcepcionesService,
   ) {
     const runSub: SubworkflowRunner = (workflowId, input, depth, parent) =>
       this.runSubworkflow(workflowId, input, depth, parent);
@@ -112,7 +114,35 @@ export class WorkflowRunnerService {
     });
     if (result.status === 'FAILED' && !cancelled) {
       this.logger.warn(`Ejecución ${executionId} falló: ${result.error}`);
+      await this.abrirExcepcionPorFallo(execution, result.error ?? 'Error desconocido', result.steps);
       await this.triggerErrorWorkflow(execution, result.error ?? 'Error desconocido', result.steps);
+    }
+  }
+
+  /**
+   * Alimenta la bandeja de excepciones (E7/RF21) desde el motor durable: un fallo de ejecución —ya agotados los
+   * reintentos por nodo del motor— abre una excepción para intervención. Es aditivo (no cambia el flujo de error) e
+   * idempotente por `executionId`: un reintento del mismo job no duplica la excepción.
+   */
+  private async abrirExcepcionPorFallo(
+    execution: { id: string; workspaceId: string; tareaId?: string | null; workflow: { id: string; name: string } },
+    error: string,
+    steps: StepLog[],
+  ): Promise<void> {
+    const failed = steps.find((s) => s.status === 'failed');
+    try {
+      await this.excepciones.abrirUnica(execution.workspaceId, {
+        causa: 'FALLO_EJECUCION',
+        procesoId: execution.workflow.id,
+        tareaId: execution.tareaId ?? null,
+        executionId: execution.id,
+        paso: failed ? `${failed.nodeName} (${failed.nodeId})` : null,
+        evidencia: { error, flujo: execution.workflow.name, nodo: failed?.nodeId ?? null },
+        origen: 'MOTOR_DURABLE',
+        siguienteAccion: 'Revisar el paso fallido y reintentar o corregir el flujo',
+      });
+    } catch (err) {
+      this.logger.warn(`No se pudo abrir la excepción del fallo de ${execution.id}: ${(err as Error).message}`);
     }
   }
 

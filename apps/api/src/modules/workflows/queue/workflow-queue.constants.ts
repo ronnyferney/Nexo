@@ -24,6 +24,12 @@ export const MESSAGES_SWEEP_PATTERN = '41 * * * *';
 /** Despacho del segmento entrante de un handoff tras la aceptación (E5/RF09). */
 export const JOB_SEGMENT = 'segment';
 
+/** Conciliación de escrituras inciertas: claves de idempotencia EN_PROGRESO caducadas (E7/RF20). Reutiliza esta cola. */
+export const JOB_DURABILITY_SWEEP = 'durability-sweep';
+export const DURABILITY_SWEEP_SCHEDULER_ID = 'durability-reconcile';
+/** Cada hora, al minuto 53 (desfasado de retención/incumplimientos/mensajes para no solaparse). */
+export const DURABILITY_SWEEP_PATTERN = '53 * * * *';
+
 export interface RunJobData {
   executionId: string;
 }

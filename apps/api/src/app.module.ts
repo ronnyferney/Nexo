@@ -18,6 +18,7 @@ import { AgentsModule } from './modules/agents/agents.module';
 import { CargosModule } from './modules/cargos/cargos.module';
 import { CopilotModule } from './modules/copilot/copilot.module';
 import { DataProtectionModule } from './modules/data-protection/data-protection.module';
+import { DurabilityModule } from './modules/durability/durability.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ConnectorsModule } from './modules/connectors/connectors.module';
 import { EdgeModule } from './modules/edge/edge.module';
@@ -77,6 +78,7 @@ import { WorkspacesModule } from './modules/workspaces/workspaces.module';
     AuthModule,
     WorkspacesModule,
     DataProtectionModule,
+    DurabilityModule,
     LlmModule,
     GovernanceModule,
     GroupsModule,

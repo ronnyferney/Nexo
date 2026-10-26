@@ -321,6 +321,8 @@ model Workspace {
   dimensiones               Dimension[]
   dimensionValues           DimensionValue[]
   dimensionAssignments      DimensionAssignment[]
+  idempotencyKeys           IdempotencyKey[]
+  excepciones               Excepcion[]
 }
 
 /// Catálogo de cargos (RF03): perfil reutilizable del empleado digital con propósito, funciones, entregables,
@@ -2001,4 +2003,115 @@ model Suspension {
 
   @@index([workspaceId, activa])
   @@index([workspaceId, alcance, targetId])
+}
+
+// ===================== Durabilidad avanzada (E7 · ADR 0012/0013) =====================
+
+/// Estado de una clave de idempotencia (RF17/RF20). EN_PROGRESO mientras el efecto corre; COMPLETADA guarda el
+/// resultado para devolverlo ante una repetición sin re-ejecutar (QA04); FALLIDA permite reintentar según clasificación.
+enum EstadoIdempotencia {
+  EN_PROGRESO
+  COMPLETADA
+  FALLIDA
+}
+
+/// Clasificación pura de un fallo (RF20). TEMPORAL se reintenta (solo si la operación es segura/idempotente);
+/// PERMANENTE no se reintenta; INCIERTO no se repite a ciegas, se CONCILIA. No se promete exactly-once sobre sistemas
+/// externos que no lo garanticen: una escritura incierta se verifica contra el destino o va a la bandeja de excepciones.
+enum ClaseFallo {
+  TEMPORAL
+  PERMANENTE
+  INCIERTO
+}
+
+/// Estados de una excepción operativa (RF21). ABIERTA al nacer; EN_PROGRESO cuando alguien la trabaja; CONCILIADA tras
+/// verificar el destino; REASIGNADA/CANCELADA/RESUELTA por acción del dueño. El historial vive en `ExcepcionEvento`.
+enum EstadoExcepcion {
+  ABIERTA
+  EN_PROGRESO
+  CONCILIADA
+  REASIGNADA
+  CANCELADA
+  RESUELTA
+}
+
+/// Clave de idempotencia por operación de negocio (RF17/RF20). Una repetición (redelivery / reejecución) con la misma
+/// clave NO vuelve a ejecutar el efecto: devuelve el resultado previo (QA04). La reutiliza el `ActionGateway` (E6) en su
+/// punto de despacho para que un reintento o reentrega no duplique el efecto de negocio.
+model IdempotencyKey {
+  id          String             @id @default(cuid())
+  workspaceId String
+  workspace   Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// Clave de negocio provista por el llamador (p. ej. messageId, aprobacionId, providerRef del canal).
+  clave       String
+  /// Scope/operación a la que pertenece la clave (p. ej. ACTION_DISPATCH:EMAIL_SEND). Para consulta/auditoría.
+  scope       String
+  estado      EstadoIdempotencia @default(EN_PROGRESO)
+  /// Resultado serializado del efecto, para devolverlo sin re-ejecutar (QA04).
+  resultado   Json?
+  /// Hash del contenido asociado: detecta una colisión de clave con contenido distinto.
+  hash        String?
+  /// Vigencia (RF20): pasada esta fecha la clave caduca y una repetición muy posterior puede re-ejecutarse.
+  expiresAt   DateTime?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@unique([workspaceId, clave])
+  @@index([workspaceId, scope])
+  @@index([workspaceId, estado])
+}
+
+/// Bandeja de excepciones (RF21): fallos del motor durable y escrituras inciertas que requieren intervención. Lleva
+/// causa, impacto, proceso/tarea/paso, evidencia (referencia, no copia), dueño, antigüedad (`createdAt`), siguiente
+/// acción y estado. Conserva historial append-only en `ExcepcionEvento`; reintentar no duplica acciones ya confirmadas
+/// (protegido por la clave de idempotencia asociada, QA06).
+model Excepcion {
+  id               String            @id @default(cuid())
+  workspaceId      String
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// Empresa (OrgUnit tipo EMPRESA) a la que pertenece; null = todo el workspace. Referencia blanda.
+  empresaId        String?
+  /// Causa (código/razón auditable, nunca razonamiento del modelo).
+  causa            String
+  clase            ClaseFallo?
+  impacto          String?
+  /// Proceso/flujo, tarea, ejecución y paso/nodo afectados. Referencias blandas.
+  procesoId        String?
+  tareaId          String?
+  executionId      String?
+  paso             String?
+  /// Evidencia referenciada (NO copia de datos sensibles): { executionId, providerRef, stepId, ... }.
+  evidencia        Json              @default("{}")
+  /// Dueño humano asignado a la excepción. Referencia blanda.
+  duenoUserId      String?
+  siguienteAccion  String?
+  /// Origen: MOTOR_DURABLE | ESCRITURA_INCIERTA | MANUAL.
+  origen           String            @default("MANUAL")
+  /// Clave de idempotencia de la acción asociada: al reintentar, evita duplicar un efecto ya confirmado (QA06).
+  idempotencyKeyId String?
+  estado           EstadoExcepcion   @default(ABIERTA)
+  eventos          ExcepcionEvento[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([workspaceId, estado])
+  @@index([workspaceId, tareaId])
+  @@index([workspaceId, createdAt])
+}
+
+/// Evento append-only del historial de una excepción (RF21): aporte de info, reintento, reasignación, cancelación,
+/// conciliación. Reintentar CONSERVA el historial (los eventos no se borran) y registra si la acción ya estaba
+/// confirmada (QA06).
+model ExcepcionEvento {
+  id          String    @id @default(cuid())
+  workspaceId String
+  excepcionId String
+  excepcion   Excepcion @relation(fields: [excepcionId], references: [id], onDelete: Cascade)
+  /// Tipo: CREADA | INFO | REINTENTO | REASIGNACION | CANCELACION | CONCILIACION.
+  tipo        String
+  detalle     Json      @default("{}")
+  actorUserId String?
+  createdAt   DateTime  @default(now())
+
+  @@index([workspaceId, excepcionId])
 }

@@ -210,6 +210,16 @@ export class ActionRequestDto {
   @Min(1)
   @Max(720)
   expiresInHours?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'Clave de idempotencia de negocio (E7/RF17): una repetición con la misma clave no vuelve a despachar el efecto ' +
+      '(QA04). Si se omite, se usa el id de la decisión/aprobación como clave.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  idempotencyKey?: string;
 }
 
 /**

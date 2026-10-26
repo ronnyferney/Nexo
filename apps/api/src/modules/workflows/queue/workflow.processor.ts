@@ -2,11 +2,13 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import { PrismaService } from '../../../infrastructure/prisma/prisma.service';
+import { ReconciliationService } from '../../durability/reconciliation/reconciliation.service';
 import { MensajesService } from '../../messaging/mensajes.service';
 import { IncumplimientosService } from '../../results/incumplimientos.service';
 import { RetentionService } from '../retention.service';
 import { WorkflowRunnerService } from '../workflow-runner.service';
 import {
+  JOB_DURABILITY_SWEEP,
   JOB_MESSAGE,
   JOB_MESSAGES_SWEEP,
   JOB_RESULTS_SWEEP,
@@ -30,6 +32,7 @@ export class WorkflowProcessor extends WorkerHost {
     private readonly retention: RetentionService,
     private readonly incumplimientos: IncumplimientosService,
     private readonly mensajes: MensajesService,
+    private readonly reconciliation: ReconciliationService,
   ) {
     super();
   }
@@ -68,6 +71,10 @@ export class WorkflowProcessor extends WorkerHost {
     }
     if (job.name === JOB_MESSAGE) {
       await this.mensajes.despachar((job.data as MessageJobData).mensajeId);
+      return;
+    }
+    if (job.name === JOB_DURABILITY_SWEEP) {
+      await this.reconciliation.reconciliarPendientes();
       return;
     }
     this.logger.warn(`Job desconocido: ${job.name}`);
