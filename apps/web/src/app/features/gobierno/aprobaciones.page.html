@@ -1,0 +1,189 @@
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>Aprobaciones</h1>
+      <p>Revise las acciones con efecto externo que esperan decisión antes de ejecutarse</p>
+    </div>
+    <div class="row">
+      <div class="field" style="min-width:180px">
+        <label for="f-estado" class="sr-only">Filtrar por estado</label>
+        <select id="f-estado" class="input" [ngModel]="estadoFiltro()" (ngModelChange)="estadoFiltro.set($event); load()">
+          <option value="">Todos los estados</option>
+          @for (e of estados; track e) { <option [value]="e">{{ statusMeta[e].label }}</option> }
+        </select>
+      </div>
+      <button class="btn" (click)="load()" [disabled]="loading()"><nx-icon name="refresh" [size]="15" />Actualizar</button>
+    </div>
+  </div>
+
+  @if (loading()) {
+    <div class="card empty"><p>Cargando aprobaciones…</p></div>
+  } @else if (error()) {
+    <div class="card empty">
+      <nx-icon name="alert" [size]="28" /><h3>No se pudieron cargar las aprobaciones</h3><p>{{ error() }}</p>
+      <button class="btn" (click)="load()">Reintentar</button>
+    </div>
+  } @else if (items().length === 0) {
+    <div class="card empty">
+      <nx-icon name="checkCircle" [size]="28" />
+      <h3>Sin aprobaciones</h3>
+      <p>No hay acciones pendientes de aprobación con este filtro. Las solicitudes aparecen aquí cuando una política
+        exige revisión humana antes de ejecutar.</p>
+    </div>
+  } @else {
+    <p class="muted small">{{ items().length }} aprobaciones · <strong>{{ pendientes() }}</strong> pendientes</p>
+    <div class="card" style="padding:0">
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr><th>Propósito</th><th>Acción</th><th>Riesgo</th><th>Importe</th><th>Vigencia</th><th>Aprobaciones</th><th>Estado</th></tr>
+          </thead>
+          <tbody>
+            @for (a of items(); track a.id) {
+              <tr class="clickable" [class.selected]="selected()?.id === a.id" (click)="open(a)">
+                <td>
+                  <strong>{{ a.proposito || 'Acción sin propósito' }}</strong>
+                  @if (isRequester(a)) { <span class="badge info" style="margin-left:6px"><nx-icon name="user" [size]="12" />Su solicitud</span> }
+                  @if (invalidada(a)) { <div class="error-text">Invalidada o caducada · exige nueva solicitud</div> }
+                </td>
+                <td><code>{{ a.tipoAccion }}</code></td>
+                <td><span class="badge {{ riskMeta[a.riesgo].cls }}"><span class="dot"></span>{{ riskMeta[a.riesgo].label }}</span></td>
+                <td class="nowrap">{{ importeTexto(a) || '—' }}</td>
+                <td class="nowrap">{{ a.expiresAt | ago }}</td>
+                <td class="nowrap">{{ aprobadores(a).length }} / {{ a.requiredApprovals }}</td>
+                <td><span class="badge {{ statusMeta[a.estado].cls }}"><span class="dot"></span>{{ statusMeta[a.estado].label }}</span></td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  }
+
+  @if (selected(); as a) {
+    <div class="drawer-backdrop" (click)="close()"></div>
+    <aside class="drawer" role="dialog" aria-label="Detalle de la aprobación" aria-modal="true">
+      <div class="drawer-head">
+        <div>
+          <h2>{{ a.proposito || 'Acción sin propósito' }}</h2>
+          <div class="row small" style="gap:8px; margin-top:4px">
+            <span class="badge {{ statusMeta[a.estado].cls }}"><span class="dot"></span>{{ statusMeta[a.estado].label }}</span>
+            <span class="badge {{ riskMeta[a.riesgo].cls }}"><span class="dot"></span>{{ riskMeta[a.riesgo].label }}</span>
+            <code>{{ a.tipoAccion }}</code>
+          </div>
+        </div>
+        <button class="btn ghost icon" title="Cerrar" aria-label="Cerrar" (click)="close()"><nx-icon name="x" /></button>
+      </div>
+
+      <div class="drawer-body stack">
+        @if (invalidada(a)) {
+          <div class="callout danger"><nx-icon name="alert" [size]="16" />
+            <span>Esta aprobación está <strong>invalidada o caducada</strong>. No puede ejecutarse; se requiere una nueva solicitud.</span></div>
+        }
+        @if (isRequester(a) && !a.allowSelfApproval) {
+          <div class="callout warning"><nx-icon name="user" [size]="16" />
+            <span>Usted es el <strong>solicitante</strong> de esta acción; la política prohíbe la autoaprobación, otra persona debe aprobarla.</span></div>
+        }
+
+        <!-- Comparación propuesta vs. estado de gobierno -->
+        <div class="grid grid-2">
+          <div class="card stack" style="gap:10px">
+            <div class="card-title" style="margin:0"><div class="icon-tile sm"><nx-icon name="send" [size]="16" /></div><h3 style="margin:0">Propuesta</h3></div>
+            <p class="muted small" style="margin:0">La acción exacta que se ejecutará si se aprueba.</p>
+            <div class="kv">
+              <span class="k">Destinatarios</span>
+              <span class="v">@if (a.destinatarios.length) { {{ a.destinatarios.join(', ') }} } @else { <span class="muted">—</span> }</span>
+            </div>
+            <div class="kv">
+              <span class="k">Importe</span>
+              <span class="v">{{ importeTexto(a) || '—' }}</span>
+            </div>
+            <div class="kv">
+              <span class="k">Ejecuta</span>
+              <span class="v">
+                @if (a.identidadEjec.agentId) { <code>{{ a.identidadEjec.agentId }}</code> } @else { <span class="muted">—</span> }
+                @if (a.identidadEjec.agentVersionId) { <span class="muted small">v. {{ a.identidadEjec.agentVersionId }}</span> }
+                @if (a.identidadEjec.herramienta) { <div class="muted small">Herramienta: {{ a.identidadEjec.herramienta }}</div> }
+              </span>
+            </div>
+            @if (hasKeys(a.contenido)) {
+              <div><div class="k">Contenido</div><pre class="code-block">{{ pretty(a.contenido) }}</pre></div>
+            }
+            @if (hasKeys(a.operacion)) {
+              <div><div class="k">Operación / parámetros</div><pre class="code-block">{{ pretty(a.operacion) }}</pre></div>
+            }
+            @if (a.adjuntos?.length) {
+              <div class="kv"><span class="k">Adjuntos</span><span class="v">{{ a.adjuntos?.length }}</span></div>
+            }
+          </div>
+
+          <div class="card stack" style="gap:10px">
+            <div class="card-title" style="margin:0"><div class="icon-tile sm"><nx-icon name="shield" [size]="16" /></div><h3 style="margin:0">Estado de gobierno</h3></div>
+            <div class="kv">
+              <span class="k">Huella del contenido</span>
+              <span class="v"><code class="hash" [title]="a.contentHash"><nx-icon name="hash" [size]="12" />{{ a.contentHash }}</code>
+                <div class="muted small">Si el contenido cambia respecto a esta huella, la aprobación se invalida al ejecutar.</div></span>
+            </div>
+            <div class="kv"><span class="k">Vigencia</span><span class="v">{{ a.expiresAt | ago }}</span></div>
+            <div class="kv"><span class="k">Solicitante</span><span class="v">
+              @if (a.solicitanteUserId) { <code>{{ a.solicitanteUserId }}</code> }
+              @else if (a.solicitanteAgentId) { <code>{{ a.solicitanteAgentId }}</code><span class="muted small"> (agente)</span> }
+              @else { <span class="muted">—</span> }
+            </span></div>
+
+            <div>
+              <div class="k">Doble aprobación</div>
+              <p class="small" style="margin:4px 0">
+                <strong>{{ aprobadores(a).length }}</strong> de <strong>{{ a.requiredApprovals }}</strong> aprobaciones ·
+                @if (faltan(a) > 0) { faltan {{ faltan(a) }} } @else { completas }
+                @if (a.requiredApprovals >= 2) { <span class="muted"> · exige {{ a.requiredApprovals }} personas distintas</span> }
+              </p>
+              @if (a.decisiones.length) {
+                <ul class="decisions">
+                  @for (d of a.decisiones; track $index) {
+                    <li>
+                      <span class="badge" [class.success]="d.decision === 'APRUEBA'" [class.danger]="d.decision === 'RECHAZA'" [class.info]="d.decision === 'AJUSTE'">{{ decisionLabel[d.decision] }}</span>
+                      <code>{{ d.actorUserId }}</code>
+                      <span class="muted small">{{ d.at | ago }}</span>
+                      @if (d.comentario) { <div class="muted small">“{{ d.comentario }}”</div> }
+                    </li>
+                  }
+                </ul>
+              } @else {
+                <p class="muted small" style="margin:0">Aún no hay decisiones registradas.</p>
+              }
+            </div>
+          </div>
+        </div>
+
+        <!-- Acciones de decisión -->
+        @if (isDecidable(a)) {
+          <div class="card stack">
+            <div class="field">
+              <label for="d-coment">Comentario <span class="muted">(obligatorio al pedir ajuste)</span></label>
+              <textarea id="d-coment" class="input" rows="2" [ngModel]="comentario()" (ngModelChange)="comentario.set($event)"
+                placeholder="Motivo de la decisión o qué debe ajustarse"></textarea>
+            </div>
+            @if (!canEdit()) {
+              <div class="callout info"><nx-icon name="info" [size]="16" /><span>Se necesita rol Editor o superior para decidir.</span></div>
+            }
+            <div class="row">
+              <span class="spacer"></span>
+              <button class="btn" [disabled]="deciding() || !!gateMsg(a, 'AJUSTE')" (click)="decide(a, 'AJUSTE')">
+                <nx-icon name="pencil" [size]="15" />Pedir ajuste</button>
+              <button class="btn danger" [disabled]="deciding() || !!gateMsg(a, 'RECHAZA')" (click)="decide(a, 'RECHAZA')">
+                <nx-icon name="xCircle" [size]="15" />Rechazar</button>
+              <button class="btn primary" [disabled]="deciding() || !!gateMsg(a, 'APRUEBA')"
+                [title]="gateMsg(a, 'APRUEBA') || 'Aprobar la acción'" (click)="decide(a, 'APRUEBA')">
+                <nx-icon name="checkCircle" [size]="15" />Aprobar</button>
+            </div>
+            @if (gateMsg(a, 'APRUEBA'); as msg) { <p class="error-text" style="text-align:right; margin:0">{{ msg }}</p> }
+          </div>
+        } @else {
+          <div class="callout info"><nx-icon name="info" [size]="16" />
+            <span>Esta aprobación en estado <strong>{{ statusMeta[a.estado].label }}</strong> no admite más decisiones.</span></div>
+        }
+      </div>
+    </aside>
+  }
+</div>

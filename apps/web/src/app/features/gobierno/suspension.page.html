@@ -1,0 +1,118 @@
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>Suspensión de emergencia</h1>
+      <p>Interruptor para detener de inmediato las acciones de un agente, un flujo, un conector o toda la organización</p>
+    </div>
+    <button class="btn danger" (click)="abrirNueva()"><nx-icon name="stop" [size]="15" />Suspender alcance</button>
+  </div>
+
+  <div class="callout warning" style="margin-bottom:16px">
+    <nx-icon name="alert" [size]="16" />
+    <span>Mientras una suspensión está activa, se <strong>bloquean las acciones nuevas y las aprobaciones ya otorgadas aún
+      no despachadas</strong> cuyo alcance caiga bajo ella. Las acciones ya enviadas al sistema destino se concilian; no se
+      reintenta a ciegas una escritura incierta. Reactivar exige un motivo y queda registrado.</span>
+  </div>
+
+  @if (creating()) {
+    <div class="card stack" style="margin-bottom:16px">
+      <div class="card-title">
+        <div class="icon-tile" style="background:var(--danger-50); color:var(--danger)"><nx-icon name="stop" /></div>
+        <div><h2>Suspender un alcance</h2><p class="muted small" style="margin:0">Elija qué se detiene y deje constancia del motivo.</p></div>
+        <span class="spacer"></span>
+        <button class="btn ghost icon" title="Cerrar" aria-label="Cerrar" (click)="creating.set(false)"><nx-icon name="x" /></button>
+      </div>
+
+      <div class="field">
+        <label id="s-alcance">Alcance</label>
+        <div class="grid grid-2" role="radiogroup" aria-labelledby="s-alcance">
+          @for (sc of scopes; track sc) {
+            <label class="choice">
+              <input type="radio" name="alcance" [value]="sc" [ngModel]="alcance()" (ngModelChange)="alcance.set($event)" />
+              <span><strong><nx-icon [name]="scopeMeta[sc].icon" [size]="14" /> {{ scopeMeta[sc].label }}</strong>
+                <span class="muted small" style="display:block">{{ scopeMeta[sc].hint }}</span></span>
+            </label>
+          }
+        </div>
+      </div>
+
+      <div class="field"><label for="s-target">Identificador del alcance</label>
+        <input id="s-target" class="input" [ngModel]="targetId()" (ngModelChange)="targetId.set($event)"
+          placeholder="Id del agente / flujo / conector / empresa (o el workspace para toda la organización)" />
+        <span class="hint">Referencia blanda: el id del agente, flujo, conector o empresa que se desea detener.</span></div>
+
+      <div class="field"><label for="s-motivo">Motivo</label>
+        <textarea id="s-motivo" class="input" rows="2" [ngModel]="motivo()" (ngModelChange)="motivo.set($event)"
+          placeholder="Por qué se suspende (queda en el registro de auditoría)"></textarea></div>
+
+      <div class="row"><span class="spacer"></span>
+        <button class="btn" (click)="creating.set(false)">Cancelar</button>
+        <button class="btn danger" [disabled]="saving() || invalidNueva()" (click)="crear()"><nx-icon name="stop" [size]="15" />{{ saving() ? 'Activando…' : 'Activar suspensión' }}</button></div>
+    </div>
+  }
+
+  @if (reactivando(); as s) {
+    <div class="card stack" style="margin-bottom:16px">
+      <div class="card-title">
+        <div class="icon-tile" style="background:var(--success-50); color:var(--success)"><nx-icon name="refresh" /></div>
+        <div><h2>Reactivar {{ scopeMeta[s.alcance].label }}</h2><p class="muted small" style="margin:0"><code>{{ s.targetId }}</code></p></div>
+        <span class="spacer"></span>
+        <button class="btn ghost icon" title="Cerrar" aria-label="Cerrar" (click)="reactivando.set(null)"><nx-icon name="x" /></button>
+      </div>
+      <div class="field"><label for="r-motivo">Motivo de la reactivación</label>
+        <textarea id="r-motivo" class="input" rows="2" [ngModel]="reactivarMotivo()" (ngModelChange)="reactivarMotivo.set($event)"
+          placeholder="Por qué se vuelve a habilitar este alcance"></textarea></div>
+      <div class="row"><span class="spacer"></span>
+        <button class="btn" (click)="reactivando.set(null)">Cancelar</button>
+        <button class="btn primary" [disabled]="saving() || reactivarMotivo().trim().length < 3" (click)="reactivar()"><nx-icon name="refresh" [size]="15" />{{ saving() ? 'Reactivando…' : 'Reactivar' }}</button></div>
+    </div>
+  }
+
+  <div class="row" style="margin-bottom:12px">
+    <label class="row" style="gap:8px">
+      <span class="switch"><input type="checkbox" [ngModel]="soloActivas()" (ngModelChange)="soloActivas.set($event); load()" /><span></span></span>
+      <span class="small">Solo activas</span>
+    </label>
+    <span class="spacer"></span>
+    <button class="btn" (click)="load()" [disabled]="loading()"><nx-icon name="refresh" [size]="15" />Actualizar</button>
+  </div>
+
+  @if (loading()) {
+    <div class="card empty"><p>Cargando suspensiones…</p></div>
+  } @else if (error()) {
+    <div class="card empty"><nx-icon name="alert" [size]="28" /><h3>No se pudieron cargar las suspensiones</h3><p>{{ error() }}</p>
+      <button class="btn" (click)="load()">Reintentar</button></div>
+  } @else if (items().length === 0) {
+    <div class="card empty"><nx-icon name="shield" [size]="28" /><h3>Sin suspensiones</h3>
+      <p>No hay suspensiones registradas con este filtro. Use el interruptor solo ante una emergencia que exija detener acciones.</p></div>
+  } @else {
+    <p class="muted small"><strong>{{ activas() }}</strong> activas de {{ items().length }}</p>
+    <div class="card" style="padding:0">
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>Alcance</th><th>Objetivo</th><th>Motivo</th><th>Creada</th><th>Estado</th><th></th></tr></thead>
+          <tbody>
+            @for (s of items(); track s.id) {
+              <tr>
+                <td class="nowrap"><nx-icon [name]="scopeMeta[s.alcance].icon" [size]="14" /> {{ scopeMeta[s.alcance].label }}</td>
+                <td><code>{{ s.targetId }}</code></td>
+                <td class="small">{{ s.motivo }}
+                  @if (!s.activa && s.reactivadaMotivo) { <div class="muted small">Reactivada: “{{ s.reactivadaMotivo }}” · {{ s.reactivadaAt | ago }}</div> }</td>
+                <td class="nowrap">{{ s.createdAt | ago }}</td>
+                <td>
+                  @if (s.activa) { <span class="badge danger"><span class="dot"></span>Activa</span> }
+                  @else { <span class="badge success"><span class="dot"></span>Reactivada</span> }
+                </td>
+                <td class="num nowrap">
+                  @if (s.activa) {
+                    <button class="btn sm" (click)="abrirReactivar(s)"><nx-icon name="refresh" [size]="14" />Reactivar</button>
+                  } @else { <span class="muted">—</span> }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  }
+</div>

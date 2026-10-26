@@ -1,0 +1,180 @@
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>Políticas de acción</h1>
+      <p>Qué se permite, qué se deniega y qué exige aprobación humana, por tipo de acción. Cada cambio crea una versión nueva.</p>
+    </div>
+    @if (tab() === 'politicas') {
+      <button class="btn primary" (click)="nueva()"><nx-icon name="plus" [size]="15" />Nueva política</button>
+    }
+  </div>
+
+  <div class="tabs">
+    <button class="tab" [class.active]="tab() === 'politicas'" (click)="tab.set('politicas')">Políticas</button>
+    <button class="tab" [class.active]="tab() === 'decisiones'" (click)="showDecisions()">Decisiones registradas</button>
+  </div>
+
+  @if (draft(); as d) {
+    <div class="card stack" style="margin-bottom:16px">
+      <div class="card-title">
+        <div class="icon-tile"><nx-icon name="scale" /></div>
+        <div><h2>{{ d.id ? 'Editar política' : 'Nueva política' }}</h2>
+          <p class="muted small" style="margin:0">{{ d.id ? 'Al guardar se archiva la versión vigente y se crea la siguiente.' : 'Define una regla declarativa para un tipo de acción.' }}</p></div>
+        <span class="spacer"></span>
+        <button class="btn ghost icon" title="Cerrar" aria-label="Cerrar" (click)="draft.set(null)"><nx-icon name="x" /></button>
+      </div>
+
+      <div class="grid grid-3">
+        <div class="field"><label for="p-nombre">Nombre</label>
+          <input id="p-nombre" class="input" [(ngModel)]="d.nombre" placeholder="Ej. Pagos sobre 1000 USD" [class.invalid]="d.nombre.length > 0 && d.nombre.trim().length < 2" /></div>
+        <div class="field"><label for="p-tipo">Tipo de acción</label>
+          <input id="p-tipo" class="input" list="tipos-accion" [(ngModel)]="d.tipoAccion" placeholder="EMAIL_SEND" [class.invalid]="d.tipoAccion.length > 0 && d.tipoAccion.trim().length < 2" />
+          <datalist id="tipos-accion">@for (t of tiposAccion; track t) { <option [value]="t"></option> }</datalist></div>
+        <div class="field"><label for="p-empresa">Empresa (opcional)</label>
+          <input id="p-empresa" class="input" [(ngModel)]="d.empresaId" placeholder="Id de empresa · vacío = todo el workspace" /></div>
+      </div>
+
+      <div class="field">
+        <label id="p-efecto">Efecto</label>
+        <div class="grid grid-3" role="radiogroup" aria-labelledby="p-efecto">
+          @for (e of efectos; track e) {
+            <label class="choice">
+              <input type="radio" name="efecto" [value]="e" [(ngModel)]="d.efecto" />
+              <span><strong>{{ effectLabel(e) }}</strong></span>
+            </label>
+          }
+        </div>
+      </div>
+
+      @if (d.efecto === 'REQUIRE_APPROVAL') {
+        <div class="grid grid-2">
+          <div class="field"><label for="p-req">Aprobaciones requeridas</label>
+            <select id="p-req" class="input" [(ngModel)]="d.requiredApprovals">
+              <option [ngValue]="1">1 — una persona</option>
+              <option [ngValue]="2">2 — doble aprobación (personas distintas)</option>
+            </select></div>
+          <div class="field"><label for="p-self">Autoaprobación</label>
+            <label class="row" style="gap:10px">
+              <span class="switch"><input id="p-self" type="checkbox" [(ngModel)]="d.allowSelfApproval" /><span></span></span>
+              <span class="small">{{ d.allowSelfApproval ? 'El solicitante puede aprobarse' : 'El solicitante no puede aprobarse (recomendado)' }}</span>
+            </label></div>
+        </div>
+      }
+
+      <div class="field"><label>Selector <span class="muted">(opcional · vacío aplica a todas las acciones de este tipo)</span></label>
+        <div class="grid grid-2">
+          <div class="field"><label for="s-dest" class="small">Destinatarios</label>
+            <input id="s-dest" class="input mono-sel" [(ngModel)]="d.selDestinatarios" placeholder="*@dominio.com, pagos@acme.com" /></div>
+          <div class="field"><label for="s-dias" class="small">Días de la semana (0=dom … 6=sáb)</label>
+            <input id="s-dias" class="input mono-sel" [(ngModel)]="d.selDias" placeholder="1, 2, 3, 4, 5" /></div>
+          <div class="grid grid-2">
+            <div class="field"><label for="s-mmin" class="small">Monto mínimo</label>
+              <input id="s-mmin" class="input" type="number" min="0" [(ngModel)]="d.selMontoMin" placeholder="0" /></div>
+            <div class="field"><label for="s-mmax" class="small">Monto máximo</label>
+              <input id="s-mmax" class="input" type="number" min="0" [(ngModel)]="d.selMontoMax" placeholder="∞" /></div>
+          </div>
+          <div class="grid grid-2">
+            <div class="field"><label for="s-hd" class="small">Hora desde (0–23)</label>
+              <input id="s-hd" class="input" type="number" min="0" max="23" [(ngModel)]="d.selHoraDesde" /></div>
+            <div class="field"><label for="s-hh" class="small">Hora hasta (0–23)</label>
+              <input id="s-hh" class="input" type="number" min="0" max="23" [(ngModel)]="d.selHoraHasta" /></div>
+          </div>
+          <div class="field"><label for="s-ag" class="small">Agentes</label>
+            <input id="s-ag" class="input mono-sel" [(ngModel)]="d.selAgentes" placeholder="Ids de agente separados por comas" /></div>
+          <div class="field"><label for="s-con" class="small">Conectores</label>
+            <input id="s-con" class="input mono-sel" [(ngModel)]="d.selConectores" placeholder="Ids de conector separados por comas" /></div>
+        </div>
+      </div>
+
+      <div class="field" style="max-width:260px"><label for="p-estado">Estado</label>
+        <select id="p-estado" class="input" [(ngModel)]="d.estado">
+          @for (e of estadosPol; track e) { <option [value]="e">{{ statusMeta[e].label }}</option> }
+        </select></div>
+
+      <div class="row"><span class="spacer"></span>
+        <button class="btn" (click)="draft.set(null)">Cancelar</button>
+        <button class="btn primary" [disabled]="saving() || invalid(d)" (click)="guardar()"><nx-icon name="save" />{{ saving() ? 'Guardando…' : 'Guardar' }}</button></div>
+    </div>
+  }
+
+  @if (tab() === 'politicas') {
+    <div class="row" style="margin-bottom:12px">
+      <div class="field" style="min-width:180px">
+        <label for="f-pol-estado" class="sr-only">Filtrar por estado</label>
+        <select id="f-pol-estado" class="input" [ngModel]="estadoFiltro()" (ngModelChange)="estadoFiltro.set($event); load()">
+          <option value="">Todos los estados</option>
+          @for (e of estadosPol; track e) { <option [value]="e">{{ statusMeta[e].label }}</option> }
+        </select>
+      </div>
+      <button class="btn" (click)="load()" [disabled]="loading()"><nx-icon name="refresh" [size]="15" />Actualizar</button>
+    </div>
+
+    @if (loading()) {
+      <div class="card empty"><p>Cargando políticas…</p></div>
+    } @else if (error()) {
+      <div class="card empty"><nx-icon name="alert" [size]="28" /><h3>No se pudieron cargar las políticas</h3><p>{{ error() }}</p>
+        <button class="btn" (click)="load()">Reintentar</button></div>
+    } @else if (items().length === 0) {
+      <div class="card empty"><nx-icon name="scale" [size]="28" /><h3>Sin políticas</h3>
+        <p>No hay políticas con este filtro. Cree una para gobernar un tipo de acción con efecto externo.</p>
+        <div class="empty-actions"><button class="btn primary" (click)="nueva()"><nx-icon name="plus" [size]="15" />Nueva política</button></div></div>
+    } @else {
+      <p class="muted small">{{ items().length }} políticas · <strong>{{ activas() }}</strong> activas</p>
+      <div class="card" style="padding:0">
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>Política</th><th>Tipo de acción</th><th>Efecto</th><th>Selector</th><th>Versión</th><th>Estado</th><th></th></tr></thead>
+            <tbody>
+              @for (p of items(); track p.id) {
+                <tr [class.selected]="draft()?.id === p.id">
+                  <td><strong>{{ p.nombre }}</strong>@if (p.empresaId) { <div class="muted small">Empresa: {{ p.empresaId }}</div> }</td>
+                  <td><code>{{ p.tipoAccion }}</code></td>
+                  <td>
+                    <span class="badge {{ effectMeta[p.efecto].cls }}"><span class="dot"></span>{{ effectMeta[p.efecto].label }}</span>
+                    @if (p.efecto === 'REQUIRE_APPROVAL') {
+                      <div class="muted small">{{ p.requiredApprovals }} aprob. · {{ p.allowSelfApproval ? 'autoaprobación permitida' : 'sin autoaprobación' }}</div>
+                    }
+                  </td>
+                  <td class="small muted">{{ selectorResumen(p) }}</td>
+                  <td class="ver">v{{ p.version }}</td>
+                  <td><span class="badge {{ statusMeta[p.estado].cls }}"><span class="dot"></span>{{ statusMeta[p.estado].label }}</span></td>
+                  <td class="num nowrap">
+                    <button class="btn sm" (click)="editar(p)"><nx-icon name="pencil" [size]="14" />Editar</button>
+                    @if (p.estado !== 'ARCHIVADA') {
+                      <button class="btn ghost icon sm danger" title="Archivar" aria-label="Archivar política" (click)="archivar(p)"><nx-icon name="trash" [size]="14" /></button>
+                    }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    }
+  } @else {
+    @if (decisiones().length === 0) {
+      <div class="card empty"><nx-icon name="list" [size]="28" /><h3>Sin decisiones registradas</h3>
+        <p>Cada evaluación del motor de políticas queda aquí como registro inmutable para auditoría.</p></div>
+    } @else {
+      <div class="card" style="padding:0">
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th>Cuándo</th><th>Tipo de acción</th><th>Efecto</th><th>Motivo</th><th>Políticas</th></tr></thead>
+            <tbody>
+              @for (d of decisiones(); track d.id) {
+                <tr>
+                  <td class="nowrap">{{ d.createdAt | ago }}</td>
+                  <td><code>{{ d.tipoAccion }}</code></td>
+                  <td><span class="badge {{ effectMeta[d.efecto].cls }}"><span class="dot"></span>{{ effectMeta[d.efecto].label }}</span>
+                    @if (d.efecto === 'REQUIRE_APPROVAL') { <span class="muted small"> · {{ d.requiredApprovals }} aprob.</span> }</td>
+                  <td><code>{{ d.motivo }}</code></td>
+                  <td class="small muted">{{ d.policyVersions.length }} coincidencia(s)</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    }
+  }
+</div>
