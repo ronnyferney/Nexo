@@ -108,6 +108,7 @@ function agent(fallbackModels: string[]): AgentWithTools {
     cargoId: null,
     responsableUserId: null,
     suplenteUserId: null,
+    reportaAAgentId: null,
     routing: null,
     workspaceId: 'ws',
     createdAt: new Date(),

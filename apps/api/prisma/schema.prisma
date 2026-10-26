@@ -509,6 +509,11 @@ model Agent {
   responsableUser      User?              @relation("AgentResponsible", fields: [responsableUserId], references: [id], onDelete: SetNull)
   suplenteUserId       String?
   suplenteUser         User?              @relation("AgentSubstitute", fields: [suplenteUserId], references: [id], onDelete: SetNull)
+  /// Línea de mando entre empleados digitales (E3/RF32). Agente al que este reporta (su supervisor directo); null = raíz
+  /// del organigrama. La jerarquía NO concede acceso a datos (ADR 0007): el acceso lo resuelve `AgentAccessService`.
+  reportaAAgentId      String?
+  reportaA             Agent?             @relation("Jerarquia", fields: [reportaAAgentId], references: [id], onDelete: SetNull)
+  subordinados         Agent[]            @relation("Jerarquia")
   workspaceId          String
   workspace            Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   tools                AgentTool[]
@@ -527,6 +532,7 @@ model Agent {
   updatedAt            DateTime           @updatedAt
 
   @@index([workspaceId])
+  @@index([workspaceId, reportaAAgentId])
 }
 
 /// Registro persistente de cada ejecución de un agente (instrumentación defensiva, RX-14): da los KPIs reales

@@ -28,6 +28,7 @@ import { EdgeModule } from './modules/edge/edge.module';
 import { GovernanceModule } from './modules/governance/governance.module';
 import { GroupsModule } from './modules/groups/groups.module';
 import { HealthModule } from './modules/health/health.module';
+import { HierarchyModule } from './modules/hierarchy/hierarchy.module';
 import { LlmModule } from './modules/llm/llm.module';
 import { KnowledgeModule } from './modules/knowledge/knowledge.module';
 import { CollaborationModule } from './modules/collaboration/collaboration.module';
@@ -92,6 +93,7 @@ import { WorkspacesModule } from './modules/workspaces/workspaces.module';
     AgentAccessModule,
     AgentsModule,
     CargosModule,
+    HierarchyModule,
     CrewsModule,
     CopilotModule,
     SkillsModule,

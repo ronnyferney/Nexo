@@ -22,6 +22,8 @@ export const AUDIT_ACTIONS = {
   CUADRILLA_PUBLICADA: 'CUADRILLA_PUBLICADA',
   CUADRILLA_RETIRADA: 'CUADRILLA_RETIRADA',
   CUADRILLA_INSTANCIADA: 'CUADRILLA_INSTANCIADA',
+  /// Cambio de la línea de mando entre empleados digitales (E3/RF32). Actor humano, agente y supervisor previo/nuevo.
+  JERARQUIA_MODIFICADA: 'JERARQUIA_MODIFICADA',
 } as const;
 
 /** Código de acción auditable. Texto abierto (`string`): se recomienda usar las constantes de `AUDIT_ACTIONS`. */
