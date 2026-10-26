@@ -42,6 +42,7 @@ export const routes: Routes = [
       { path: 'routines', loadComponent: () => import('./features/routines/routines.page').then((m) => m.RoutinesPage) },
       { path: 'supervision', loadComponent: () => import('./features/supervision/supervision.page').then((m) => m.SupervisionPage) },
       { path: 'aprobaciones', loadComponent: () => import('./features/gobierno/aprobaciones.page').then((m) => m.AprobacionesPage) },
+      { path: 'excepciones', loadComponent: () => import('./features/excepciones/excepciones.page').then((m) => m.ExcepcionesPage) },
       { path: 'account', loadComponent: () => import('./features/account/account.page').then((m) => m.AccountPage) },
       { path: 'my-usage', loadComponent: () => import('./features/usage/my-usage.page').then((m) => m.MyUsagePage) },
       { path: 'settings', redirectTo: 'admin/security', pathMatch: 'full' },

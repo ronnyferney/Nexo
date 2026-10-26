@@ -150,6 +150,7 @@ export class SidebarComponent {
     { path: '/routines', label: 'Rutinas', icon: 'calendar', exact: false },
     { path: '/supervision', label: 'Supervisión', icon: 'inbox', exact: false },
     { path: '/aprobaciones', label: 'Aprobaciones', icon: 'checkCircle', exact: false },
+    { path: '/excepciones', label: 'Excepciones', icon: 'alert', exact: false },
     { path: '/workflows', label: 'Flujos', icon: 'flow', exact: false },
     { path: '/executions', label: 'Ejecuciones', icon: 'history', exact: false },
     { path: '/agent-runs', label: 'Historial de tareas', icon: 'list', exact: false },

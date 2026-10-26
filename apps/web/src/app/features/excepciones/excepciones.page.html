@@ -1,0 +1,256 @@
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1>Excepciones</h1>
+      <p>Fallos del motor durable y escrituras inciertas que requieren intervención humana. Reintentar no re-ejecuta
+        acciones ya confirmadas; las dudosas se concilian contra el destino.</p>
+    </div>
+    <div class="row">
+      <button class="btn" (click)="load()" [disabled]="loading()"><nx-icon name="refresh" [size]="15" />Actualizar</button>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:14px">
+    <div class="row" style="gap:12px; flex-wrap:wrap; align-items:flex-end">
+      <div class="field" style="min-width:160px">
+        <label for="f-estado">Estado</label>
+        <select id="f-estado" class="input" [ngModel]="estadoFiltro()" (ngModelChange)="estadoFiltro.set($event); load()">
+          <option value="">Todos</option>
+          @for (e of estados; track e) { <option [value]="e">{{ estadoMeta[e].label }}</option> }
+        </select>
+      </div>
+      <div class="field" style="min-width:150px">
+        <label for="f-clase">Clase de fallo</label>
+        <select id="f-clase" class="input" [ngModel]="claseFiltro()" (ngModelChange)="claseFiltro.set($event)">
+          <option value="">Todas</option>
+          @for (c of clases; track c) { <option [value]="c">{{ claseMeta[c].label }}</option> }
+        </select>
+      </div>
+      <div class="field" style="min-width:170px">
+        <label for="f-origen">Origen</label>
+        <select id="f-origen" class="input" [ngModel]="origenFiltro()" (ngModelChange)="origenFiltro.set($event)">
+          <option value="">Todos</option>
+          @for (o of origenes; track o) { <option [value]="o">{{ origenMeta[o].label }}</option> }
+        </select>
+      </div>
+      <div class="field" style="min-width:200px; flex:1">
+        <label for="f-tarea">Tarea</label>
+        <input id="f-tarea" class="input" [ngModel]="tareaFiltro()" (ngModelChange)="tareaFiltro.set($event)"
+          (keyup.enter)="load()" placeholder="Identificador de tarea (E4)" />
+      </div>
+      <button class="btn" (click)="load()" [disabled]="loading()"><nx-icon name="search" [size]="15" />Filtrar</button>
+    </div>
+  </div>
+
+  @if (loading()) {
+    <div class="card empty"><p>Cargando excepciones…</p></div>
+  } @else if (error()) {
+    <div class="card empty">
+      <nx-icon name="alert" [size]="28" /><h3>No se pudieron cargar las excepciones</h3><p>{{ error() }}</p>
+      <button class="btn" (click)="load()">Reintentar</button>
+    </div>
+  } @else if (vista().length === 0) {
+    <div class="card empty">
+      <nx-icon name="checkCircle" [size]="28" />
+      <h3>Sin excepciones</h3>
+      <p>No hay excepciones con este filtro. Aquí aparecen los fallos del motor durable y las escrituras inciertas que
+        necesitan que una persona decida cómo continuar.</p>
+    </div>
+  } @else {
+    <p class="muted small">{{ vista().length }} excepciones · <strong>{{ abiertas() }}</strong> requieren atención</p>
+    <div class="card" style="padding:0">
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr><th>Causa</th><th>Origen</th><th>Clase</th><th>Antigüedad</th><th>Siguiente acción</th><th>Estado</th></tr>
+          </thead>
+          <tbody>
+            @for (e of vista(); track e.id) {
+              <tr class="clickable" [class.selected]="selected()?.id === e.id" (click)="open(e)">
+                <td>
+                  <strong>{{ e.causa }}</strong>
+                  @if (e.impacto) { <div class="muted small">{{ e.impacto }}</div> }
+                </td>
+                <td>
+                  <span class="badge {{ origenMeta[e.origen].cls }}" [title]="origenMeta[e.origen].hint">
+                    <nx-icon [name]="origenMeta[e.origen].icon" [size]="12" />{{ origenMeta[e.origen].label }}</span>
+                </td>
+                <td>
+                  @if (e.clase) { <span class="badge {{ claseMeta[e.clase].cls }}" [title]="claseMeta[e.clase].hint">{{ claseMeta[e.clase].label }}</span> }
+                  @else { <span class="muted">—</span> }
+                </td>
+                <td class="nowrap">{{ e.createdAt | ago }}</td>
+                <td>{{ e.siguienteAccion || '—' }}</td>
+                <td><span class="badge {{ estadoMeta[e.estado].cls }}"><span class="dot"></span>{{ estadoMeta[e.estado].label }}</span></td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  }
+
+  @if (selected(); as e) {
+    <div class="drawer-backdrop" (click)="close()"></div>
+    <aside class="drawer" role="dialog" aria-label="Detalle de la excepción" aria-modal="true">
+      <div class="drawer-head">
+        <div>
+          <h2>{{ e.causa }}</h2>
+          <div class="row small" style="gap:8px; margin-top:6px; flex-wrap:wrap">
+            <span class="badge {{ estadoMeta[e.estado].cls }}"><span class="dot"></span>{{ estadoMeta[e.estado].label }}</span>
+            <span class="badge {{ origenMeta[e.origen].cls }}"><nx-icon [name]="origenMeta[e.origen].icon" [size]="12" />{{ origenMeta[e.origen].label }}</span>
+            @if (e.clase) { <span class="badge {{ claseMeta[e.clase].cls }}">{{ claseMeta[e.clase].label }}</span> }
+          </div>
+        </div>
+        <button class="btn ghost icon" title="Cerrar" aria-label="Cerrar" (click)="close()"><nx-icon name="x" /></button>
+      </div>
+
+      <div class="drawer-body stack">
+        <!-- Estado de conciliación: confirmado vs. incierto (RF20) -->
+        <div class="callout {{ conc(e).cls || 'info' }}">
+          <nx-icon [name]="conc(e).estado === 'CONFIRMADO' ? 'checkCircle' : 'alert'" [size]="16" />
+          <span>Conciliación: <strong>{{ conc(e).label }}</strong>. {{ conc(e).hint }}</span>
+        </div>
+
+        <!-- Datos de la excepción -->
+        <div class="card stack" style="gap:10px">
+          <div class="kv">
+            @if (e.impacto) { <span class="k">Impacto</span><span class="v">{{ e.impacto }}</span> }
+            @if (e.clase) { <span class="k">Clase de fallo</span><span class="v">{{ claseMeta[e.clase].label }} — {{ claseMeta[e.clase].hint }}</span> }
+            <span class="k">Origen</span><span class="v">{{ origenMeta[e.origen].label }} — {{ origenMeta[e.origen].hint }}</span>
+            <span class="k">Proceso</span><span class="v">@if (e.procesoId) { <code>{{ e.procesoId }}</code> } @else { <span class="muted">—</span> }</span>
+            <span class="k">Tarea</span><span class="v">@if (e.tareaId) { <code>{{ e.tareaId }}</code> } @else { <span class="muted">—</span> }</span>
+            <span class="k">Ejecución</span><span class="v">@if (e.executionId) { <code>{{ e.executionId }}</code> } @else { <span class="muted">—</span> }</span>
+            @if (e.paso) { <span class="k">Paso</span><span class="v"><code>{{ e.paso }}</code></span> }
+            <span class="k">Dueño</span><span class="v">@if (e.duenoUserId) { <code>{{ e.duenoUserId }}</code> } @else { <span class="muted">Sin asignar</span> }</span>
+            <span class="k">Abierta</span><span class="v">{{ e.createdAt | ago }}</span>
+            @if (e.idempotencyKeyId) { <span class="k">Clave idempotencia</span><span class="v"><code>{{ e.idempotencyKeyId }}</code></span> }
+          </div>
+          @if (hasKeys(e.evidencia)) {
+            <div><div class="k">Evidencia (referencia, sin datos sensibles)</div><pre class="code-block">{{ pretty(e.evidencia) }}</pre></div>
+          }
+        </div>
+
+        <!-- Historial de eventos append-only -->
+        <div class="card stack" style="gap:6px">
+          <div class="card-title" style="margin:0"><div class="icon-tile sm"><nx-icon name="history" [size]="16" /></div><h3 style="margin:0">Historial</h3></div>
+          <p class="muted small" style="margin:0">Registro append-only: los eventos no se editan ni se borran.</p>
+          @if (e.eventos.length) {
+            <ul class="timeline">
+              @for (ev of e.eventos; track ev.id) {
+                <li>
+                  <span class="dot-icon"><nx-icon [name]="eventoMeta[ev.tipo].icon" [size]="13" /></span>
+                  <div>
+                    <div class="ev-head">
+                      <span class="badge {{ eventoMeta[ev.tipo].cls }}">{{ eventoMeta[ev.tipo].label }}</span>
+                      <span class="muted small">{{ ev.createdAt | ago }}</span>
+                      @if (ev.actorUserId) { <code class="small">{{ ev.actorUserId }}</code> }
+                    </div>
+                    @if (hasKeys(ev.detalle)) { <pre class="code-block">{{ pretty(ev.detalle) }}</pre> }
+                  </div>
+                </li>
+              }
+            </ul>
+          } @else {
+            <p class="muted small" style="margin:0">Sin eventos todavía.</p>
+          }
+        </div>
+
+        <!-- Acciones operativas (EDITOR+) -->
+        <div class="card stack">
+          <div class="card-title" style="margin:0"><div class="icon-tile sm"><nx-icon name="tool" [size]="16" /></div><h3 style="margin:0">Acciones</h3></div>
+          @if (!canEdit()) {
+            <div class="callout info"><nx-icon name="info" [size]="16" /><span>Se necesita rol Editor o superior para actuar sobre la excepción.</span></div>
+          }
+
+          <div class="action-tabs">
+            <button class="btn" [class.primary]="panel() === 'info'" [disabled]="!!gateMsg(e, 'info')"
+              [title]="gateMsg(e, 'info') || 'Aportar información sin ejecutar ningún efecto'" (click)="togglePanel('info')">
+              <nx-icon name="info" [size]="15" />Aportar info</button>
+            <button class="btn" [disabled]="acting() || !!gateMsg(e, 'reintentar')"
+              [title]="gateMsg(e, 'reintentar') || 'Reintentar sin duplicar un efecto ya confirmado'" (click)="reintentar(e)">
+              <nx-icon name="repeat" [size]="15" />Reintentar</button>
+            <button class="btn" [class.primary]="panel() === 'reasignar'" [disabled]="!!gateMsg(e, 'reasignar')"
+              [title]="gateMsg(e, 'reasignar') || 'Reasignar el dueño'" (click)="togglePanel('reasignar')">
+              <nx-icon name="users" [size]="15" />Reasignar</button>
+            <button class="btn" [class.primary]="panel() === 'conciliar'" [disabled]="!!gateMsg(e, 'conciliar')"
+              [title]="gateMsg(e, 'conciliar') || 'Registrar el estado verificado en el destino'" (click)="togglePanel('conciliar')">
+              <nx-icon name="checkCircle" [size]="15" />Conciliar</button>
+            <button class="btn danger" [class.primary]="panel() === 'cancelar'" [disabled]="!!gateMsg(e, 'cancelar')"
+              [title]="gateMsg(e, 'cancelar') || 'Cerrar sin conciliar'" (click)="togglePanel('cancelar')">
+              <nx-icon name="xCircle" [size]="15" />Cancelar</button>
+          </div>
+
+          @switch (panel()) {
+            @case ('info') {
+              <div class="stack" style="gap:10px">
+                <div class="field">
+                  <label for="a-nota">Nota <span class="muted">(no ejecuta ningún efecto)</span></label>
+                  <textarea id="a-nota" class="input" rows="2" [ngModel]="nota()" (ngModelChange)="nota.set($event)"
+                    placeholder="Contexto, hallazgos o evidencia encontrada"></textarea>
+                </div>
+                <div class="field">
+                  <label for="a-sig">Siguiente acción propuesta <span class="muted">(opcional)</span></label>
+                  <input id="a-sig" class="input" [ngModel]="siguienteAccionInput()" (ngModelChange)="siguienteAccionInput.set($event)" />
+                </div>
+                <div class="row"><span class="spacer"></span>
+                  <button class="btn primary" [disabled]="acting()" (click)="aportarInfo(e)"><nx-icon name="save" [size]="15" />Aportar</button>
+                </div>
+              </div>
+            }
+            @case ('reasignar') {
+              <div class="stack" style="gap:10px">
+                <div class="field">
+                  <label for="a-dueno">Nuevo dueño <span class="muted">(identificador de usuario)</span></label>
+                  <input id="a-dueno" class="input" [ngModel]="nuevoDueno()" (ngModelChange)="nuevoDueno.set($event)" placeholder="userId" />
+                </div>
+                <div class="field">
+                  <label for="a-motr">Motivo <span class="muted">(opcional)</span></label>
+                  <input id="a-motr" class="input" [ngModel]="motivoReasignar()" (ngModelChange)="motivoReasignar.set($event)" />
+                </div>
+                <div class="row"><span class="spacer"></span>
+                  <button class="btn primary" [disabled]="acting()" (click)="reasignar(e)"><nx-icon name="users" [size]="15" />Reasignar</button>
+                </div>
+              </div>
+            }
+            @case ('conciliar') {
+              <div class="stack" style="gap:10px">
+                <p class="muted small" style="margin:0">Verifique el efecto en el destino y registre el resultado. Confirmado
+                  cierra la excepción; no ocurrió la deja lista para un reintento seguro.</p>
+                <div class="field">
+                  <label for="a-res">Resultado de la verificación</label>
+                  <select id="a-res" class="input" [ngModel]="resultadoConciliar()" (ngModelChange)="resultadoConciliar.set($event)">
+                    <option value="CONFIRMADO">Confirmado — el efecto ocurrió</option>
+                    <option value="NO_OCURRIO">No ocurrió — el efecto no se produjo</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="a-detc">Detalle <span class="muted">(opcional)</span></label>
+                  <textarea id="a-detc" class="input" rows="2" [ngModel]="detalleConciliar()" (ngModelChange)="detalleConciliar.set($event)"
+                    placeholder="Cómo se verificó el estado en el destino"></textarea>
+                </div>
+                <div class="row"><span class="spacer"></span>
+                  <button class="btn primary" [disabled]="acting()" (click)="conciliar(e)"><nx-icon name="checkCircle" [size]="15" />Conciliar</button>
+                </div>
+              </div>
+            }
+            @case ('cancelar') {
+              <div class="stack" style="gap:10px">
+                <div class="callout warning"><nx-icon name="alert" [size]="16" />
+                  <span>Cancelar cierra la excepción <strong>sin conciliar</strong>; el historial se conserva.</span></div>
+                <div class="field">
+                  <label for="a-motc">Motivo <span class="muted">(obligatorio)</span></label>
+                  <textarea id="a-motc" class="input" rows="2" [ngModel]="motivoCancelar()" (ngModelChange)="motivoCancelar.set($event)"
+                    placeholder="Por qué se cancela"></textarea>
+                </div>
+                <div class="row"><span class="spacer"></span>
+                  <button class="btn danger" [disabled]="acting()" (click)="cancelar(e)"><nx-icon name="xCircle" [size]="15" />Cancelar excepción</button>
+                </div>
+              </div>
+            }
+          }
+        </div>
+      </div>
+    </aside>
+  }
+</div>
