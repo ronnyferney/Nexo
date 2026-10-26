@@ -169,6 +169,8 @@ describe('Protección de datos · DataGuard y retención de conversaciones (ADR 
       await owner.api
         .put(`/agents/${agentId}/tools`, { tools: [{ operationId: detail.operations[0].id }] })
         .expect(200);
+      // Candado Opción A: para invocar el conector de red hace falta el permiso explícito `sistemasAutorizados`.
+      await owner.api.put(`/execution-params/${agentId}`, { sistemasAutorizados: true }).expect(200);
     });
 
     it('el proveedor recibe marcadores; la herramienta, la respuesta y lo guardado tienen los valores reales', async () => {

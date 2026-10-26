@@ -18,12 +18,32 @@ export class SetParametrosEjecucionDto {
 
   @ApiPropertyOptional({
     description:
-      'Gate de salida a internet: false = sin llamadas salientes; true habilita (la salida SIEMPRE pasa por ' +
-      'HttpClientService: SSRF/allowlist/timeout/tamaño). La bandera es un gate adicional, nunca un bypass',
+      'LEGADO: gate único de salida a internet. Reemplazado por `navegacionWeb` y `sistemasAutorizados`. Si se envía, ' +
+      'se refleja en ambas categorías (compatibilidad con la UI anterior). Prefiera las categorías.',
+    deprecated: true,
   })
   @IsOptional()
   @IsBoolean()
   salidaInternet?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Candado · navegación/fetch web general: false = no navega; true habilita (la salida SIEMPRE pasa por ' +
+      'HttpClientService). Gate adicional, nunca un bypass. Aplica con o sin estación asignada.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  navegacionWeb?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Candado · conexión a conectores/sistemas de negocio autorizados (REST/SOAP/GraphQL/MCP): false = no conecta; ' +
+      'true habilita (la salida SIEMPRE pasa por HttpClientService). Gate adicional, nunca un bypass. Aplica con o ' +
+      'sin estación asignada.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  sistemasAutorizados?: boolean;
 
   @ApiPropertyOptional({
     type: 'object',

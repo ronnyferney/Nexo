@@ -74,7 +74,7 @@ function setup(
   };
   const org = { resolveCostCenter: jest.fn(async () => 'root') };
   // Gate de salida a internet (E8-2): por defecto PERMITE, para que las pruebas existentes mantengan su comportamiento.
-  const executionParams = { puedeSalirAInternet: jest.fn(async () => true) };
+  const executionParams = { puedeConectarSistemasAutorizados: jest.fn(async () => true) };
   const runtime = new AgentRuntimeService(
     gateway as unknown as LlmGatewayService,
     {} as ConnectorsService,
@@ -115,6 +115,8 @@ function agent(fallbackModels: string[]): AgentWithTools {
     reportaAAgentId: null,
     estacionVirtualId: null,
     salidaInternet: false,
+    navegacionWeb: false,
+    sistemasAutorizados: false,
     parametrosEjecucion: {},
     routing: null,
     workspaceId: 'ws',
@@ -761,10 +763,10 @@ describe('AgentRuntimeService · candado de salida a internet (E8-2)', () => {
     return invoke;
   };
 
-  it('bloquea la operación de conector de red con salidaInternet=false: resultado de error y SIN invoke', async () => {
+  it('bloquea la operación de conector de red sin sistemasAutorizados: resultado de error y SIN invoke', async () => {
     const out: ToolOutcomeLike[] = [];
     const { runtime, executionParams } = setup({ 'p1:m1': { kind: 'MOCK', behavior: invokesTool(REST_TOOL, out) } });
-    (executionParams.puedeSalirAInternet as jest.Mock).mockResolvedValue(false);
+    (executionParams.puedeConectarSistemasAutorizados as jest.Mock).mockResolvedValue(false);
     const invoke = connectorsSpy(runtime);
 
     const r = await runtime.run(withTool(restOp), { message: 'hola', context: { source: 'CHAT' } });
@@ -772,15 +774,15 @@ describe('AgentRuntimeService · candado de salida a internet (E8-2)', () => {
     // El turno NO se rompe: termina con normalidad y la herramienta devuelve un error controlado al modelo.
     expect(r.text).toBe('fin');
     expect(out[0].isError).toBe(true);
-    expect(out[0].content).toContain('no tiene habilitada la salida a internet');
+    expect(out[0].content).toContain('no tiene habilitada la conexión a sistemas autorizados');
     expect(invoke).not.toHaveBeenCalled();
-    expect(executionParams.puedeSalirAInternet).toHaveBeenCalledWith('ws', 'a1');
+    expect(executionParams.puedeConectarSistemasAutorizados).toHaveBeenCalledWith('ws', 'a1');
   });
 
-  it('permite la operación de conector de red con salidaInternet=true: invoca normalmente (comportamiento actual)', async () => {
+  it('permite la operación de conector de red con sistemasAutorizados: invoca normalmente', async () => {
     const out: ToolOutcomeLike[] = [];
     const { runtime, executionParams } = setup({ 'p1:m1': { kind: 'MOCK', behavior: invokesTool(REST_TOOL, out) } });
-    (executionParams.puedeSalirAInternet as jest.Mock).mockResolvedValue(true);
+    (executionParams.puedeConectarSistemasAutorizados as jest.Mock).mockResolvedValue(true);
     const invoke = connectorsSpy(runtime);
 
     const r = await runtime.run(withTool(restOp), { message: 'hola', context: { source: 'CHAT' } });
@@ -790,10 +792,10 @@ describe('AgentRuntimeService · candado de salida a internet (E8-2)', () => {
     expect(invoke).toHaveBeenCalledTimes(1);
   });
 
-  it('no aplica el gate a un conector local (DATABASE): invoca aunque salidaInternet=false', async () => {
+  it('no aplica el gate a un conector local (DATABASE): invoca aunque no haya sistemasAutorizados', async () => {
     const out: ToolOutcomeLike[] = [];
     const { runtime, executionParams } = setup({ 'p1:m1': { kind: 'MOCK', behavior: invokesTool(DB_TOOL, out) } });
-    (executionParams.puedeSalirAInternet as jest.Mock).mockResolvedValue(false);
+    (executionParams.puedeConectarSistemasAutorizados as jest.Mock).mockResolvedValue(false);
     const invoke = connectorsSpy(runtime);
 
     const r = await runtime.run(withTool(dbOp), { message: 'hola', context: { source: 'CHAT' } });
@@ -802,7 +804,7 @@ describe('AgentRuntimeService · candado de salida a internet (E8-2)', () => {
     expect(out[0].isError).toBe(false);
     expect(invoke).toHaveBeenCalledTimes(1);
     // El conector local ni siquiera consulta el gate de salida a internet.
-    expect(executionParams.puedeSalirAInternet).not.toHaveBeenCalled();
+    expect(executionParams.puedeConectarSistemasAutorizados).not.toHaveBeenCalled();
   });
 });
 

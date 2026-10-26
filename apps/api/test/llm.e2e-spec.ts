@@ -89,6 +89,8 @@ describe('Gobierno de IA · conexiones LLM y driver OpenAI-compatible (E2E)', ()
         .put(`/agents/${agentId}/tools`, { tools: [{ operationId: detail.operations[0].id }] })
         .expect(200);
       expect((tools.body as { tools: { toolName: string }[] }).tools[0].toolName).toBe('clima__getweather');
+      // Candado Opción A: para invocar el conector de red hace falta el permiso explícito `sistemasAutorizados`.
+      await owner.api.put(`/execution-params/${agentId}`, { sistemasAutorizados: true }).expect(200);
     });
 
     it('ejecuta el bucle de herramientas (tool_calls y luego texto) contra el mock', async () => {

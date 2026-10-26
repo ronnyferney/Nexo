@@ -32,7 +32,8 @@ export const AUDIT_ACTIONS = {
   ESTACION_VIRTUAL_MODIFICADA: 'ESTACION_VIRTUAL_MODIFICADA',
   ESTACION_VIRTUAL_RETIRADA: 'ESTACION_VIRTUAL_RETIRADA',
   /// Cambio de los parámetros de ejecución de un empleado digital (E8). Actor humano, agente y, para el cambio
-  /// sensible de `salidaInternet`, su valor anterior/nuevo (dirección debe poder auditar quién abrió la salida).
+  /// sensible del candado (`navegacionWeb`/`sistemasAutorizados`), sus valores anterior/nuevo (dirección debe poder
+  /// auditar quién abrió la salida a internet, por categoría).
   PARAMETROS_EJECUCION_MODIFICADOS: 'PARAMETROS_EJECUCION_MODIFICADOS',
   /// Cambio de los controles configurables de grabación/retención de una empresa (E14 · ADR 0015 D3/D4). Actor humano,
   /// empresa y, en metadata, las banderas anterior/nuevo (cambio sensible que Jurídica debe poder auditar).

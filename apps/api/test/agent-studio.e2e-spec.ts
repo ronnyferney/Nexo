@@ -284,6 +284,9 @@ describe('Estudio de agentes · perfil, skills, conocimiento, ejemplos y respald
 
     it('asigna skills al agente; load_skill devuelve las instrucciones y las operaciones se suman a las tools', async () => {
       agentId = (await createAgent(owner, { name: 'Agente con skills' })).id;
+      // Para usar el conector de red `clima__getweather` hace falta el permiso explícito (candado Opción A):
+      // se habilita `sistemasAutorizados` en la preparación, reflejando la gobernanza del cierre de la elusión.
+      await owner.api.put(`/execution-params/${agentId}`, { sistemasAutorizados: true }).expect(200);
       const assigned = (await owner.api.put(`/agents/${agentId}/skills`, { skillIds: [skill.id] }).expect(200))
         .body as { skills: { id: string; name: string; slug: string }[] };
       expect(assigned.skills).toEqual([{ id: skill.id, name: skill.name, slug: 'facturacion-avanzada' }]);
@@ -319,31 +322,35 @@ describe('Estudio de agentes · perfil, skills, conocimiento, ejemplos y respald
       await owner.api.put(`/agents/${agentId}/skills`, { skillIds: ['nope'] }).expect(400);
     });
 
-    it('candado de salida a internet (E8-2): una estación sin internet bloquea el conector de red como herramienta fallida', async () => {
+    it('candado de salida a internet (E8-2 · Opción A): cierre de elusión con/sin estación y permiso explícito por categoría', async () => {
       // Agente propio con el conector de red (REST) vinculado directamente, para no contaminar el agente compartido.
       const gated = (await createAgent(owner, { name: 'Agente con candado' })).id;
       await owner.api.put(`/agents/${gated}/tools`, { tools: [{ operationId, requiresApproval: false }] }).expect(200);
 
-      // Sin estación asignada: comportamiento heredado, el conector se invoca normalmente aunque salidaInternet=false.
-      const sinEstacion = await chat(owner, gated, '/tool clima__getweather {"city":"Quito"}');
-      expect(sinEstacion.text).toContain('"city":"Quito"');
+      // CIERRE DE LA ELUSIÓN: un agente NUEVO nace sin `sistemasAutorizados` y, SIN estación, el conector de red queda
+      // bloqueado (antes la vía heredada lo invocaba). El turno NO se rompe: el modelo recibe una herramienta fallida.
+      const sinPermiso = await chat(owner, gated, '/tool clima__getweather {"city":"Quito"}');
+      expect(sinPermiso.text).toContain('no tiene habilitada la conexión a sistemas autorizados');
+      expect(sinPermiso.text).not.toContain('"city":"Quito"');
 
-      // Se asigna una estación virtual con la salida a internet DESHABILITADA.
+      // Permiso explícito SIN estación: habilitar `sistemasAutorizados` permite el conector (la política aplica con o
+      // sin estación; el permiso es explícito por categoría).
+      await owner.api.put(`/execution-params/${gated}`, { sistemasAutorizados: true }).expect(200);
+      const conPermiso = await chat(owner, gated, '/tool clima__getweather {"city":"Quito"}');
+      expect(conPermiso.text).toContain('"city":"Quito"');
+
+      // Asignar una estación NO cambia el candado: con `sistemasAutorizados = false` vuelve a bloquear, con o sin estación.
       const estacion = (
-        await owner.api
-          .post('/estaciones-virtuales', { nombre: 'Estación sin internet', proveedor: 'interna' })
-          .expect(201)
+        await owner.api.post('/estaciones-virtuales', { nombre: 'Estación sin internet', proveedor: 'interna' }).expect(201)
       ).body as { id: string };
       await owner.api
-        .put(`/execution-params/${gated}`, { estacionVirtualId: estacion.id, salidaInternet: false })
+        .put(`/execution-params/${gated}`, { estacionVirtualId: estacion.id, sistemasAutorizados: false })
         .expect(200);
-
-      // Ahora el conector de red queda bloqueado: el turno NO se rompe, el modelo recibe una herramienta fallida.
       const bloqueado = await chat(owner, gated, '/tool clima__getweather {"city":"Quito"}');
-      expect(bloqueado.text).toContain('no tiene habilitada la salida a internet');
+      expect(bloqueado.text).toContain('no tiene habilitada la conexión a sistemas autorizados');
       expect(bloqueado.text).not.toContain('"city":"Quito"');
 
-      // Al habilitar la salida a internet, el conector vuelve a invocarse normalmente.
+      // El campo legado `salidaInternet` sigue funcionando (puente de compatibilidad): refleja ambas categorías.
       await owner.api.put(`/execution-params/${gated}`, { salidaInternet: true }).expect(200);
       const permitido = await chat(owner, gated, '/tool clima__getweather {"city":"Quito"}');
       expect(permitido.text).toContain('"city":"Quito"');

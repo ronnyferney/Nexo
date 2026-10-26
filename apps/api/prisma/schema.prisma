@@ -526,10 +526,18 @@ model Agent {
   /// Estación virtual (máquina) asignada; null = sin estación. SetNull: retirar/borrar la estación NO borra el agente.
   estacionVirtualId    String?
   estacionVirtual      EstacionVirtual?   @relation(fields: [estacionVirtualId], references: [id], onDelete: SetNull)
-  /// Gate de salida a internet (E8). false = el agente NO puede hacer llamadas salientes; true la HABILITA, pero la
-  /// salida SIEMPRE sigue pasando por `HttpClientService` (SSRF, allowlist, timeout, tamaño): la bandera es un gate
-  /// ADICIONAL, nunca un bypass de esas protecciones. Cambio sensible auditado (E13).
+  /// LEGADO (E8). Gate único de salida a internet, reemplazado por las categorías `navegacionWeb` y
+  /// `sistemasAutorizados`. Se conserva como espejo de lectura una versión (se retira en un incremento posterior cuando
+  /// el runtime lea solo las categorías). `set()` lo mantiene coherente con las categorías.
   salidaInternet       Boolean            @default(false)
+  /// Candado de salida a internet segmentado (E8 · corrección Opción A). Categorías gobernables por separado; el
+  /// enforcement aplica CON O SIN estación asignada (cierre de la elusión). Siguen siendo gates ADICIONALES: cuando
+  /// habilitan, la salida pasa SIEMPRE por `HttpClientService` (SSRF/allowlist/timeout/tamaño), nunca un bypass.
+  /// La comunicación con proveedores de IA NO es un toggle de usuario: la gobierna el runtime (ADR 0010), aparte.
+  /// Default `false` (concesión explícita); la migración hace backfill preservando los flujos legítimos vigentes.
+  /// `navegacionWeb` = navegación/fetch web general; `sistemasAutorizados` = conectores/sistemas de negocio autorizados.
+  navegacionWeb        Boolean            @default(false)
+  sistemasAutorizados  Boolean            @default(false)
   /// Parámetros de ejecución extensibles (p. ej. horario de operación, límites). JSON para no migrar el esquema por
   /// cada parámetro nuevo. Los agentes previos quedan con `{}`.
   parametrosEjecucion  Json               @default("{}")

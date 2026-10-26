@@ -3,12 +3,13 @@ import { createTestApp } from './utils/app';
 import { addMember, createAgent, registerOwner, type Session } from './utils/fixtures';
 
 /**
- * Parámetros de ejecución del empleado digital (E8): estación virtual + salida a internet. Verifica: crear estación
- * virtual (ADMIN); asignarla a un agente y fijar `salidaInternet`; la lectura refleja los parámetros; una estación de
- * otro workspace da 404 al asignar; aislamiento multi-tenant; roles (VIEWER no crea estación ni cambia parámetros,
- * EDITOR no crea estación pero sí cambia parámetros); la baja lógica de la estación (RETIRADA) no rompe el agente
- * asignado; y que cada cambio deja entrada en la auditoría inmutable (E13), incluido el cambio sensible de
- * `salidaInternet` (anterior/nuevo).
+ * Parámetros de ejecución del empleado digital (E8): estación virtual + candado de salida a internet segmentado
+ * (`navegacionWeb` + `sistemasAutorizados`, corrección Opción A; el legado `salidaInternet` queda como puente).
+ * Verifica: crear estación virtual (ADMIN); asignarla a un agente y fijar el candado; la lectura refleja los
+ * parámetros; una estación de otro workspace da 404 al asignar; aislamiento multi-tenant; roles (VIEWER no crea
+ * estación ni cambia parámetros, EDITOR no crea estación pero sí cambia parámetros); la baja lógica de la estación
+ * (RETIRADA) no rompe el agente asignado; que un agente nuevo nace sin categorías habilitadas (cierre de la elusión);
+ * y que cada cambio deja entrada en la auditoría inmutable (E13), con los valores anterior/nuevo por categoría.
  */
 describe('Parámetros de ejecución del empleado digital (E2E · E8)', () => {
   let app: INestApplication;
@@ -30,6 +31,8 @@ describe('Parámetros de ejecución del empleado digital (E2E · E8)', () => {
     agentId: string;
     estacionVirtualId: string | null;
     salidaInternet: boolean;
+    navegacionWeb: boolean;
+    sistemasAutorizados: boolean;
     parametrosEjecucion: Record<string, unknown>;
   }
 
@@ -82,6 +85,35 @@ describe('Parámetros de ejecución del empleado digital (E2E · E8)', () => {
     await owner.api.put(`/execution-params/${agent.id}`, { estacionVirtualId: null }).expect(200);
     const tras = (await owner.api.get(`/execution-params/${agent.id}`).expect(200)).body as ParamsView;
     expect(tras.estacionVirtualId).toBeNull();
+  });
+
+  it('candado segmentado (Opción A): agente nuevo nace sin categorías; se gobiernan por separado; legado como puente; audita', async () => {
+    const owner = await registerOwner(app, 'e8-candado');
+    const agent = await createAgent(owner);
+
+    // Agente nuevo: ambas categorías en false (concesión explícita; cierre de la elusión).
+    const inicial = (await owner.api.get(`/execution-params/${agent.id}`).expect(200)).body as ParamsView;
+    expect(inicial).toMatchObject({ navegacionWeb: false, sistemasAutorizados: false, salidaInternet: false });
+
+    // Categorías independientes: habilitar solo `sistemasAutorizados` no habilita `navegacionWeb`. El legado
+    // `salidaInternet` queda como `navegacionWeb || sistemasAutorizados` (puente de lectura).
+    const soloSistemas = (
+      await owner.api.put(`/execution-params/${agent.id}`, { sistemasAutorizados: true }).expect(200)
+    ).body as ParamsView;
+    expect(soloSistemas).toMatchObject({ sistemasAutorizados: true, navegacionWeb: false, salidaInternet: true });
+
+    // El campo legado `salidaInternet=false` apaga AMBAS categorías (puente de escritura, compatibilidad UI anterior).
+    const legado = (await owner.api.put(`/execution-params/${agent.id}`, { salidaInternet: false }).expect(200))
+      .body as ParamsView;
+    expect(legado).toMatchObject({ sistemasAutorizados: false, navegacionWeb: false, salidaInternet: false });
+
+    // Auditoría: el cambio del candado registra valores anterior/nuevo por categoría.
+    const parAudit = (
+      await owner.api.get(`/auditoria?action=PARAMETROS_EJECUCION_MODIFICADOS&targetId=${agent.id}`).expect(200)
+    ).body as { items: { metadata: Record<string, unknown> }[] };
+    expect(parAudit.items.length).toBeGreaterThanOrEqual(1);
+    expect(parAudit.items[0].metadata).toHaveProperty('sistemasAutorizadosNueva');
+    expect(parAudit.items[0].metadata).toHaveProperty('navegacionWebNueva');
   });
 
   it('rechaza asignar una estación de otro workspace (404) y aísla el listado', async () => {

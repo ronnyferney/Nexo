@@ -61,7 +61,7 @@ type OperationWithConnector = ConnectorOperation & { connector: Connector };
 
 /**
  * Tipos de conector cuya invocación hace salida de red hacia sistemas externos (egress por HTTP). Solo estos quedan
- * sujetos al candado de salida a internet del agente (E8-2): un agente con `salidaInternet = false` no puede alcanzarlos.
+ * sujetos al candado de salida a internet del agente (E8-2): sin la categoría `sistemasAutorizados` no puede alcanzarlos.
  * `DATABASE` se excluye deliberadamente: representa un almacén de datos (potencialmente local/interno) que no transita
  * por `HttpClientService` y no está gobernado por la política de salida a internet. El tipo de conector está disponible
  * en el punto de invocación (`binding.operation.connector.type`), así que distinguirlo aquí es barato y exacto.
@@ -929,11 +929,14 @@ export class AgentRuntimeService {
     // Al bloquear devolvemos un resultado de herramienta con error (no una excepción): el modelo lo recibe como una
     // herramienta fallida y continúa el bucle de forma controlada en lugar de romper el turno.
     if (CONECTORES_EGRESS_RED.has(binding.operation.connector.type)) {
-      const permitido = await this.executionParams.puedeSalirAInternet(agent.workspaceId, agent.id);
+      const permitido = await this.executionParams.puedeConectarSistemasAutorizados(agent.workspaceId, agent.id);
       if (!permitido) {
-        this.logger.warn(`Tool ${call.name} bloqueada: el agente ${agent.id} no tiene habilitada la salida a internet`);
+        this.logger.warn(
+          `Tool ${call.name} bloqueada: el agente ${agent.id} no tiene habilitada la conexión a sistemas autorizados`,
+        );
         return {
-          content: 'El agente no tiene habilitada la salida a internet; no puede usar conectores que acceden a la red.',
+          content:
+            'El agente no tiene habilitada la conexión a sistemas autorizados; no puede usar conectores que acceden a la red.',
           isError: true,
         };
       }
