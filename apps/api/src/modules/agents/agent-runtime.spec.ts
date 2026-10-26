@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import type { LlmKind } from '@prisma/client';
 import type { ConnectorsService } from '../connectors/connectors.service';
+import type { ExecutionParamsService } from '../execution-params/execution-params.service';
 import { BudgetExceededException } from '../governance/budget.errors';
 import type { BudgetsService } from '../governance/budgets.service';
 import type { OrgService } from '../governance/org.service';
@@ -72,6 +73,8 @@ function setup(
     record: jest.fn(async () => undefined),
   };
   const org = { resolveCostCenter: jest.fn(async () => 'root') };
+  // Gate de salida a internet (E8-2): por defecto PERMITE, para que las pruebas existentes mantengan su comportamiento.
+  const executionParams = { puedeSalirAInternet: jest.fn(async () => true) };
   const runtime = new AgentRuntimeService(
     gateway as unknown as LlmGatewayService,
     {} as ConnectorsService,
@@ -81,8 +84,9 @@ function setup(
     { search: async () => [] } as unknown as KnowledgeService,
     new ModelRouterService(),
     new AgentVerificationService(),
+    executionParams as unknown as ExecutionParamsService,
   );
-  return { runtime, calls, planned, gateway, budgets };
+  return { runtime, calls, planned, gateway, budgets, executionParams };
 }
 
 function agent(fallbackModels: string[]): AgentWithTools {
@@ -712,6 +716,93 @@ describe('AgentRuntimeService · herramientas internas', () => {
         ['ws', 'kb1', { title: 'Perfil de Ana', text: 'Gerenta de compras; prefiere correos breves.' }],
       ]);
     }
+  });
+});
+
+describe('AgentRuntimeService · candado de salida a internet (E8-2)', () => {
+  // Operación de conector de red (REST): queda sujeta al gate de salida a internet.
+  const restOp = {
+    id: 'op-rest',
+    key: 'consultar',
+    name: 'Consultar clima',
+    description: 'Consulta una API REST externa',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    connector: { name: 'clima', type: 'REST' },
+  };
+  const REST_TOOL = 'clima__consultar';
+  // Operación de conector local (DATABASE): NO es salida a internet, el gate no debe bloquearla.
+  const dbOp = {
+    id: 'op-db',
+    key: 'leer',
+    name: 'Leer tabla',
+    description: 'Lee de una base de datos local',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    connector: { name: 'almacen', type: 'DATABASE' },
+  };
+  const DB_TOOL = 'almacen__leer';
+
+  const withTool = (op: unknown): AgentWithTools => ({
+    ...agent([]),
+    salidaInternet: false,
+    tools: [{ operationId: (op as { id: string }).id, requiresApproval: false, operation: op }] as never,
+  });
+
+  // Comportamiento que invoca una tool de conector y devuelve su resultado como texto para poder inspeccionarlo.
+  const invokesTool =
+    (toolName: string, out: ToolOutcomeLike[]): Behavior =>
+    async (req) => {
+      out.push(await req.executeTool({ id: 't1', name: toolName, input: {} }));
+      return ok('fin')(req);
+    };
+
+  const connectorsSpy = (runtime: AgentRuntimeService) => {
+    const invoke = jest.fn(async () => ({ ok: true, status: 200, data: { ok: true } }));
+    (runtime as unknown as { connectors: { invoke: jest.Mock } }).connectors = { invoke };
+    return invoke;
+  };
+
+  it('bloquea la operación de conector de red con salidaInternet=false: resultado de error y SIN invoke', async () => {
+    const out: ToolOutcomeLike[] = [];
+    const { runtime, executionParams } = setup({ 'p1:m1': { kind: 'MOCK', behavior: invokesTool(REST_TOOL, out) } });
+    (executionParams.puedeSalirAInternet as jest.Mock).mockResolvedValue(false);
+    const invoke = connectorsSpy(runtime);
+
+    const r = await runtime.run(withTool(restOp), { message: 'hola', context: { source: 'CHAT' } });
+
+    // El turno NO se rompe: termina con normalidad y la herramienta devuelve un error controlado al modelo.
+    expect(r.text).toBe('fin');
+    expect(out[0].isError).toBe(true);
+    expect(out[0].content).toContain('no tiene habilitada la salida a internet');
+    expect(invoke).not.toHaveBeenCalled();
+    expect(executionParams.puedeSalirAInternet).toHaveBeenCalledWith('ws', 'a1');
+  });
+
+  it('permite la operación de conector de red con salidaInternet=true: invoca normalmente (comportamiento actual)', async () => {
+    const out: ToolOutcomeLike[] = [];
+    const { runtime, executionParams } = setup({ 'p1:m1': { kind: 'MOCK', behavior: invokesTool(REST_TOOL, out) } });
+    (executionParams.puedeSalirAInternet as jest.Mock).mockResolvedValue(true);
+    const invoke = connectorsSpy(runtime);
+
+    const r = await runtime.run(withTool(restOp), { message: 'hola', context: { source: 'CHAT' } });
+
+    expect(r.text).toBe('fin');
+    expect(out[0].isError).toBe(false);
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it('no aplica el gate a un conector local (DATABASE): invoca aunque salidaInternet=false', async () => {
+    const out: ToolOutcomeLike[] = [];
+    const { runtime, executionParams } = setup({ 'p1:m1': { kind: 'MOCK', behavior: invokesTool(DB_TOOL, out) } });
+    (executionParams.puedeSalirAInternet as jest.Mock).mockResolvedValue(false);
+    const invoke = connectorsSpy(runtime);
+
+    const r = await runtime.run(withTool(dbOp), { message: 'hola', context: { source: 'CHAT' } });
+
+    expect(r.text).toBe('fin');
+    expect(out[0].isError).toBe(false);
+    expect(invoke).toHaveBeenCalledTimes(1);
+    // El conector local ni siquiera consulta el gate de salida a internet.
+    expect(executionParams.puedeSalirAInternet).not.toHaveBeenCalled();
   });
 });
 

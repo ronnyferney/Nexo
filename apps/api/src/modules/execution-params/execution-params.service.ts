@@ -120,9 +120,9 @@ export class ExecutionParamsService {
    * salida a internet. Es un gate ADICIONAL: cuando permite, la llamada saliente DEBE seguir pasando por
    * `HttpClientService` (SSRF, allowlist, timeout, tamaño). NUNCA desactiva esas protecciones.
    *
-   * TODO (E8-2 / runtime): invocar este punto desde los ejecutores de conectores y el runtime del agente ANTES de
-   * cualquier egress, de modo que `salidaInternet = false` bloquee la llamada antes de intentarla. El cableado del
-   * runtime y los ejecutores vive en otra cédula; aquí queda la bandera + este punto de verificación reutilizable.
+   * E8-2 (runtime): el runtime del agente ya consume este gate ANTES de cualquier egress de conector de red (vía
+   * `puedeSalirAInternet`, variante de lectura sin excepción), de modo que `salidaInternet = false` bloquea la llamada
+   * antes de intentarla. Este `assert` queda disponible como punto de verificación reutilizable para otros ejecutores.
    */
   async assertSalidaInternetPermitida(workspaceId: string, agentId: string): Promise<void> {
     const agent = await this.prisma.agent.findFirst({
@@ -133,5 +133,27 @@ export class ExecutionParamsService {
     if (!puedeSalirAInternet(agent)) {
       throw new ForbiddenException('El agente no tiene habilitada la salida a internet');
     }
+  }
+
+  /**
+   * Lectura ligera del gate de egress (E8-2), pensada para el bucle de herramientas del runtime del agente, donde
+   * conviene decidir SIN lanzar excepciones por cada llamada.
+   *
+   * El candado de salida a internet es una propiedad del entorno de ejecución del empleado digital: la ESTACIÓN VIRTUAL.
+   * Por eso solo BLOQUEA cuando el agente está asignado a una estación y esa estación tiene `salidaInternet = false`. Un
+   * agente SIN estación corre por la vía heredada (chat/pruebas), no gobernada por este candado: su comportamiento queda
+   * intacto. Así `salida a internet` nunca restringe de más a agentes que no son empleados digitales desplegados.
+   *
+   * Es un gate ADICIONAL: cuando permite, la llamada saliente DEBE seguir pasando por `HttpClientService` (SSRF,
+   * allowlist, timeout, tamaño); este método nunca lo sustituye. Si el agente no existe (estado inesperado en el
+   * runtime, donde siempre existe) no hay estación visible, así que se trata como la vía heredada (permite).
+   */
+  async puedeSalirAInternet(workspaceId: string, agentId: string): Promise<boolean> {
+    const agent = await this.prisma.agent.findFirst({
+      where: { id: agentId, workspaceId },
+      select: { estacionVirtualId: true, salidaInternet: true },
+    });
+    if (!agent || agent.estacionVirtualId === null) return true;
+    return puedeSalirAInternet(agent);
   }
 }

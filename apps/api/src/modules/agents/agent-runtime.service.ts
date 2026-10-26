@@ -13,8 +13,10 @@ import type {
   Skill,
   UsageSource,
 } from '@prisma/client';
+import { ConnectorType } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { ConnectorsService } from '../connectors/connectors.service';
+import { ExecutionParamsService } from '../execution-params/execution-params.service';
 import { BudgetExceededException } from '../governance/budget.errors';
 import { BudgetsService } from '../governance/budgets.service';
 import { OrgService } from '../governance/org.service';
@@ -56,6 +58,20 @@ const SAVE_TITLE_MAX = 200;
 const SAVE_CONTENT_MAX = 10_000;
 
 type OperationWithConnector = ConnectorOperation & { connector: Connector };
+
+/**
+ * Tipos de conector cuya invocación hace salida de red hacia sistemas externos (egress por HTTP). Solo estos quedan
+ * sujetos al candado de salida a internet del agente (E8-2): un agente con `salidaInternet = false` no puede alcanzarlos.
+ * `DATABASE` se excluye deliberadamente: representa un almacén de datos (potencialmente local/interno) que no transita
+ * por `HttpClientService` y no está gobernado por la política de salida a internet. El tipo de conector está disponible
+ * en el punto de invocación (`binding.operation.connector.type`), así que distinguirlo aquí es barato y exacto.
+ */
+const CONECTORES_EGRESS_RED: ReadonlySet<ConnectorType> = new Set([
+  ConnectorType.REST,
+  ConnectorType.SOAP,
+  ConnectorType.GRAPHQL,
+  ConnectorType.MCP,
+]);
 
 export type AgentWithTools = Agent & {
   tools: (AgentTool & { operation: OperationWithConnector })[];
@@ -248,6 +264,7 @@ export class AgentRuntimeService {
     private readonly knowledge: KnowledgeService,
     private readonly router: ModelRouterService,
     private readonly verification: AgentVerificationService,
+    private readonly executionParams: ExecutionParamsService,
   ) {}
 
   /** System prompt y herramientas del agente, en orden estable (favorece la caché de prompts). */
@@ -907,6 +924,20 @@ export class AgentRuntimeService {
     }
     // Acción sensible ya aprobada por el usuario (mecanismo de aprobación existente) que se va a ejecutar.
     if (binding.requiresApproval && sensitivity) sensitivity.taken = true;
+    // Candado de salida a internet (E8-2): antes del egress de un conector de red, verifica que el agente lo tenga
+    // permitido. Es un gate ADICIONAL sobre las protecciones de `HttpClientService` (SSRF/allowlist), nunca un bypass.
+    // Al bloquear devolvemos un resultado de herramienta con error (no una excepción): el modelo lo recibe como una
+    // herramienta fallida y continúa el bucle de forma controlada en lugar de romper el turno.
+    if (CONECTORES_EGRESS_RED.has(binding.operation.connector.type)) {
+      const permitido = await this.executionParams.puedeSalirAInternet(agent.workspaceId, agent.id);
+      if (!permitido) {
+        this.logger.warn(`Tool ${call.name} bloqueada: el agente ${agent.id} no tiene habilitada la salida a internet`);
+        return {
+          content: 'El agente no tiene habilitada la salida a internet; no puede usar conectores que acceden a la red.',
+          isError: true,
+        };
+      }
+    }
     try {
       const result = await this.connectors.invoke(binding.operation, call.input);
       const serialized = JSON.stringify({ ok: result.ok, status: result.status, data: result.data });

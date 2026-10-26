@@ -318,6 +318,34 @@ describe('Estudio de agentes · perfil, skills, conocimiento, ejemplos y respald
     it('rechaza asignar skills inexistentes', async () => {
       await owner.api.put(`/agents/${agentId}/skills`, { skillIds: ['nope'] }).expect(400);
     });
+
+    it('candado de salida a internet (E8-2): una estación sin internet bloquea el conector de red como herramienta fallida', async () => {
+      // Agente propio con el conector de red (REST) vinculado directamente, para no contaminar el agente compartido.
+      const gated = (await createAgent(owner, { name: 'Agente con candado' })).id;
+      await owner.api.put(`/agents/${gated}/tools`, { tools: [{ operationId, requiresApproval: false }] }).expect(200);
+
+      // Sin estación asignada: comportamiento heredado, el conector se invoca normalmente aunque salidaInternet=false.
+      const sinEstacion = await chat(owner, gated, '/tool clima__getweather {"city":"Quito"}');
+      expect(sinEstacion.text).toContain('"city":"Quito"');
+
+      // Se asigna una estación virtual con la salida a internet DESHABILITADA.
+      const estacion = (
+        await owner.api.post('/estaciones-virtuales', { nombre: 'Estación sin internet', proveedor: 'interna' }).expect(201)
+      ).body as { id: string };
+      await owner.api
+        .put(`/execution-params/${gated}`, { estacionVirtualId: estacion.id, salidaInternet: false })
+        .expect(200);
+
+      // Ahora el conector de red queda bloqueado: el turno NO se rompe, el modelo recibe una herramienta fallida.
+      const bloqueado = await chat(owner, gated, '/tool clima__getweather {"city":"Quito"}');
+      expect(bloqueado.text).toContain('no tiene habilitada la salida a internet');
+      expect(bloqueado.text).not.toContain('"city":"Quito"');
+
+      // Al habilitar la salida a internet, el conector vuelve a invocarse normalmente.
+      await owner.api.put(`/execution-params/${gated}`, { salidaInternet: true }).expect(200);
+      const permitido = await chat(owner, gated, '/tool clima__getweather {"city":"Quito"}');
+      expect(permitido.text).toContain('"city":"Quito"');
+    });
   });
 
   describe('Conocimiento', () => {
