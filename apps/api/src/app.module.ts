@@ -18,6 +18,7 @@ import { AgentsModule } from './modules/agents/agents.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { CargosModule } from './modules/cargos/cargos.module';
 import { ChannelsModule } from './modules/channels/channels.module';
+import { VoiceModule } from './modules/channels/voice/voice.module';
 import { ConsolasModule } from './modules/consolas/consolas.module';
 import { CopilotModule } from './modules/copilot/copilot.module';
 import { CrewsModule } from './modules/crews/crews.module';
@@ -112,6 +113,7 @@ import { WorkspacesModule } from './modules/workspaces/workspaces.module';
     RoutinesModule,
     McpServerModule,
     ChannelsModule,
+    VoiceModule,
     HealthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

@@ -2630,6 +2630,7 @@ model CanalCuenta {
   /// Identidad del canal (remitente, etc.), SIN secretos.
   config      Json              @default("{}")
   mensajes    MensajeCanal[]
+  llamadas    VoiceCall[]
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
 
@@ -2664,4 +2665,49 @@ model MensajeCanal {
   @@unique([workspaceId, idempotencyKey])
   @@index([workspaceId, canalCuentaId])
   @@index([workspaceId, tareaId])
+}
+
+/// Estado de una llamada de voz (ADR 0015 D2/D4), sandbox sin gasto. SIMULADA = recorrido del adaptador simulado (QA),
+/// sin salida de red; FALLIDA = adaptador inactivo/gated (stub sin credenciales) o error de negocio.
+enum EstadoLlamadaVoz {
+  INICIADA
+  EN_CURSO
+  TRANSFERIDA
+  FINALIZADA
+  FALLIDA
+  SIMULADA
+}
+
+/// Metadatos de una llamada de voz (ADR 0015 D2/D4), sandbox SIN gasto. Reusa `CanalCuenta` (tipo VOZ) como cuenta por
+/// empresa (identidad/credenciales por `secretRef`). NUNCA guarda audio/transcripción crudos: `transcripcionRef` es solo
+/// una referencia y queda null por defecto (grabación OFF; pendiente de `GrabacionConfig` + validación jurídica).
+/// `costoEstimado` queda null hasta cargar tarifas por región/minuto (no se inventan precios). Idempotencia por
+/// `proveedorCallId`. Multi-tenant: toda consulta filtra por `workspaceId`.
+model VoiceCall {
+  id               String           @id @default(cuid())
+  workspaceId      String
+  /// Empresa (OrgUnit tipo EMPRESA) dueña de la llamada. Referencia blanda.
+  empresaId        String?
+  canalCuentaId    String?
+  canalCuenta      CanalCuenta?     @relation(fields: [canalCuentaId], references: [id], onDelete: SetNull)
+  /// Proveedor que cursó la llamada (simulado | amazon_connect | google_cloud | ...). Selecciona el adaptador.
+  proveedor        String
+  /// Id de la llamada del proveedor (idempotencia; determinista en el simulado).
+  proveedorCallId  String
+  direccion        DireccionMensaje @default(SALIENTE)
+  estado           EstadoLlamadaVoz @default(INICIADA)
+  /// Vínculo a tarea (E5) que origina la llamada. Referencia blanda.
+  tareaId          String?
+  /// Vínculo a misión (E5) que origina la llamada. Referencia blanda.
+  misionId         String?
+  duracionSeg      Int?
+  /// Referencia (NO contenido) a la transcripción si una política la habilitara; null por defecto (grabación OFF).
+  transcripcionRef String?
+  /// Coste estimado; null hasta cargar tarifas por región/minuto (no se inventan precios).
+  costoEstimado    Decimal?
+  createdAt        DateTime         @default(now())
+
+  @@unique([workspaceId, proveedor, proveedorCallId])
+  @@index([workspaceId, canalCuentaId])
+  @@index([workspaceId, estado])
 }
