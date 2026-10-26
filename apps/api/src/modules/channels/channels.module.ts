@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { GmailMailChannelAdapter } from './adapters/gmail-mail.adapter';
 import { M365MailChannelAdapter } from './adapters/m365-mail.adapter';
 import { SimuladoChannelAdapter } from './adapters/simulado.adapter';
 import { WhatsappMetaChannelAdapter } from './adapters/whatsapp-meta.adapter';
@@ -9,14 +10,15 @@ import { CHANNEL_ADAPTERS } from './domain/channel-adapter';
 
 /**
  * Canales externos (E14 · ADR 0015): contrato `ChannelAdapter` + adaptadores `simulado` (sandbox/QA), `m365` (correo
- * Microsoft 365) y WhatsApp vía `whatsapp_meta` (Meta Cloud API directa) y `whatsapp_twilio` (Twilio), ambos inactivos
- * sin credenciales. Agregar un proveedor = crear un adaptador y registrarlo en `ADAPTERS` (la selección es por
- * `proveedor`/`alias`, sin ramas `if`). `SecretsService`, `HttpClientService`, `ActionGatewayService` y `AuditService`
- * llegan por módulos globales.
+ * Microsoft 365), `gmail` (correo Google, alias `google_mail`) y WhatsApp vía `whatsapp_meta` (Meta Cloud API directa)
+ * y `whatsapp_twilio` (Twilio); todos los productivos inactivos sin credenciales. Agregar un proveedor = crear un
+ * adaptador y registrarlo en `ADAPTERS` (la selección es por `proveedor`/`alias`, sin ramas `if`). `SecretsService`,
+ * `HttpClientService`, `ActionGatewayService` y `AuditService` llegan por módulos globales.
  */
 const ADAPTERS = [
   SimuladoChannelAdapter,
   M365MailChannelAdapter,
+  GmailMailChannelAdapter,
   WhatsappMetaChannelAdapter,
   WhatsappTwilioChannelAdapter,
 ];
