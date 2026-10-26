@@ -1,6 +1,6 @@
 # 0011. Modelo organizacional: grupo, empresas, líneas de negocio, sedes y centros de costo
 
-- **Estado:** Propuesto
+- **Estado:** Aceptado (implementado y validado, 2026-10-26)
 - **Fecha:** 2026-10-25
 - **Responsables:** nexo-architect
 - **Relacionado:** ADR 0002 (presupuestos), ADR 0007 (visibilidad y permisos), ADR 0010 (orquestación). Épica E1 (y E9)

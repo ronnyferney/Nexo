@@ -1,6 +1,6 @@
 # 0014. Equipos de empleados digitales gobernados (Cuadrillas) y pasaporte de resultado verificable
 
-- **Estado:** Propuesto
+- **Estado:** Aceptado (implementado y validado, 2026-10-26)
 - **Fecha:** 2026-10-26
 - **Responsables:** nexo-architect
 - **Relacionado:**

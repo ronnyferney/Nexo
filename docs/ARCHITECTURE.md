@@ -1,6 +1,7 @@
 # Arquitectura de Nexo
 
-Decisiones registradas en [`docs/adr/`](adr/) (0001–0010; el 0010 está Propuesto). Este documento describe la plataforma tal como está hoy.
+Decisiones registradas en [`docs/adr/`](adr/) (0001–0014; 0011–0014 están Propuestos y guían el programa de
+organización de empleados digitales ya construido). Este documento describe la plataforma tal como está hoy.
 
 ## Vista general
 
@@ -71,7 +72,18 @@ Decisiones registradas en [`docs/adr/`](adr/) (0001–0010; el 0010 está Propue
 | `oauth` | OAuth2 de usuario para conectores: authorization code + PKCE, callback público, tokens cifrados y renovación. |
 | `edge` | Nexo Edge: administración de agentes on-premise, gateway WebSocket y enrutamiento por Redis pub/sub. |
 | `llm` | Puerto `LlmDriver`, `LlmGatewayService`, catálogo de modelos/tarifas y administración de conexiones LLM. |
-| `governance` | Unidades corporativas, centros de costo, bolsas de presupuesto, alertas y reportes de consumo. |
+| `governance` | Unidades corporativas, centros de costo, bolsas de presupuesto, alertas y reportes de consumo; además `estructura/` (grupo, empresas, líneas de negocio, sedes), `dimensiones/` (dimensiones organizativas configurables D8), `imputacion/` (servicios internos y reparto de costos compartidos) y el gobierno de acciones (`policy/`, `actions/`: políticas versionadas, bandeja de aprobaciones y suspensión). |
+| `cargos` | Catálogo de `Cargo` (perfil reutilizable con propósito, funciones, entregables, indicadores, límites y nivel jerárquico) para el empleado digital. |
+| `hierarchy` | Jerarquía de dirección digital: niveles, autoridad, delegación, supervisión, reemplazo y organigrama (reglas puras en `hierarchy.rules.ts`). |
+| `results` | Trabajo por resultados: objetivos, tareas, `ContratoResultado`, validación/aceptación por un tercero, incumplimientos, `indicadores/` (KPIs de resultado) y `pasaporte.*` (Pasaporte de resultado verificable). |
+| `messaging` | Protocolo de mensajes entre agentes, handoff (contrato de transferencia) y reglas de delegación (`delegacion.rules.ts`). |
+| `collaboration` | Canales de coordinación transversal por misión/proceso/área. |
+| `durability` | Durabilidad avanzada: idempotencia, clasificación temporal/permanente/incierto, conciliación y bandeja de excepciones. |
+| `execution-params` | Parámetros de ejecución del agente: estación virtual y política de salida a internet (`egress-policy.rules.ts`). |
+| `crews` | Cuadrillas: equipos de empleados digitales gobernados (validación de composición en `crews.validator.ts`). |
+| `consolas` | Consolas gerenciales por negocio/área/sede (inicio gerencial de resultados, riesgos y decisiones). |
+| `audit` | Auditoría inmutable encadenada por hash (`audit.hashing.ts`): decisiones, aprobaciones, políticas y accesos. |
+| `data-protection` | Ajustes de privacidad y retención de conversaciones (primer incremento del ADR 0008). |
 | `agents` | CRUD de agentes, composición del prompt, runtime (tools, respaldo de modelos), chat SSE y conversaciones. |
 | `agent-access` | Permisos por agente (`AgentAccessService`), destinatarios de shares (`SharePrincipalsService`) y salud del agente. |
 | `groups` | Grupos de usuarios transversales a las unidades, destino de shares `GROUP`. |
@@ -168,6 +180,36 @@ independiente.
 - La lógica de decisión vive en funciones puras (`governance/budget-policy.ts`) con pruebas unitarias.
 - Las alertas por umbral se registran en `BudgetAlert` y se ven en la consola; no se notifican por correo ni Slack.
 
+## Organización de empleados digitales (ADR 0011–0014)
+
+Programa que convierte a Nexo en una organización de empleados digitales. Migraciones aditivas; el runtime, los flujos y
+el gobierno de costos existentes siguen igual.
+
+- **Modelo organizacional (ADR 0011, `governance/estructura`):** grupo, empresas, líneas de negocio, sedes y centros de
+  costo sobre `OrgUnit` tipado; asignaciones matriciales (empleado↔área/línea/sede) con alcance y vigencia.
+- **Dimensiones configurables D8 (ADR 0011, `governance/dimensiones`):** ejes organizativos definibles por workspace para
+  clasificar e imputar sin cambiar el esquema.
+- **Empleado digital (`cargos` + campos de `Agent`):** catálogo de `Cargo`, expediente con responsable titular/suplente
+  y nivel jerárquico; no se publica un agente sin responsable; estados de ciclo de vida completos.
+- **Jerarquía de dirección digital (`hierarchy`):** niveles, autoridad, delegación, supervisión, reemplazo y organigrama,
+  sin ciclos ni autoaprobación.
+- **Trabajo por resultados (ADR 0012, `results`):** objetivos, tareas, `ContratoResultado`, validación por un tercero
+  (el ejecutor no valida su propio resultado), incumplimientos con escalamiento e `indicadores/` de resultado.
+- **Comunicación y handoff (ADR 0012, `messaging` + `collaboration`):** protocolo de mensajes entre agentes con
+  idempotencia, handoff como contrato de transferencia que el receptor acepta o rechaza, y canales transversales.
+- **Gobierno de acciones (ADR 0013, `governance/policy` + `governance/actions`):** motor de políticas server-side,
+  bandeja de aprobaciones con hash del contenido e invalidación, doble aprobación y suspensión de emergencia.
+- **Parámetros de ejecución (ADR 0013, `execution-params`):** estación virtual y candado de salida a internet con
+  dominios permitidos, en el expediente y la versión inmutable del agente.
+- **Durabilidad avanzada (`durability`):** idempotencia, clasificación temporal/permanente/incierto, conciliación y
+  bandeja de excepciones.
+- **Imputación de costos (`governance/imputacion`):** servicios internos con acuerdo y reparto de servicios compartidos
+  (suma 100 %, sin doble conteo), sobre el libro mayor de presupuestos existente.
+- **Auditoría inmutable (`audit`):** bitácora encadenada por hash de decisiones, aprobaciones, políticas y accesos.
+- **Consolas gerenciales (`consolas`):** inicio gerencial por negocio/área/sede (resultados, riesgos, decisiones).
+- **Cuadrillas y Pasaporte de resultado (ADR 0014, `crews` + `results/pasaporte.*`):** equipos de empleados digitales
+  gobernados y un pasaporte verificable que acredita el resultado con su evidencia y cadena de validación.
+
 ## Nexo Copilot y consola de plataforma (ADR 0006)
 
 - Agente de plataforma propiedad de Nexo (no es un agente del workspace): configuración versionada en
@@ -261,24 +303,30 @@ de Secrets Manager.
   etiqueta y comprueba `GET /api/health/version` (público; `version`, `commit`, `builtAt` desde `APP_VERSION`,
   `GIT_SHA`, `BUILD_DATE`) y `/version.json` de la web. Revertir = desplegar la versión anterior; migraciones aditivas.
 
-## Protección de datos (ADR 0008): aceptado, no implementado
+## Protección de datos (ADR 0008): aceptado, parcialmente implementado
 
 El ADR 0008 (detector `DataGuard`, política `DataPolicy` con enmascarado reversible, clasificación de datos y
 enrutamiento a modelos aprobados, auditoría, telemetría de producto, acceso de soporte excepcional y retención de
-conversaciones) está **aceptado pero no implementado**: no existen esos modelos en `schema.prisma` ni código en la API.
-Hoy los mensajes y resultados de herramientas llegan al modelo sin enmascarar.
+conversaciones) está **aceptado y solo en parte implementado**: el módulo `data-protection` cubre los ajustes de
+privacidad y la retención de conversaciones, pero el enmascarado/clasificación hacia los modelos aún no existe, así que
+hoy los mensajes y resultados de herramientas llegan al modelo sin enmascarar.
 
 ## Evolución sugerida
 
 Priorizada por valor de negocio y riesgo:
 
-1. **Implementar ADR 0008** (protección de datos hacia los modelos, auditoría y retención de conversaciones): mayor
-   riesgo legal y comercial abierto.
-2. **SSO (SAML/OIDC) y auditoría** general de acciones administrativas (hoy solo queda registrado el override de lanzamiento).
-3. **Notificación de alertas de presupuesto** por correo/Slack (hoy solo se registran en la consola).
-4. **Observabilidad con OpenTelemetry** (trazas API → cola → worker → proveedor) y métricas de costo por agente exportables.
-5. **Despliegue de flujos por entornos** (dev/qa/prod) sobre el historial de versiones existente.
-6. **Embeddings + pgvector** detrás de la misma interfaz `search()` de conocimiento (hoy full-text de PostgreSQL);
+1. **Cerrar el programa de organización de empleados digitales** (ADR 0011–0014, ya construido en su mayor parte): aplicar
+   el candado de salida a internet en el runtime (E8-2) y completar la web de parámetros de ejecución (E8), los canales
+   externos correo/WhatsApp/voz (E14, pendientes de decisión de proveedores) y la comunidad interna (E11, hoy cubierta en
+   parte por el catálogo de cuadrillas). Detalle en `docs/backlog-organizacion-digital.md`.
+2. **Implementar ADR 0008** (protección de datos hacia los modelos, auditoría y retención de conversaciones): el módulo
+   `data-protection` ya cubre ajustes de privacidad y retención de conversaciones; falta el enmascarado/clasificación
+   hacia los modelos.
+3. **SSO (SAML/OIDC)** general de acciones administrativas (la auditoría inmutable ya existe en `audit`).
+4. **Notificación de alertas de presupuesto** por correo/Slack (hoy solo se registran en la consola).
+5. **Observabilidad con OpenTelemetry** (trazas API → cola → worker → proveedor) y métricas de costo por agente exportables.
+6. **Despliegue de flujos por entornos** (dev/qa/prod) sobre el historial de versiones existente.
+7. **Embeddings + pgvector** detrás de la misma interfaz `search()` de conocimiento (hoy full-text de PostgreSQL);
    ingesta de PDF/Office.
-7. **Agentes como herramientas de otros agentes** (multi-agente).
-8. **Driver Bedrock** y fase 2 de ADR 0005 (Oracle, actualizaciones automáticas del Edge) y de ADR 0007 (visibilidad `EXTERNAL`).
+8. **Agentes como herramientas de otros agentes** (multi-agente).
+9. **Driver Bedrock** y fase 2 de ADR 0005 (Oracle, actualizaciones automáticas del Edge) y de ADR 0007 (visibilidad `EXTERNAL`).

@@ -1,6 +1,6 @@
 # 0013. Gobierno de acciones y canales de comunicación externa
 
-- **Estado:** Propuesto
+- **Estado:** Aceptado (implementado y validado, 2026-10-26)
 - **Fecha:** 2026-10-25
 - **Responsables:** nexo-architect
 - **Épicas del backlog:** E6 (gobierno de acciones, RF11-RF13), E14 (canales externos, RF16/RF17/RF35), y las

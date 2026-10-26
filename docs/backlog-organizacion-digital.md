@@ -16,22 +16,24 @@ son la base del resto. Lo que NEXO **ya tiene** se marca para reutilizar y reduc
 
 ## Mapa de épicas
 
-| Épica | Alcance | RF | Prio | Tipo dominante |
-|---|---|---|---|---|
-| **E1 · Estructura empresarial** | Grupo/empresa, unidades y líneas de negocio, áreas, departamentos, equipos, sedes, centros de costo, matricial | RF01, RF41, RF42, RF43, RF46 | P0 | Modifica + Construye |
-| **E2 · Empleado digital** | Catálogo de cargos, expediente, cargo+responsable humano titular/suplente, estados de ciclo de vida, versiones, publicación/retiro | RF02, RF03, RF04, RF05, RF06 | P0 | Construye |
-| **E3 · Jerarquía de dirección digital** | Niveles (empleado→líder→jefe→director→gerente→superempleado), autoridad, delegación, supervisión y reemplazo | RF32, RF33, RF34, RF39, RF40 | P0 | Construye |
-| **E4 · Trabajo por resultados** | Objetivos, tareas y entregables, contrato de resultado, verificación/aceptación, incumplimientos | RF07, RF08, RF29, RF30, RF31 | P0 | Construye |
-| **E5 · Colaboración y comunicación** | Flujos con contratos, **continuidad de tarea (handoff entre agentes/grupos)**, control de delegación, protocolo de mensajes entre agentes, coordinación transversal | RF09, RF10, RF35, RF36 | P0 | Modifica + Construye |
-| **E14 · Canales de comunicación externa** | Correo, **llamadas telefónicas con agentes conversacionales al 100 %**, mensajería **WhatsApp** — como canales de los empleados digitales, bajo política y aprobación | RF16, RF17, RF35 (ext.) | P0 | Reutiliza (correo) + Construye (voz, WhatsApp) |
-| **E6 · Gobierno de acciones** | Motor de políticas, bandeja de aprobaciones (hash/invalidación/doble), suspensión de emergencia | RF11, RF12, RF13 | P0 | Construye |
-| **E7 · Durabilidad avanzada** | Idempotencia, deduplicación de eventos, reintentos/conciliación, bandeja de excepciones | RF17, RF18, RF20, RF21 | P0 | Modifica + Construye |
-| **E8 · Conocimiento y herramientas** | Conocimiento empresarial, memoria controlada, conectores **REST/SOAP(web service)/GraphQL/MCP**, pasarela, **acceso a internet** y **RPA** como capacidades del agente | RF14, RF15, RF16, RF17 | P0 | Reutiliza + Modifica + Construye |
-| **E9 · Costos e imputación** | Control de costos, presupuestos con reserva/conciliación, imputación por empresa/línea/área/centro de costo, servicios compartidos | RF25, RF26, RF44, RF45 | P0 | Modifica |
-| **E10 · Indicadores y evaluación** | KPIs de resultado (cumplimiento, calidad, tiempo de ciclo, costo por resultado, beneficio validado), evaluaciones, mejora continua | RF27, RF28, RF30-métricas | P0/P1 | Reutiliza + Construye |
-| **E11 · Comunidad interna** | Red social corporativa privada: perfiles, muro, grupos, publicaciones tipificadas, moderación, aprendizajes validados | RF37, RF38 | P0 | Construye |
-| **E12 · Consolas y experiencia** | Inicio gerencial, Mi trabajo, Aprobaciones, Organización/organigrama, consolas por negocio/área/sede, chat, accesibilidad | RF23, RF24, RF47 | P0 | Modifica + Construye |
-| **E13 · Plataforma (RNF)** | Disponibilidad, rendimiento, DR, observabilidad correlacionada, auditoría inmutable, exportación, retención | RNF01-09 | P0/P1 | Modifica + Construye |
+> **Estado (2026-10-26):** ✅ construido · 🟡 parcial · ⏳ pendiente. Ver la «Nota de cierre» al final.
+
+| Épica | Estado | Alcance | RF | Prio | Tipo dominante |
+|---|---|---|---|---|---|
+| **E1 · Estructura empresarial** | ✅ | Grupo/empresa, unidades y líneas de negocio, áreas, departamentos, equipos, sedes, centros de costo, matricial; dimensiones configurables (D8) | RF01, RF41, RF42, RF43, RF46 | P0 | Modifica + Construye |
+| **E2 · Empleado digital** | ✅ | Catálogo de cargos, expediente, cargo+responsable humano titular/suplente, estados de ciclo de vida, versiones, publicación/retiro | RF02, RF03, RF04, RF05, RF06 | P0 | Construye |
+| **E3 · Jerarquía de dirección digital** | ✅ | Niveles (empleado→líder→jefe→director→gerente→superempleado), autoridad, delegación, supervisión y reemplazo | RF32, RF33, RF34, RF39, RF40 | P0 | Construye |
+| **E4 · Trabajo por resultados** | ✅ | Objetivos, tareas y entregables, contrato de resultado, verificación/aceptación, incumplimientos | RF07, RF08, RF29, RF30, RF31 | P0 | Construye |
+| **E5 · Colaboración y comunicación** | ✅ | Flujos con contratos, **continuidad de tarea (handoff entre agentes/grupos)**, control de delegación, protocolo de mensajes entre agentes, coordinación transversal | RF09, RF10, RF35, RF36 | P0 | Modifica + Construye |
+| **E14 · Canales de comunicación externa** | ⏳ | Correo, **llamadas telefónicas con agentes conversacionales al 100 %**, mensajería **WhatsApp** — como canales de los empleados digitales, bajo política y aprobación | RF16, RF17, RF35 (ext.) | P0 | Reutiliza (correo) + Construye (voz, WhatsApp) |
+| **E6 · Gobierno de acciones** | ✅ | Motor de políticas, bandeja de aprobaciones (hash/invalidación/doble), suspensión de emergencia | RF11, RF12, RF13 | P0 | Construye |
+| **E7 · Durabilidad avanzada** | ✅ | Idempotencia, deduplicación de eventos, reintentos/conciliación, bandeja de excepciones | RF17, RF18, RF20, RF21 | P0 | Modifica + Construye |
+| **E8 · Conocimiento y herramientas** | 🟡 | Conocimiento empresarial, memoria controlada, conectores **REST/SOAP(web service)/GraphQL/MCP**, pasarela, **acceso a internet** y **RPA** como capacidades del agente | RF14, RF15, RF16, RF17 | P0 | Reutiliza + Modifica + Construye |
+| **E9 · Costos e imputación** | ✅ | Control de costos, presupuestos con reserva/conciliación, imputación por empresa/línea/área/centro de costo, servicios compartidos | RF25, RF26, RF44, RF45 | P0 | Modifica |
+| **E10 · Indicadores y evaluación** | ✅ | KPIs de resultado (cumplimiento, calidad, tiempo de ciclo, costo por resultado, beneficio validado), evaluaciones, mejora continua | RF27, RF28, RF30-métricas | P0/P1 | Reutiliza + Construye |
+| **E11 · Comunidad interna** | 🟡 | Red social corporativa privada: perfiles, muro, grupos, publicaciones tipificadas, moderación, aprendizajes validados | RF37, RF38 | P0 | Construye |
+| **E12 · Consolas y experiencia** | ✅ | Inicio gerencial, Mi trabajo, Aprobaciones, Organización/organigrama, consolas por negocio/área/sede, chat, accesibilidad | RF23, RF24, RF47 | P0 | Modifica + Construye |
+| **E13 · Plataforma (RNF)** | ✅ | Disponibilidad, rendimiento, DR, observabilidad correlacionada, auditoría inmutable, exportación, retención | RNF01-09 | P0/P1 | Modifica + Construye |
 
 ## Entidades de datos nuevas (modelo de información)
 
@@ -64,14 +66,14 @@ Vincular al modelo existente (`OrgUnit`, `Agent`, `Workflow`, `Execution`, `Budg
 
 ## Detalle por épica
 
-### E1 · Estructura empresarial (P0) — Modifica + Construye
+### E1 · Estructura empresarial (P0) — Modifica + Construye — ✅ construido
 RF01 (aislamiento), RF41 (modelo configurable), RF42 (funcional y matricial), RF43 (expediente de unidad), RF46
 (permisos y cambios de estructura). **Reutiliza** `OrgUnit` y el aislamiento endurecido. **Construye** `LineaNegocio`,
 `Sede`, `CentroCosto`, `AsignacionOrganizacional`, `ServicioInterno`; vistas organizacional/funcional/negocio/sede.
 Regla de identidad: empresa≠línea, área≠centro de costo, cargo≠persona; sin duplicar empleados ni ejecuciones.
 **QA:** QA01 (aislamiento), QA15 (matricial sin ciclos), QA16 (reorganización conserva historia). **HU:** HU01, HU21-23.
 
-### E2 · Empleado digital (P0) — Construye
+### E2 · Empleado digital (P0) — Construye — ✅ construido
 RF02 (organigrama y responsables), RF03 (catálogo de cargos), RF04 (expediente), RF05 (versiones, **reutiliza**
 `AgentVersion`), RF06 (publicación/retiro, **modifica** la puerta de salud+evaluación existente). Estados de ciclo de
 vida completos: Borrador→En validación→Publicado→Suspendido→Retirado (hoy solo DRAFT/LAUNCHED). Bloquear activar sin
@@ -83,20 +85,20 @@ internet** (habilitada/deshabilitada, con dominios permitidos por política); (c
 presupuesto. Quedan en el expediente y en la versión inmutable (RF05), y el motor de políticas (E6) los hace cumplir:
 un agente sin internet no puede usar la herramienta web; uno sin estación virtual no puede lanzar RPA.
 
-### E3 · Jerarquía de dirección digital (P0) — Construye
+### E3 · Jerarquía de dirección digital (P0) — Construye — ✅ construido
 RF32 (cargos jerárquicos), RF33 (autoridad y delegación), RF34 (supervisión y reemplazo), RF39 (superempleado),
 RF40 (límites y continuidad). Una misión = una responsabilidad principal; evitar múltiples superiores finales y ciclos.
 El superempleado no se autoaprueba ni amplía presupuesto. **QA:** QA10 (órdenes contradictorias/ciclos), QA13
 (no autoaprobación), QA14 (suspender coordinador y recuperar). **HU:** HU16, HU20.
 
-### E4 · Trabajo por resultados (P0) — Construye
+### E4 · Trabajo por resultados (P0) — Construye — ✅ construido
 RF07 (objetivos), RF08 (tareas y entregables), RF29 (contrato de resultado), RF30 (verificación y aceptación: el
 ejecutor no valida su propio resultado), RF31 (incumplimientos: alerta, recuperación, escalamiento, límite). Estados del
 resultado: Propuesto→Comprometido→En producción→Pendiente de validación→Aceptado→Devuelto/Incumplido. Distinguir
 producto intermedio de resultado de negocio (un correo enviado ≠ recaudo). **QA:** QA09 (no cerrar con evidencia
 inválida). **HU:** HU04, HU14, HU15.
 
-### E5 · Colaboración y comunicación (P0) — Modifica + Construye
+### E5 · Colaboración y comunicación (P0) — Modifica + Construye — ✅ construido
 RF09 (flujos con contrato de transferencia, **modifica** el motor DAG), RF10 (control de delegación: profundidad,
 ciclos, concurrencia, «un agente no crea agentes ni amplía su presupuesto»), RF35 (protocolo de mensajes persistente
 con idempotencia), RF36 (coordinación transversal: canales por misión/proceso/área, hilos, menciones; una solicitud se
@@ -109,19 +111,19 @@ un **contrato de transferencia** (estado alcanzado, entregable parcial, contexto
 paso, permisos y responsable entrante) sobre el estado persistido de la tarea (E4) y el motor durable (E7). El
 receptor **acepta o rechaza** el encargo (RF33) y la cadena conserva trazabilidad de quién hizo qué.
 
-### E6 · Gobierno de acciones (P0) — Construye
+### E6 · Gobierno de acciones (P0) — Construye — ✅ construido
 RF11 (motor de políticas server-side por monto/destinatario/tipo de dato/horario, versionado; un texto del modelo no
 sustituye autorización), RF12 (bandeja de aprobaciones con hash del contenido, invalidación al cambiar destino/monto/
 adjunto, doble aprobación, caducidad), RF13 (suspensión de emergencia). **Reutiliza** `requiresApproval`/`approvedTools`
 y `budgets.plan` como piezas. **QA:** QA03 (aprobación), QA07 (revocación antes de despacho), QA08 (suspensión). **HU:**
 HU06, HU10.
 
-### E7 · Durabilidad avanzada (P0) — Modifica + Construye
+### E7 · Durabilidad avanzada (P0) — Modifica + Construye — ✅ construido
 RF17 (idempotencia en la pasarela), RF18 (deduplicación de eventos), RF20 (clasificación temporal/permanente/incierto,
 conciliación de escrituras inciertas), RF21 (bandeja de excepciones). **Reutiliza** el motor durable, colas y la
 reconciliación cron ya existentes. **QA:** QA04 (duplicación), QA06 (continuidad). **HU:** HU09, HU13.
 
-### E8 · Conocimiento y herramientas (P0) — Reutiliza + Modifica
+### E8 · Conocimiento y herramientas (P0) — Reutiliza + Modifica — 🟡 parcial (backend de parámetros de ejecución construido; pendiente E8-2 y web)
 RF14-RF17. **Reutiliza** RAG, DataGuard, conectores, bóveda y anti-SSRF. **Modifica** para propietario/clasificación/
 vigencia por documento, separación memoria temporal/persistente/documental, credenciales por entorno y listas de
 destinos permitidos. **QA:** QA02 (inyección), QA12 (aislamiento de búsqueda/menciones). **HU:** HU07, HU08.
@@ -137,7 +139,7 @@ y el **presupuesto** (RF26); el contenido traído del exterior es **dato no conf
 | **Web Service (SOAP)** | ✅ Reutiliza | Adaptador SOAP con importación WSDL |
 | **GraphQL** | ✅ Reutiliza | Adaptador GraphQL |
 | **MCP (cliente)** | ✅ Reutiliza | Cliente MCP hacia servidores externos + el servidor MCP propio de NEXO |
-| **Acceso a internet** (navegar/consultar/buscar web) | 🟡 Modifica | Existe `HttpClientService` saliente con anti-SSRF/timeout/tamaño. Falta exponerlo como **herramienta de agente** gobernada: fetch/búsqueda web con listas de dominios permitidos por política, límites de tamaño/tasa, y tratamiento del resultado como contenido no confiable |
+| **Acceso a internet** (navegar/consultar/buscar web) | 🟡 Modifica | Existe `HttpClientService` saliente con anti-SSRF/timeout/tamaño. **Construido:** el parámetro de salida a internet con dominios permitidos y su política viven en `execution-params` (`egress-policy.rules.ts`). **Pendiente (E8-2):** aplicar ese candado en el runtime del agente —hoy la política existe pero el runtime aún no la hace cumplir en la herramienta web— y la web del parámetro |
 | **RPA** (automatización de interfaces web/escritorio) | 🔴 Construye | Nuevo adaptador/worker de automatización (navegador headless y, si aplica, escritorio) para sistemas sin API: sesiones con credenciales de la bóveda, pasos auditables, captura de evidencia, idempotencia y conciliación (E7), bajo política y aprobación. Es la pieza más grande; aislarla en su propio worker. Relación con el pendiente P4 de `plan-de-mejora.md` |
 
 **Estación virtual (requisito del dueño del producto):** la RPA y las tareas de escritorio/navegador corren en una
@@ -150,33 +152,33 @@ asignada no puede lanzar RPA; la estación es efímera/auditable y su salida a i
 es el puente para sistemas heredados sin API. Toda capacidad de conexión respeta aislamiento multi-tenant y no recibe
 credenciales en el prompt (van por la bóveda y la pasarela).
 
-### E9 · Costos e imputación (P0) — Modifica
+### E9 · Costos e imputación (P0) — Modifica — ✅ construido
 RF25 (**reutiliza** `UsageRecord`), RF26 (reserva antes de despachar + conciliación; **modifica** `Budget`), RF44
 (servicios compartidos con acuerdo de servicio), RF45 (imputación por empresa/línea/área/centro de costo; sin doble
 conteo). **QA:** QA05 (presupuesto concurrente). **HU:** HU11, HU24 (consolidación económica).
 
-### E10 · Indicadores y evaluación (P0/P1) — Reutiliza + Construye
+### E10 · Indicadores y evaluación (P0/P1) — Reutiliza + Construye — ✅ construido
 RF27 (**reutiliza** evaluaciones con puerta de publicación), RF28 (mejora continua), métricas de RF30/RF16: cumplimiento,
 calidad, tiempo de ciclo (mediana y p95), costo por resultado, excepciones, horas liberadas (estimadas, separadas de
 confirmadas), beneficio validado. **HU:** HU12.
 
-### E11 · Comunidad interna (P0 base) — Construye
+### E11 · Comunidad interna (P0 base) — Construye — 🟡 parcial (cubierta en parte por el catálogo de cuadrillas; muro/publicaciones/moderación pendientes)
 RF37 (perfiles enlazados al expediente, muro, grupos por área/proceso, publicaciones tipificadas, menciones, búsqueda,
 notificaciones; compromisos enlazados a tarea/responsable/fecha), RF38 (distinguir opinión/pendiente/procedimiento
 aprobado; moderación; aprendizaje al conocimiento oficial solo tras revisión). Permisos aplicados en consulta y entrega;
 mencionar no concede acceso. **QA:** QA12. **HU:** HU18, HU19.
 
-### E12 · Consolas y experiencia (P0) — Modifica + Construye
+### E12 · Consolas y experiencia (P0) — Modifica + Construye — ✅ construido
 RF23 (**reutiliza** el chat con estados), RF24 (accesibilidad, **continúa** RX-13), RF47 (consolas gerenciales por
 negocio/área/sede). Pantallas: Inicio gerencial (resultados/riesgos/decisiones/beneficio), Mi trabajo, Aprobaciones,
 Organización/organigrama, Procesos y ejecuciones, Comunidad. Diferenciar autor humano y digital. **HU:** HU12.
 
-### E13 · Plataforma / RNF (P0/P1) — Modifica + Construye
+### E13 · Plataforma / RNF (P0/P1) — Modifica + Construye — ✅ auditoría inmutable construida
 RNF01-09: disponibilidad 99,5 %, P95 ≤ 2 s, RPO/RTO, observabilidad correlacionada, **auditoría inmutable** (`AuditLog`),
 retención por tipo de dato (**continúa** DataGuard D3-D6), exportación. **Reutiliza** el cifrado/rotación y el
 endurecimiento ya hechos.
 
-### E14 · Canales de comunicación externa (P0) — Reutiliza + Construye
+### E14 · Canales de comunicación externa (P0) — Reutiliza + Construye — ⏳ pendiente (decisión de proveedores)
 Requisito del dueño del producto para esta versión: los empleados digitales se comunican con el exterior por **correo**,
 **llamadas telefónicas con agentes conversacionales al 100 %** y **WhatsApp**. (Anula la exclusión de voz que tenía la
 v1.0 en P0.) Todos los canales pasan por la **pasarela de herramientas** (RF17), el **motor de políticas** (RF11) y la
@@ -229,3 +231,31 @@ ya construido siguen igual):
 Cada pieza: migración aditiva (regla de CLAUDE.md sobre índices generados), DTO validado, API, mínimo de web
 (expediente), y pruebas; validación completa antes de cada push. El resto de E1-E13 queda trazado arriba para las
 siguientes noches.
+
+## Nota de cierre (2026-10-26)
+
+El programa avanzó muy por encima de aquel primer incremento. Con los ADR 0011 (modelo organizacional + dimensiones
+configurables D8), 0012 (trabajo por resultados + comunicación/handoff), 0013 (gobierno + canales) y 0014 (Cuadrillas
+gobernadas + Pasaporte de resultado verificable) quedan **construidos y validados en la rama**:
+
+- **Completas (✅):** E1 (estructura + dimensiones D8), E2 (empleado digital/cargo), E3 (jerarquía/organigrama),
+  E4 (trabajo por resultados), E5 (comunicación + handoff), E6 (gobierno: políticas, aprobaciones, suspensión),
+  E7 (durabilidad: idempotencia/excepciones/conciliación), E9 (imputación de costos), E10 (indicadores de resultado),
+  E12 (consola gerencial, backend + web) y E13 (auditoría inmutable encadenada por hash).
+- **Incrementos del ADR 0014 (✅):** Pasaporte de resultado (backend + web), Cuadrillas (backend + web) y la consola
+  gerencial (backend + web).
+- Módulos backend nuevos: `governance/estructura`, `governance/dimensiones`, `governance/imputacion`,
+  `governance/policy`, `governance/actions`, `cargos`, `hierarchy`, `results` (con `indicadores/` y `pasaporte.*`),
+  `messaging`, `collaboration`, `durability`, `execution-params`, `crews`, `consolas`, `audit`. Web: expediente del
+  empleado digital, estructura, dimensiones, Mi trabajo, mensajes/handoff, gobierno, excepciones, imputación, dashboard
+  de resultados, consola gerencial, catálogo de cuadrillas, organigrama, visor de auditoría y panel de pasaporte.
+
+**Pendiente:**
+
+- **E8-2 (🟡):** aplicar el candado de salida a internet en el **runtime** del agente (la política y el parámetro ya
+  existen en `execution-params`, pero el runtime aún no los hace cumplir en la herramienta web) y la **web** del
+  parámetro de ejecución.
+- **E14 (⏳):** canales externos correo/WhatsApp/voz — **pendiente de decisión de negocio sobre proveedores** (telefonía
+  SIP/STT/TTS, WhatsApp Business API, correo como canal formal del empleado digital).
+- **E11 (🟡):** comunidad interna — hoy cubierta en parte por el catálogo de cuadrillas; faltan muro, publicaciones
+  tipificadas, moderación y aprendizajes validados hacia el conocimiento oficial.

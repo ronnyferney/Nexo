@@ -1,6 +1,6 @@
 # 0012. Trabajo por resultados y comunicación/handoff entre empleados digitales
 
-- **Estado:** Propuesto
+- **Estado:** Aceptado (implementado y validado, 2026-10-26)
 - **Fecha:** 2026-10-25
 - **Responsables:** nexo-architect
 - **Épicas:** E4 (Trabajo por resultados) y E5 (Colaboración y comunicación) de `docs/backlog-organizacion-digital.md`.
