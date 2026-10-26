@@ -139,6 +139,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     icon: 'settings',
     items: [
       { path: '/admin/providers', label: 'IA conectada', icon: 'cpu', exact: false, scope: 'admin' },
+      { path: '/canales-externos', label: 'Canales externos', icon: 'send', exact: false, scope: 'admin' },
       { path: '/admin/edges', label: 'Nexo Edge', icon: 'server', exact: false, scope: 'admin' },
       { path: '/admin/estaciones-virtuales', label: 'Estaciones virtuales', icon: 'server', exact: false, scope: 'admin' },
       { path: '/admin/settings', label: 'Ajustes', icon: 'settings', exact: false, scope: 'admin' },
