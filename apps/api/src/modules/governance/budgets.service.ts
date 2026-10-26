@@ -22,6 +22,17 @@ export interface UsageContext {
   /** Rol del tramo (ADR 0010 D5): `draft`/`verify`/nombre de rol; `null` sin enrutamiento. */
   role?: string | null;
   /**
+   * Dimensiones de imputación integradas (ADR 0011 D5/RF45), capturadas como snapshot del hecho económico. Opcionales y
+   * aditivas: NO cambian el cálculo del costo (ADR 0002 intacto) ni crean una segunda reserva; son etiquetas de reporte.
+   * Si no se informan: `areaEjecutoraId` toma por defecto `orgUnitId` (el área que ejecuta) y `empresaId` se resuelve de
+   * la unidad ejecutora en `record()`. `lineaBeneficiariaId`/`centroCostoId`/`sedeId` quedan en `null` si no se dan.
+   */
+  empresaId?: string | null;
+  areaEjecutoraId?: string | null;
+  lineaBeneficiariaId?: string | null;
+  centroCostoId?: string | null;
+  sedeId?: string | null;
+  /**
    * Snapshot de dimensiones configurables (ADR 0011 D8): mapa `{ dimensionCodigo: valor }` congelado al momento del
    * hecho. Opcional y aditivo: si no se informa, la columna queda en su default `{}`. NO afecta el cálculo del costo.
    */
@@ -94,9 +105,22 @@ export class BudgetsService {
     const budgets = await this.prisma.budget.findMany({ where: { orgUnitId: { in: chainIds } } });
     const now = new Date();
     const keys = new Set(['MONTHLY', 'QUARTERLY', 'YEARLY'].map((p) => periodKey(p as Budget['period'], now)));
+    // Captura de las dimensiones de imputación (ADR 0011 D5): el área ejecutora es por defecto la unidad de imputación
+    // (`orgUnitId`) y la empresa ejecutora se resuelve de esa unidad. Son etiquetas del gasto medido: NO alteran el
+    // costo (ADR 0002 intacto) ni descuentan de otro presupuesto (sin doble reserva).
+    const areaEjecutoraId = ctx.areaEjecutoraId ?? ctx.orgUnitId;
+    const empresaId = await this.resolveEmpresa(ctx.orgUnitId, ctx.empresaId ?? null);
     await this.prisma.$transaction([
       this.prisma.usageRecord.create({
-        data: { ...ctx, providerId, model, ...usage, costUsd: new Prisma.Decimal(cost.toFixed(8)) },
+        data: {
+          ...ctx,
+          areaEjecutoraId,
+          empresaId,
+          providerId,
+          model,
+          ...usage,
+          costUsd: new Prisma.Decimal(cost.toFixed(8)),
+        },
       }),
       // Se registra en todas las claves de periodo para que un presupuesto creado a mitad de periodo vea el gasto real.
       ...chainIds.flatMap((orgUnitId) =>
@@ -217,6 +241,22 @@ export class BudgetsService {
   }
 
   // ---------- Internos ----------
+
+  /**
+   * Resuelve la empresa ejecutora (ADR 0011 D5) a partir de la unidad de imputación: si la unidad ya es una `EMPRESA`,
+   * es ella misma; si no, su `empresaId` desnormalizado. Devuelve el valor ya provisto sin consultar. Si la unidad no
+   * existe o no tiene empresa, deja `null` (retrocompatible: el registro se imputa por `orgUnitId` como hoy).
+   */
+  private async resolveEmpresa(orgUnitId: string, provisto: string | null): Promise<string | null> {
+    if (provisto) return provisto;
+    const unit = await this.prisma.orgUnit.findUnique({
+      where: { id: orgUnitId },
+      select: { tipo: true, empresaId: true },
+    });
+    if (!unit) return null;
+    return unit.tipo === 'EMPRESA' ? orgUnitId : unit.empresaId;
+  }
+
   private async withSpend(units: OrgUnit[], budgets: Budget[], now = new Date()): Promise<UnitBudgetState[]> {
     const ledgers = await this.ledgerFor(budgets, now);
     const byUnit = new Map(budgets.map((b) => [b.orgUnitId, b]));

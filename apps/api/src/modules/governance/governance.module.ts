@@ -18,6 +18,9 @@ import { DimensionesService } from './dimensiones/dimensiones.service';
 import { AsignacionesService } from './estructura/asignaciones.service';
 import { CatalogosService } from './estructura/catalogos.service';
 import { EstructuraController } from './estructura/estructura.controller';
+import { ConsolidacionService } from './imputacion/consolidacion.service';
+import { ConsolidacionController, ServiciosInternosController } from './imputacion/imputacion.controller';
+import { ServiciosInternosService } from './imputacion/servicios-internos.service';
 import {
   GovernanceAdminController,
   GovernancePublicController,
@@ -40,6 +43,8 @@ import { UsageService } from './usage.service';
     GovernanceAdminController,
     InvitationsPublicController,
     EstructuraController,
+    ServiciosInternosController,
+    ConsolidacionController,
     DimensionesController,
     ConsolasController,
     PoliciesController,
@@ -54,6 +59,8 @@ import { UsageService } from './usage.service';
     InvitationsService,
     CatalogosService,
     AsignacionesService,
+    ServiciosInternosService,
+    ConsolidacionService,
     DimensionSeedService,
     DimensionesService,
     ConsolasService,
@@ -67,6 +74,8 @@ import { UsageService } from './usage.service';
     BudgetsService,
     CatalogosService,
     AsignacionesService,
+    ServiciosInternosService,
+    ConsolidacionService,
     DimensionesService,
     PolicyService,
     ApprovalsService,

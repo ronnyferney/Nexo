@@ -305,6 +305,8 @@ model Workspace {
   sedes                     Sede[]
   centrosCosto              CentroCosto[]
   asignaciones              AsignacionOrganizacional[]
+  serviciosInternos         ServicioInterno[]
+  imputacionesCosto         ImputacionCosto[]
   objetivos                 Objetivo[]
   tareas                    Tarea[]
   contratosResultado        ContratoResultado[]
@@ -835,6 +837,16 @@ model UsageRecord {
   routingReason    String?
   /// Rol del tramo en la orquestación (ADR 0010 D5): `draft`/`verify`/nombre de rol. `null` sin enrutamiento.
   role             String?
+  /// Dimensiones de imputación integradas (ADR 0011 D5/RF45), capturadas como snapshot histórico en el momento de la
+  /// ejecución (RF46/QA16). Son *etiquetas* del gasto ya medido: referencias blandas (IDs), validadas en servicio. NO
+  /// cambian el cálculo del costo (ADR 0002 intacto) ni crean un segundo libro mayor. `areaEjecutoraId` suele coincidir
+  /// con `orgUnitId` (el área que ejecuta); `empresaId` es la empresa ejecutora; `lineaBeneficiariaId`/`centroCostoId`/
+  /// `sedeId` son dimensiones de reporte opcionales. Los registros previos quedan `null` (se imputan por `orgUnitId`).
+  empresaId           String?
+  areaEjecutoraId     String?
+  lineaBeneficiariaId String?
+  centroCostoId       String?
+  sedeId              String?
   /// Snapshot histórico de las dimensiones configurables (ADR 0011 D8/RF46/QA16): mapa `{ dimensionCodigo: valor }`
   /// congelado al momento del hecho económico. Aditivo; los registros previos quedan `{}`. NO altera el cálculo del
   /// costo (ADR 0002 intacto): es solo una etiqueta analítica para pivotar en las consolas, no un libro mayor paralelo.
@@ -843,6 +855,10 @@ model UsageRecord {
 
   @@index([workspaceId, createdAt])
   @@index([orgUnitId, createdAt])
+  @@index([workspaceId, empresaId, createdAt])
+  @@index([workspaceId, lineaBeneficiariaId, createdAt])
+  @@index([workspaceId, centroCostoId, createdAt])
+  @@index([workspaceId, areaEjecutoraId, createdAt])
 }
 
 // ===================== Estructura empresarial (ADR 0011 · E1) =====================
@@ -948,6 +964,67 @@ model AsignacionOrganizacional {
   @@index([workspaceId, agentId])
   @@index([workspaceId, userId])
   @@index([workspaceId, lineaNegocioId])
+}
+
+// ===================== Costos e imputación / servicios compartidos (ADR 0011 · D5 / E9 · RF44/RF45) =====================
+// Imputación de costos: las dimensiones del gasto viajan en `UsageRecord` (snapshot). Aquí viven los servicios
+// compartidos y su reparto. El presupuesto y la reserva siguen en `OrgUnit`/`Budget` (ADR 0002 intacto): esto es reporte,
+// NO un segundo libro mayor ni una segunda reserva. El reparto suma 100 % por (servicio, periodo) y no cuenta dos veces.
+
+/// Servicio interno / compartido (RF44): proceso que un área (`areaDuenoId`) presta a otras líneas/áreas, con su
+/// responsable y acuerdo de servicio. Su costo medido se reparte a los clientes internos con `ImputacionCosto`. No
+/// concede acceso por sí mismo (ADR 0011 D6). Referencias blandas (empresa, área, responsables) validadas en servicio.
+model ServicioInterno {
+  id                 String            @id @default(cuid())
+  workspaceId        String
+  workspace          Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// OrgUnit EMPRESA dueña del servicio (aislamiento por empresa, ADR 0011 D1).
+  empresaId          String
+  /// OrgUnit que presta el servicio (área dueña, RF44).
+  areaDuenoId        String
+  codigo             String
+  nombre             String
+  /// Responsable humano/digital opcionales (no conceden acceso, D6).
+  responsableUserId  String?
+  responsableAgentId String?
+  /// Acuerdo de servicio: entradas, salidas, criterios de calidad (texto/estructura libre).
+  acuerdoServicio    Json              @default("{}")
+  /// Clientes internos del servicio (líneas/áreas servidas): referencia descriptiva; el reparto efectivo va en
+  /// `ImputacionCosto`. Estructura libre `[{ tipo, id, nombre }]`.
+  clientesInternos   Json              @default("[]")
+  estado             EstadoEstructura  @default(ACTIVA)
+  vigenteDesde       DateTime?
+  vigenteHasta       DateTime?
+  imputaciones       ImputacionCosto[]
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@unique([workspaceId, empresaId, codigo])
+  @@index([workspaceId, empresaId])
+  @@index([workspaceId, areaDuenoId])
+}
+
+/// Reparto del costo de un servicio compartido (RF45): una fila por destino con un porcentaje. La suma por
+/// (servicioInterno, periodoKey) = 100 % (invariante pura validada al guardar y en la consolidación). El destino es
+/// exactamente uno de línea/área/centro de costo. Es reparto de reporte: NO toca `BudgetLedger` (sin doble reserva) y
+/// un mismo gasto no se cuenta dos veces (el total imputado = total medido del servicio).
+model ImputacionCosto {
+  id                String          @id @default(cuid())
+  workspaceId       String
+  workspace         Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  servicioInternoId String
+  servicioInterno   ServicioInterno @relation(fields: [servicioInternoId], references: [id], onDelete: Cascade)
+  /// Clave de periodo coherente con `BudgetLedger.periodKey` (p. ej. "2026-M10").
+  periodoKey        String
+  /// Destino: exactamente uno (validado en servicio y en reglas puras). Referencias blandas.
+  lineaNegocioId    String?
+  orgUnitId         String?
+  centroCostoId     String?
+  porcentaje        Decimal         @db.Decimal(5, 2)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@index([workspaceId, servicioInternoId, periodoKey])
 }
 
 // ===================== Marco de dimensiones configurables (ADR 0011 · D8, estilo NetSuite / SAP CO-PA) =====================
