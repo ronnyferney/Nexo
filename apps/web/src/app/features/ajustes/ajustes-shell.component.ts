@@ -111,10 +111,13 @@ export const AJUSTES_GROUPS: readonly SettingGroup[] = [
     </div>
   `,
   styles: `
-    .ajustes { display: grid; grid-template-columns: 272px 1fr; gap: 20px; align-items: start; }
+    /* Barra de Ajustes como columna a ras (mismo encaje que los demás menús), pero en blanco: ancho 236px
+       —igual que el panel secundario del menú—, altura completa bajo el toolbar y sin tarjeta flotante. */
+    .ajustes { display: grid; grid-template-columns: 236px 1fr; align-items: start; }
     .s-nav {
-      position: sticky; top: 8px; display: flex; flex-direction: column; gap: 14px;
-      background: var(--surface, #fff); border: 1px solid var(--border, #e6e8f0); border-radius: 14px; padding: 14px;
+      position: sticky; top: 56px; height: calc(100vh - 56px); overflow-y: auto;
+      display: flex; flex-direction: column; gap: 14px;
+      background: var(--surface, #fff); border-right: 1px solid var(--border, #e6e8f0); padding: 16px 14px;
     }
     .s-top { display: flex; align-items: center; gap: 10px; }
     .back {
@@ -148,7 +151,7 @@ export const AJUSTES_GROUPS: readonly SettingGroup[] = [
 
     @media (max-width: 920px) {
       .ajustes { grid-template-columns: 1fr; }
-      .s-nav { position: static; }
+      .s-nav { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--border, #e6e8f0); }
     }
   `,
 })
