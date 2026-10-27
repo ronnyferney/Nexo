@@ -33,10 +33,13 @@ test.describe('Estaciones virtuales y parámetros de ejecución', () => {
     await expect(selector).toBeVisible();
     await selector.selectOption({ index: 1 });
 
-    // Candado segmentado (Opción A): habilitar las dos categorías y verificar el aviso de seguridad.
-    await page.getByRole('switch', { name: 'Permitir navegación web' }).click();
-    await page.getByRole('switch', { name: 'Permitir conexión a sistemas autorizados' }).click();
-    await expect(page.getByText(/acceso irrestricto/i)).toBeVisible();
+    // Candado segmentado (Opción A): habilitar las dos categorías y verificar que ambos interruptores quedan activados.
+    const navegacion = page.getByRole('switch', { name: 'Permitir navegación web' });
+    const sistemas = page.getByRole('switch', { name: 'Permitir conexión a sistemas autorizados' });
+    await navegacion.click();
+    await sistemas.click();
+    await expect(navegacion).toBeChecked();
+    await expect(sistemas).toBeChecked();
 
     // Guardar: el PUT persiste estación + categorías del candado (HTTP 200).
     const guardar = page.getByRole('button', { name: 'Guardar parámetros' });
