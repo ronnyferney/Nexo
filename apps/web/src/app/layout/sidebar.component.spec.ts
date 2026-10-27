@@ -15,15 +15,16 @@ function makeAuth() {
   };
 }
 
-describe('SidebarComponent (navegación de dos niveles)', () => {
+describe('SidebarComponent (menú único segmentado con pie)', () => {
   let fixture: ComponentFixture<SidebarComponent>;
   let el: HTMLElement;
   let auth: ReturnType<typeof makeAuth>;
   let platform: { isPlatformAdmin: ReturnType<typeof signal<boolean>> };
 
-  const areaBtns = () => el.querySelectorAll<HTMLButtonElement>('.rail .rail-ico.area');
-  const panelLinks = () => el.querySelectorAll<HTMLAnchorElement>('.panel a.nav-link');
-  const panelPaths = () => [...panelLinks()].map((a) => a.getAttribute('href') ?? '');
+  const links = () => el.querySelectorAll<HTMLAnchorElement>('a.nav-link');
+  const paths = () => [...links()].map((a) => a.getAttribute('href') ?? '');
+  const sections = () => el.querySelectorAll<HTMLElement>('.main p.section');
+  const footerPaths = () => [...el.querySelectorAll<HTMLAnchorElement>('.footer-nav a.nav-link')].map((a) => a.getAttribute('href') ?? '');
   const search = (text: string) => {
     const input = el.querySelector('.filter input') as HTMLInputElement;
     input.value = text;
@@ -52,78 +53,76 @@ describe('SidebarComponent (navegación de dos niveles)', () => {
     fixture.detectChanges();
   });
 
-  it('renderiza el riel, la marca, el panel y el filtro accesibles', () => {
-    expect(el.querySelector('.brand-ico')?.getAttribute('aria-label')).toContain('Nexo');
-    expect(el.querySelector('.panel nav')?.getAttribute('aria-label')).toBe('Navegación principal');
+  it('renderiza la marca, el filtro y la navegación principal accesibles', () => {
+    expect(el.querySelector('.brand')?.getAttribute('aria-label')).toContain('Nexo');
+    expect(el.querySelector('.main')?.getAttribute('aria-label')).toBe('Navegación principal');
     expect(el.querySelector('.filter input')?.getAttribute('aria-label')).toBe('Buscar en el menú');
-    expect(el.querySelector('.rail-areas')?.getAttribute('aria-label')).toBe('Áreas');
   });
 
-  it('un VIEWER ve 7 áreas en el riel y ninguna ruta de admin/plataforma en el panel', () => {
-    // home, work, agents, comms, org, governance, finance (dirección/admin/plataforma ocultas al VIEWER).
-    expect(areaBtns().length).toBe(7);
-    // Buscar entre TODAS las áreas no revela rutas de admin/plataforma.
-    search('políticas');
-    expect(panelPaths().some((p) => p.startsWith('/admin'))).toBeFalse();
-    search('inicio de sesión');
-    expect(panelPaths().some((p) => p.startsWith('/platform'))).toBeFalse();
+  it('un VIEWER ve los 24 enlaces comunes y ninguna ruta de admin/plataforma', () => {
+    expect(links().length).toBe(24);
+    expect(paths().some((p) => p.startsWith('/admin'))).toBeFalse();
+    expect(paths().some((p) => p.startsWith('/platform'))).toBeFalse();
   });
 
-  it('el panel muestra el área activa y marca el ítem activo con aria-current (ruta inicial «/»)', () => {
-    const active = el.querySelector('.panel a.nav-link.active');
+  it('segmenta en secciones operativas y ancla las utilidades al pie (Integraciones)', () => {
+    const labels = [...sections()].map((p) => p.textContent?.trim());
+    expect(labels).toContain('Agentes');
+    // work, agents, comms, governance, finance (home fijada; org/settings/plataforma ocultas al VIEWER).
+    expect(sections().length).toBe(5);
+    // El pie muestra Integraciones (apps conectadas + conectores) para el VIEWER.
+    expect(footerPaths()).toEqual(['/integrations', '/connectors']);
+  });
+
+  it('pliega a solo iconos: oculta filtro, etiquetas y textos; mantiene los enlaces', () => {
+    const toggle = el.querySelector('.collapse') as HTMLButtonElement;
+    expect(el.querySelector('.sb.rail')).toBeNull();
+    toggle.click();
+    fixture.detectChanges();
+    expect(el.querySelector('.sb.rail')).not.toBeNull();
+    expect(el.querySelector('.filter')).toBeNull();
+    expect(sections().length).toBe(0);
+    expect(el.querySelector('a.nav-link .lbl')).toBeNull();
+    expect(links().length).toBe(24);
+  });
+
+  it('marca el ítem activo según la ruta con aria-current (ruta inicial «/»)', () => {
+    const active = el.querySelector('a.nav-link.active');
     expect(active?.getAttribute('aria-current')).toBe('page');
     expect(active?.getAttribute('href')).toBe('/');
   });
 
-  it('busca en todas las áreas y muestra el estado vacío sin coincidencias', () => {
+  it('filtra en todo el menú y muestra el estado vacío sin coincidencias', () => {
     search('skills');
-    expect(panelPaths()).toEqual(['/skills']);
-    expect(el.querySelector('.panel-head strong')?.textContent).toContain('Resultados');
-
+    expect(paths()).toEqual(['/skills']);
     search('xyz-no-existe');
-    expect(panelLinks().length).toBe(0);
-    expect(el.querySelector('.panel .empty')).not.toBeNull();
+    expect(links().length).toBe(0);
+    expect(el.querySelector('.main .empty')).not.toBeNull();
   });
 
-  it('oculta y muestra el panel secundario (solo riel)', () => {
-    expect(el.querySelector('.panel')).not.toBeNull();
-    const toggle = el.querySelector('.rail-toggle') as HTMLButtonElement;
-    toggle.click();
-    fixture.detectChanges();
-    expect(el.querySelector('.panel')).toBeNull();
-    expect(el.querySelector('.nav.panel-hidden')).not.toBeNull();
-    toggle.click();
-    fixture.detectChanges();
-    expect(el.querySelector('.panel')).not.toBeNull();
-  });
-
-  it('muestra rutas de administración cuando el usuario es admin', () => {
+  it('muestra rutas de administración y el pie de Ajustes cuando el usuario es admin', () => {
     auth.isAdmin.set(true);
     fixture.detectChanges();
-    search('políticas');
-    expect(panelPaths()).toContain('/admin/politicas');
-    search('canales externos');
-    expect(panelPaths()).toContain('/canales-externos');
-    search('inicio de sesión');
-    expect(panelPaths().some((p) => p.startsWith('/platform'))).toBeFalse();
+    expect(paths()).toContain('/admin/politicas');
+    expect(footerPaths()).toContain('/admin/settings');
+    expect(paths().some((p) => p.startsWith('/platform'))).toBeFalse();
   });
 
-  it('muestra rutas de plataforma cuando es admin de plataforma', () => {
+  it('muestra rutas de plataforma (en el pie) cuando es admin de plataforma', () => {
     platform.isPlatformAdmin.set(true);
     fixture.detectChanges();
-    search('inicio de sesión');
-    expect(panelPaths()).toContain('/platform/oauth-apps');
+    expect(footerPaths()).toContain('/platform');
+    expect(footerPaths()).toContain('/platform/oauth-apps');
   });
 
-  it('abre el menú de usuario desde el avatar y muestra el nombre y el workspace', () => {
+  it('abre el menú de usuario desde el conmutador superior y muestra nombre/workspace', () => {
     auth.me.set({ name: 'Ana', activeWorkspaceId: 'w1', memberships: [{ workspace: { id: 'w1', name: 'Acme' } }] });
     fixture.detectChanges();
     expect(el.querySelector('.user-menu')).toBeNull();
-    (el.querySelector('.avatar-btn') as HTMLButtonElement).click();
+    (el.querySelector('.user-switch') as HTMLButtonElement).click();
     fixture.detectChanges();
     expect(el.querySelector('.user-menu .u-who strong')?.textContent).toContain('Ana');
     expect(el.querySelector('.user-menu .u-who small')?.textContent).toContain('Acme');
-    // Con una sola membresía no se muestra el selector de workspace.
     expect(el.querySelector('.user-menu select')).toBeNull();
   });
 
@@ -137,7 +136,7 @@ describe('SidebarComponent (navegación de dos niveles)', () => {
       ],
     });
     fixture.detectChanges();
-    (el.querySelector('.avatar-btn') as HTMLButtonElement).click();
+    (el.querySelector('.user-switch') as HTMLButtonElement).click();
     fixture.detectChanges();
     const select = el.querySelector('.user-menu select');
     expect(select).not.toBeNull();
@@ -147,7 +146,7 @@ describe('SidebarComponent (navegación de dos niveles)', () => {
   it('cierra sesión desde el menú de usuario', () => {
     auth.me.set({ name: 'Ana', activeWorkspaceId: 'w1', memberships: [{ workspace: { id: 'w1', name: 'Acme' } }] });
     fixture.detectChanges();
-    (el.querySelector('.avatar-btn') as HTMLButtonElement).click();
+    (el.querySelector('.user-switch') as HTMLButtonElement).click();
     fixture.detectChanges();
     (el.querySelector('.user-menu button[aria-label="Cerrar sesión"]') as HTMLButtonElement).click();
     expect(auth.logout).toHaveBeenCalled();

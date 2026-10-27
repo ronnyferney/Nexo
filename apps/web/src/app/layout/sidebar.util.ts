@@ -28,6 +28,8 @@ export interface NavGroup {
   icon: string;
   /** Si es `true`, la sección se muestra siempre desplegada y sin encabezado colapsable (p. ej. «Inicio»). */
   pinned?: boolean;
+  /** Si es `true`, la sección se ancla al PIE del menú (utilidades: Integraciones, Ajustes, Plataforma). */
+  footer?: boolean;
   items: NavItem[];
 }
 
@@ -97,21 +99,14 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { path: '/admin/estructura', label: 'Estructura', icon: 'subunit', exact: false, scope: 'admin' },
       { path: '/admin/dimensiones', label: 'Dimensiones', icon: 'hash', exact: false, scope: 'admin' },
       { path: '/admin/groups', label: 'Grupos', icon: 'users', exact: false, scope: 'admin' },
-      { path: '/integrations', label: 'Apps conectadas', icon: 'puzzle', exact: false, scope: 'all' },
-      { path: '/connectors', label: 'Conectores', icon: 'plug', exact: false, scope: 'all' },
     ],
   },
   {
-    id: 'direction',
-    label: 'Dirección',
-    icon: 'trophy',
-    items: [{ path: '/consola-gerencial', label: 'Consola gerencial', icon: 'chart', exact: false, scope: 'admin' }],
-  },
-  {
     id: 'governance',
-    label: 'Gobierno',
+    label: 'Gobierno y dirección',
     icon: 'shield',
     items: [
+      { path: '/consola-gerencial', label: 'Consola gerencial', icon: 'chart', exact: false, scope: 'admin' },
       { path: '/supervision', label: 'Supervisión', icon: 'inbox', exact: false, scope: 'all' },
       { path: '/resultados', label: 'Indicadores de resultado', icon: 'chart', exact: false, scope: 'all' },
       { path: '/excepciones', label: 'Excepciones', icon: 'alert', exact: false, scope: 'all' },
@@ -124,7 +119,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   },
   {
     id: 'finance',
-    label: 'Finanzas',
+    label: 'Economía',
     icon: 'wallet',
     items: [
       { path: '/admin', label: 'Costos', icon: 'chart', exact: true, scope: 'admin' },
@@ -133,23 +128,36 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { path: '/my-usage', label: 'Mi consumo', icon: 'wallet', exact: false, scope: 'all' },
     ],
   },
+  // --- Pie del menú (utilidades, ancladas abajo) ---
   {
-    id: 'admin',
-    label: 'Administración',
-    icon: 'settings',
+    id: 'integrations',
+    label: 'Integraciones',
+    icon: 'puzzle',
+    footer: true,
     items: [
+      { path: '/integrations', label: 'Apps conectadas', icon: 'puzzle', exact: false, scope: 'all' },
+      { path: '/connectors', label: 'Conectores', icon: 'plug', exact: false, scope: 'all' },
+    ],
+  },
+  {
+    id: 'settings',
+    label: 'Ajustes',
+    icon: 'settings',
+    footer: true,
+    items: [
+      { path: '/admin/settings', label: 'Ajustes generales', icon: 'settings', exact: false, scope: 'admin' },
       { path: '/admin/providers', label: 'IA conectada', icon: 'cpu', exact: false, scope: 'admin' },
       { path: '/canales-externos', label: 'Canales externos', icon: 'send', exact: false, scope: 'admin' },
       { path: '/voz', label: 'Voz', icon: 'headset', exact: false, scope: 'admin' },
-      { path: '/admin/edges', label: 'Nexo Edge', icon: 'server', exact: false, scope: 'admin' },
       { path: '/admin/estaciones-virtuales', label: 'Estaciones virtuales', icon: 'server', exact: false, scope: 'admin' },
-      { path: '/admin/settings', label: 'Ajustes', icon: 'settings', exact: false, scope: 'admin' },
+      { path: '/admin/edges', label: 'Nexo Edge', icon: 'server', exact: false, scope: 'admin' },
     ],
   },
   {
     id: 'platform',
     label: 'Plataforma Nexo',
     icon: 'trophy',
+    footer: true,
     items: [
       { path: '/platform', label: 'Éxito de clientes', icon: 'trophy', exact: true, scope: 'platform' },
       { path: '/platform/copilot-quality', label: 'Calidad del Copilot', icon: 'sparkles', exact: false, scope: 'platform' },

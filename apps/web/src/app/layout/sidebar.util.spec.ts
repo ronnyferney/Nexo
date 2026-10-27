@@ -58,17 +58,24 @@ describe('sidebar.util', () => {
       const paths = groups.flatMap((g) => g.items.map((i) => i.path));
       expect(paths.every((p) => !p.startsWith('/admin') && !p.startsWith('/platform'))).toBeTrue();
       expect(groups.find((g) => g.id === 'platform')).toBeUndefined();
-      // El grupo «Administración» es íntegramente admin: desaparece para un VIEWER.
-      expect(groups.find((g) => g.id === 'admin')).toBeUndefined();
-      // «Organización» tiene ítems «all» (integraciones/conectores): sigue visible, recortado.
-      expect(groups.find((g) => g.id === 'org')?.items.map((i) => i.path)).toEqual(['/integrations', '/connectors']);
+      // Los grupos «Ajustes» y «Organización» son íntegramente admin: desaparecen para un VIEWER.
+      expect(groups.find((g) => g.id === 'settings')).toBeUndefined();
+      expect(groups.find((g) => g.id === 'org')).toBeUndefined();
+      // «Integraciones» (apps conectadas/conectores) es «all»: sigue visible.
+      expect(groups.find((g) => g.id === 'integrations')?.items.map((i) => i.path)).toEqual(['/integrations', '/connectors']);
     });
 
     it('un admin ve los grupos y enlaces de administración', () => {
       const groups = visibleGroups(NAV_GROUPS, { isAdmin: true, isPlatformAdmin: false });
-      expect(groups.find((g) => g.id === 'admin')).toBeDefined();
+      expect(groups.find((g) => g.id === 'settings')).toBeDefined();
       expect(groups.flatMap((g) => g.items.map((i) => i.path))).toContain('/admin/politicas');
       expect(groups.find((g) => g.id === 'platform')).toBeUndefined();
+    });
+
+    it('marca las secciones de pie (Integraciones, Ajustes, Plataforma)', () => {
+      expect(NAV_GROUPS.find((g) => g.id === 'integrations')?.footer).toBeTrue();
+      expect(NAV_GROUPS.find((g) => g.id === 'settings')?.footer).toBeTrue();
+      expect(NAV_GROUPS.find((g) => g.id === 'platform')?.footer).toBeTrue();
     });
 
     it('un admin de plataforma ve el grupo de plataforma', () => {
