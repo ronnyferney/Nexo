@@ -128,41 +128,27 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { path: '/my-usage', label: 'Mi consumo', icon: 'wallet', exact: false, scope: 'all' },
     ],
   },
-  // --- Pie del menú (utilidades, ancladas abajo) ---
+  // --- Pie del menú (solo 3 utilidades; el resto de la configuración vive en el hub /ajustes) ---
   {
     id: 'integrations',
-    label: 'Integraciones',
+    label: 'Conecta tus apps',
     icon: 'puzzle',
     footer: true,
-    items: [
-      { path: '/integrations', label: 'Apps conectadas', icon: 'puzzle', exact: false, scope: 'all' },
-      { path: '/connectors', label: 'Conectores', icon: 'plug', exact: false, scope: 'all' },
-    ],
+    items: [{ path: '/integrations', label: 'Conecta tus apps', icon: 'puzzle', exact: false, scope: 'all' }],
+  },
+  {
+    id: 'ai',
+    label: 'Conecta tu IA',
+    icon: 'cpu',
+    footer: true,
+    items: [{ path: '/admin/providers', label: 'Conecta tu IA', icon: 'cpu', exact: false, scope: 'admin' }],
   },
   {
     id: 'settings',
     label: 'Ajustes',
     icon: 'settings',
     footer: true,
-    items: [
-      { path: '/admin/settings', label: 'Ajustes generales', icon: 'settings', exact: false, scope: 'admin' },
-      { path: '/admin/providers', label: 'IA conectada', icon: 'cpu', exact: false, scope: 'admin' },
-      { path: '/canales-externos', label: 'Canales externos', icon: 'send', exact: false, scope: 'admin' },
-      { path: '/voz', label: 'Voz', icon: 'headset', exact: false, scope: 'admin' },
-      { path: '/admin/estaciones-virtuales', label: 'Estaciones virtuales', icon: 'server', exact: false, scope: 'admin' },
-      { path: '/admin/edges', label: 'Nexo Edge', icon: 'server', exact: false, scope: 'admin' },
-    ],
-  },
-  {
-    id: 'platform',
-    label: 'Plataforma Nexo',
-    icon: 'trophy',
-    footer: true,
-    items: [
-      { path: '/platform', label: 'Éxito de clientes', icon: 'trophy', exact: true, scope: 'platform' },
-      { path: '/platform/copilot-quality', label: 'Calidad del Copilot', icon: 'sparkles', exact: false, scope: 'platform' },
-      { path: '/platform/oauth-apps', label: 'Apps de inicio de sesión', icon: 'plug', exact: false, scope: 'platform' },
-    ],
+    items: [{ path: '/ajustes', label: 'Ajustes', icon: 'settings', exact: false, scope: 'all' }],
   },
 ];
 

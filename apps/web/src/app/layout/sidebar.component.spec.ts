@@ -70,8 +70,8 @@ describe('SidebarComponent (menú único segmentado con pie)', () => {
     expect(labels).toContain('Agentes');
     // work, agents, comms, governance, finance (home fijada; org/settings/plataforma ocultas al VIEWER).
     expect(sections().length).toBe(5);
-    // El pie muestra Integraciones (apps conectadas + conectores) para el VIEWER.
-    expect(footerPaths()).toEqual(['/integrations', '/connectors']);
+    // El pie para VIEWER: «Conecta tus apps» y «Ajustes» (Conecta tu IA es admin).
+    expect(footerPaths()).toEqual(['/integrations', '/ajustes']);
   });
 
   it('pliega a solo iconos: oculta filtro, etiquetas y textos; mantiene los enlaces', () => {
@@ -100,19 +100,22 @@ describe('SidebarComponent (menú único segmentado con pie)', () => {
     expect(el.querySelector('.main .empty')).not.toBeNull();
   });
 
-  it('muestra rutas de administración y el pie de Ajustes cuando el usuario es admin', () => {
+  it('muestra rutas de administración y el pie de 3 utilidades cuando el usuario es admin', () => {
     auth.isAdmin.set(true);
     fixture.detectChanges();
     expect(paths()).toContain('/admin/politicas');
-    expect(footerPaths()).toContain('/admin/settings');
+    // Pie de admin: exactamente las 3 utilidades (Conecta tus apps, Conecta tu IA, Ajustes).
+    expect(footerPaths()).toEqual(['/integrations', '/admin/providers', '/ajustes']);
+    // La configuración detallada ya NO cuelga del menú (vive en el hub /ajustes).
+    expect(paths()).not.toContain('/admin/settings');
     expect(paths().some((p) => p.startsWith('/platform'))).toBeFalse();
   });
 
-  it('muestra rutas de plataforma (en el pie) cuando es admin de plataforma', () => {
+  it('la plataforma ya no aparece en el menú (se movió al hub) ni siquiera para admin de plataforma', () => {
     platform.isPlatformAdmin.set(true);
     fixture.detectChanges();
-    expect(footerPaths()).toContain('/platform');
-    expect(footerPaths()).toContain('/platform/oauth-apps');
+    expect(paths().some((p) => p.startsWith('/platform'))).toBeFalse();
+    expect(footerPaths()).toContain('/ajustes');
   });
 
   it('abre el menú de usuario desde el conmutador superior y muestra nombre/workspace', () => {

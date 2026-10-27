@@ -54,6 +54,7 @@ export const routes: Routes = [
       { path: 'auditoria', canActivate: [adminGuard], loadComponent: () => import('./features/auditoria/auditoria.page').then((m) => m.AuditoriaPage) },
       { path: 'account', loadComponent: () => import('./features/account/account.page').then((m) => m.AccountPage) },
       { path: 'my-usage', loadComponent: () => import('./features/usage/my-usage.page').then((m) => m.MyUsagePage) },
+      { path: 'ajustes', loadComponent: () => import('./features/ajustes/ajustes-hub.page').then((m) => m.AjustesHubPage) },
       { path: 'settings', redirectTo: 'admin/security', pathMatch: 'full' },
 
       // Consola de administración (ADMIN / OWNER)

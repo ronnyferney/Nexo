@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { createEmptyAgent, irPorMenu, registerNewUser, trackPageErrors } from './helpers/app';
+import { createEmptyAgent, registerNewUser, trackPageErrors } from './helpers/app';
 
 /**
  * Estaciones virtuales (E8) + parámetros de ejecución del agente. Recorrido completo por la interfaz:
@@ -12,9 +12,11 @@ test.describe('Estaciones virtuales y parámetros de ejecución', () => {
     await registerNewUser(page);
     const agentId = await createEmptyAgent(page, 'Agente Ejecución QA');
 
-    // Alta de la estación POR LA INTERFAZ (admin).
+    // Alta de la estación POR LA INTERFAZ (admin): se llega desde el pie del menú → Ajustes → tarjeta.
     const estacion = `Estación QA ${Date.now()}`;
-    await irPorMenu(page, 'Estaciones virtuales');
+    await page.getByRole('navigation', { name: 'Utilidades' }).getByRole('link', { name: 'Ajustes' }).click();
+    await expect(page.getByRole('heading', { name: 'Ajustes', level: 1 })).toBeVisible();
+    await page.getByRole('link', { name: /Estaciones virtuales/ }).click();
     await expect(page.getByRole('heading', { name: 'Estaciones virtuales', level: 1 })).toBeVisible();
     await page.getByRole('button', { name: 'Nueva estación' }).first().click();
     await page.locator('#ev-nombre').fill(estacion);

@@ -13,14 +13,17 @@ import {
 
 describe('sidebar.util', () => {
   describe('NAV_GROUPS', () => {
-    it('no tiene rutas duplicadas y cubre todos los enlaces (portal + admin + plataforma)', () => {
+    it('no tiene rutas duplicadas y cubre los enlaces del menú (el resto vive en el hub /ajustes)', () => {
       const paths = NAV_GROUPS.flatMap((g) => g.items.map((i) => i.path));
       expect(new Set(paths).size).toBe(paths.length);
-      // 24 portal + 19 admin + 3 plataforma = 46 enlaces.
-      expect(paths.length).toBe(46);
+      // Menú depurado: 38 enlaces (la configuración detallada se movió al hub /ajustes).
+      expect(paths.length).toBe(38);
       expect(paths).toContain('/');
       expect(paths).toContain('/admin');
-      expect(paths).toContain('/platform');
+      expect(paths).toContain('/ajustes');
+      // La configuración detallada y la plataforma ya no cuelgan del menú: viven en el hub.
+      expect(paths).not.toContain('/connectors');
+      expect(paths).not.toContain('/platform');
     });
 
     it('cada grupo tiene id único y al menos un ítem', () => {
@@ -57,30 +60,26 @@ describe('sidebar.util', () => {
       const groups = visibleGroups(NAV_GROUPS, { isAdmin: false, isPlatformAdmin: false });
       const paths = groups.flatMap((g) => g.items.map((i) => i.path));
       expect(paths.every((p) => !p.startsWith('/admin') && !p.startsWith('/platform'))).toBeTrue();
-      expect(groups.find((g) => g.id === 'platform')).toBeUndefined();
-      // Los grupos «Ajustes» y «Organización» son íntegramente admin: desaparecen para un VIEWER.
-      expect(groups.find((g) => g.id === 'settings')).toBeUndefined();
+      // «Organización» y «Conecta tu IA» (ai) son íntegramente admin: desaparecen para un VIEWER.
       expect(groups.find((g) => g.id === 'org')).toBeUndefined();
-      // «Integraciones» (apps conectadas/conectores) es «all»: sigue visible.
-      expect(groups.find((g) => g.id === 'integrations')?.items.map((i) => i.path)).toEqual(['/integrations', '/connectors']);
+      expect(groups.find((g) => g.id === 'ai')).toBeUndefined();
+      // Pie para VIEWER: «Conecta tus apps» (all) y «Ajustes» (all, hub) siguen visibles.
+      expect(groups.find((g) => g.id === 'integrations')?.items.map((i) => i.path)).toEqual(['/integrations']);
+      expect(groups.find((g) => g.id === 'settings')?.items.map((i) => i.path)).toEqual(['/ajustes']);
     });
 
-    it('un admin ve los grupos y enlaces de administración', () => {
+    it('un admin ve los enlaces de administración y «Conecta tu IA» en el pie', () => {
       const groups = visibleGroups(NAV_GROUPS, { isAdmin: true, isPlatformAdmin: false });
-      expect(groups.find((g) => g.id === 'settings')).toBeDefined();
       expect(groups.flatMap((g) => g.items.map((i) => i.path))).toContain('/admin/politicas');
-      expect(groups.find((g) => g.id === 'platform')).toBeUndefined();
+      expect(groups.find((g) => g.id === 'ai')?.items.map((i) => i.path)).toEqual(['/admin/providers']);
     });
 
-    it('marca las secciones de pie (Integraciones, Ajustes, Plataforma)', () => {
+    it('marca las tres secciones de pie (Conecta tus apps, Conecta tu IA, Ajustes)', () => {
       expect(NAV_GROUPS.find((g) => g.id === 'integrations')?.footer).toBeTrue();
+      expect(NAV_GROUPS.find((g) => g.id === 'ai')?.footer).toBeTrue();
       expect(NAV_GROUPS.find((g) => g.id === 'settings')?.footer).toBeTrue();
-      expect(NAV_GROUPS.find((g) => g.id === 'platform')?.footer).toBeTrue();
-    });
-
-    it('un admin de plataforma ve el grupo de plataforma', () => {
-      const groups = visibleGroups(NAV_GROUPS, { isAdmin: true, isPlatformAdmin: true });
-      expect(groups.find((g) => g.id === 'platform')?.items.length).toBe(3);
+      // La plataforma ya no está en el menú (se movió al hub /ajustes).
+      expect(NAV_GROUPS.find((g) => g.id === 'platform')).toBeUndefined();
     });
 
     it('no muta la estructura original', () => {
@@ -155,7 +154,7 @@ describe('sidebar.util', () => {
     });
 
     it('ignora query y fragmento', () => {
-      expect(activeItemPath(NAV_GROUPS, '/connectors/5?x=1')).toBe('/connectors');
+      expect(activeItemPath(NAV_GROUPS, '/organigrama/5?x=1')).toBe('/organigrama');
     });
 
     it('devuelve null si ninguna ruta coincide', () => {
