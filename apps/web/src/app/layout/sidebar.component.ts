@@ -85,10 +85,10 @@ export type { NavGroup, NavItem } from './sidebar.util';
         }
       </div>
 
-      <!-- Nivel 2: panel secundario contextual (hijos del área activa) -->
+      <!-- Nivel 2: panel con las AGRUPACIONES generales; el detalle (sub-ítems) se despliega al hacer clic. -->
       @if (panelVisible()) {
         <div class="panel">
-          <header class="panel-head"><strong>{{ areaLabel() }}</strong></header>
+          <header class="panel-head"><strong>{{ filtering() ? 'Resultados' : 'Menú' }}</strong></header>
           <div class="filter">
             <nx-icon name="search" [size]="15" aria-hidden="true" />
             <input
@@ -105,16 +105,46 @@ export type { NavGroup, NavItem } from './sidebar.util';
             }
           </div>
           <nav class="panel-items" aria-label="Navegación principal">
-            @for (item of panelItems(); track item.path) {
-              <a
-                class="nav-link"
-                [routerLink]="item.path"
-                [class.active]="activeItem() === item.path"
-                [attr.aria-current]="activeItem() === item.path ? 'page' : null"
-                [title]="item.label"
-              >
-                <nx-icon [name]="item.icon" /><span class="lbl">{{ item.label }}</span>
-              </a>
+            @for (g of panelGroups(); track g.id) {
+              @if (g.items.length === 1 && g.items[0].label === g.label) {
+                <!-- Agrupación de un solo ítem (p. ej. «Inicio»): es un enlace directo. -->
+                <a
+                  class="nav-link"
+                  [routerLink]="g.items[0].path"
+                  [class.active]="activeItem() === g.items[0].path"
+                  [attr.aria-current]="activeItem() === g.items[0].path ? 'page' : null"
+                  [title]="g.items[0].label"
+                >
+                  <nx-icon [name]="g.items[0].icon" /><span class="lbl">{{ g.items[0].label }}</span>
+                </a>
+              } @else {
+                <!-- Agrupación general: muestra solo el nombre; al pulsar, despliega el detalle. -->
+                <button
+                  type="button"
+                  class="grp-head"
+                  [class.open]="groupOpen(g.id)"
+                  [class.on]="displayGroupId() === g.id"
+                  [attr.aria-expanded]="groupOpen(g.id)"
+                  [title]="g.label"
+                  (click)="toggleGroup(g.id)"
+                >
+                  <nx-icon [name]="g.icon" /><span class="lbl">{{ g.label }}</span>
+                  <nx-icon class="chev" [name]="groupOpen(g.id) ? 'chevronUp' : 'chevronDown'" [size]="14" />
+                </button>
+                @if (groupOpen(g.id)) {
+                  @for (item of g.items; track item.path) {
+                    <a
+                      class="nav-link child"
+                      [routerLink]="item.path"
+                      [class.active]="activeItem() === item.path"
+                      [attr.aria-current]="activeItem() === item.path ? 'page' : null"
+                      [title]="item.label"
+                    >
+                      <nx-icon [name]="item.icon" /><span class="lbl">{{ item.label }}</span>
+                    </a>
+                  }
+                }
+              }
             } @empty {
               <p class="empty">Sin resultados.</p>
             }
@@ -153,6 +183,13 @@ export type { NavGroup, NavItem } from './sidebar.util';
     .filter .clear { position: absolute; right: 6px; display: grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: 6px; background: transparent; color: #a3acd3; cursor: pointer; }
     .filter .clear:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
     .panel-items { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
+    .grp-head { display: flex; gap: 11px; align-items: center; width: 100%; padding: 9px 12px; border: 0; border-radius: 9px; background: transparent; color: #c0c7e3; font: inherit; font-size: 13.5px; font-weight: 600; text-align: left; cursor: pointer; white-space: nowrap; }
+    .grp-head .lbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .grp-head .chev { color: #8f98c2; flex-shrink: 0; }
+    .grp-head:hover { background: rgba(255, 255, 255, 0.06); color: #fff; }
+    .grp-head.on nx-icon:first-child { color: var(--brand-cyan, #16C7F4); }
+    .grp-head.open { color: #fff; }
+    a.nav-link.child { margin-left: 12px; padding-left: 12px; border-left: 1px solid rgba(255, 255, 255, 0.08); border-radius: 0 9px 9px 0; }
     a.nav-link { position: relative; display: flex; gap: 11px; align-items: center; padding: 9px 12px; border-radius: 9px; color: #c0c7e3; font-weight: 500; white-space: nowrap; }
     a.nav-link .lbl { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
     a.nav-link:hover { background: rgba(255, 255, 255, 0.06); color: #fff; }
@@ -206,20 +243,26 @@ export class SidebarComponent {
   protected readonly activeItem = computed(() => activeItemPath(this.areas(), this.url()));
   protected readonly displayGroupId = computed(() => activeGroupId(this.areas(), this.url()) ?? this.mainAreas()[0]?.id ?? '');
   protected readonly filtering = computed(() => normalize(this.query()) !== '');
-  /** Título del panel: nombre del área activa, o «Resultados» durante la búsqueda. */
-  protected readonly areaLabel = computed(() => {
-    if (this.filtering()) return 'Resultados';
-    return this.areas().find((g) => g.id === this.displayGroupId())?.label ?? '';
-  });
-  /** Hijos del panel: en búsqueda, todas las coincidencias; si no, los del área activa. */
-  protected readonly panelItems = computed(() => {
-    if (this.filtering()) return filterGroups(this.areas(), this.query()).flatMap((g) => g.items);
-    return this.areas().find((g) => g.id === this.displayGroupId())?.items ?? [];
-  });
+  /** Agrupaciones del panel: en búsqueda, solo las que tienen coincidencias; si no, TODAS las áreas visibles. */
+  protected readonly panelGroups = computed(() =>
+    this.filtering() ? filterGroups(this.areas(), this.query()) : this.areas().map((g) => ({ ...g })),
+  );
+  /** Agrupación desplegada (acordeón): se muestra solo el nombre hasta que el usuario pulsa; `null` = ninguna. */
+  private readonly expanded = signal<string | null>(null);
 
-  /** Abre un área: navega a su primer hijo y limpia la búsqueda. El panel pasa a mostrar sus hijos. */
+  /** `true` si el detalle de la agrupación debe verse: durante la búsqueda, todas; si no, la desplegada. */
+  protected groupOpen(id: string): boolean {
+    return this.filtering() || this.expanded() === id;
+  }
+  /** Despliega o pliega una agrupación (acordeón: una a la vez). */
+  protected toggleGroup(id: string): void {
+    this.expanded.set(this.expanded() === id ? null : id);
+  }
+
+  /** Clic en el icono del riel: despliega el detalle de esa área y navega a su primer ítem. */
   protected openArea(g: NavGroup): void {
     this.query.set('');
+    this.expanded.set(g.id);
     const first = g.items[0];
     if (first) void this.router.navigateByUrl(first.path);
   }
