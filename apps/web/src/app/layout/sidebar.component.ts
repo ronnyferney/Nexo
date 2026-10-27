@@ -51,7 +51,7 @@ function savePanelHidden(hidden: boolean): void {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, IconComponent],
   template: `
-    <aside class="nav" [class.panel-hidden]="panelHidden()">
+    <aside class="nav" [class.panel-hidden]="!panelVisible()">
       <!-- Nivel 1: riel de iconos (áreas principales + utilidades + usuario) -->
       <div class="rail">
         <a class="brand-ico" routerLink="/" aria-label="Nexo: ir al inicio" title="Nexo">
@@ -117,7 +117,7 @@ function savePanelHidden(hidden: boolean): void {
       </div>
 
       <!-- Nivel 2: panel secundario contextual (hijos del área activa) -->
-      @if (!panelHidden()) {
+      @if (panelVisible()) {
         <div class="panel">
           <header class="panel-head"><strong>{{ areaLabel() }}</strong></header>
           <div class="filter">
@@ -268,6 +268,16 @@ export class SidebarComponent {
   protected readonly query = signal('');
   protected readonly panelHidden = signal<boolean>(loadPanelHidden());
   protected readonly userOpen = signal(false);
+  /**
+   * El espacio de Ajustes (/ajustes) trae su propia barra lateral de secciones, así que el panel secundario del
+   * menú (que allí solo mostraría «Ajustes») se oculta para no duplicar navegación. No altera la preferencia del
+   * visor: al salir de Ajustes, el panel vuelve a su estado recordado.
+   */
+  private readonly onAjustes = computed(() => {
+    const u = this.url().split('?')[0].split('#')[0];
+    return u === '/ajustes' || u.startsWith('/ajustes/');
+  });
+  protected readonly panelVisible = computed(() => !this.panelHidden() && !this.onAjustes());
 
   /** Áreas visibles según el rol. */
   private readonly areas = computed(() =>

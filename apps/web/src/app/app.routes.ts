@@ -54,7 +54,32 @@ export const routes: Routes = [
       { path: 'auditoria', canActivate: [adminGuard], loadComponent: () => import('./features/auditoria/auditoria.page').then((m) => m.AuditoriaPage) },
       { path: 'account', loadComponent: () => import('./features/account/account.page').then((m) => m.AccountPage) },
       { path: 'my-usage', loadComponent: () => import('./features/usage/my-usage.page').then((m) => m.MyUsagePage) },
-      { path: 'ajustes', loadComponent: () => import('./features/ajustes/ajustes-hub.page').then((m) => m.AjustesHubPage) },
+      // Ajustes: espacio propio de configuración (barra lateral + detalle). Cada hija reutiliza la página ya
+      // existente del módulo correspondiente; se conservan además las rutas originales para no romper enlaces.
+      {
+        path: 'ajustes',
+        loadComponent: () => import('./features/ajustes/ajustes-shell.component').then((m) => m.AjustesShellComponent),
+        children: [
+          { path: '', loadComponent: () => import('./features/ajustes/ajustes-hub.page').then((m) => m.AjustesHubPage) },
+          { path: 'conectores', loadComponent: () => import('./features/connectors/connectors-list.page').then((m) => m.ConnectorsListPage) },
+          { path: 'canales-externos', canActivate: [adminGuard], loadComponent: () => import('./features/canales/canales.page').then((m) => m.CanalesPage) },
+          { path: 'voz', canActivate: [adminGuard], loadComponent: () => import('./features/voz/voz.page').then((m) => m.VozPage) },
+          { path: 'estaciones-virtuales', canActivate: [adminGuard], loadComponent: () => import('./features/estaciones-virtuales/estaciones-virtuales.page').then((m) => m.EstacionesVirtualesPage) },
+          { path: 'edges', canActivate: [adminGuard], loadComponent: () => import('./features/admin/edges.page').then((m) => m.EdgesPage) },
+          { path: 'organizacion', canActivate: [adminGuard], loadComponent: () => import('./features/admin/organization.page').then((m) => m.OrganizationPage) },
+          { path: 'estructura', canActivate: [adminGuard], loadComponent: () => import('./features/admin/estructura/estructura.page').then((m) => m.EstructuraPage) },
+          { path: 'dimensiones', canActivate: [adminGuard], loadComponent: () => import('./features/admin/dimensiones/dimensiones.page').then((m) => m.DimensionesPage) },
+          { path: 'grupos', canActivate: [adminGuard], loadComponent: () => import('./features/admin/groups.page').then((m) => m.GroupsPage) },
+          { path: 'generales', canActivate: [adminGuard], loadComponent: () => import('./features/admin/workspace-settings.page').then((m) => m.WorkspaceSettingsPage) },
+          { path: 'seguridad', canActivate: [adminGuard], loadComponent: () => import('./features/admin/security.page').then((m) => m.SecurityPage) },
+          { path: 'auditoria', canActivate: [adminGuard], loadComponent: () => import('./features/auditoria/auditoria.page').then((m) => m.AuditoriaPage) },
+          { path: 'presupuestos', canActivate: [adminGuard], loadComponent: () => import('./features/admin/budgets.page').then((m) => m.BudgetsPage) },
+          { path: 'imputacion', canActivate: [adminGuard], loadComponent: () => import('./features/finanzas/imputacion.page').then((m) => m.ImputacionPage) },
+          { path: 'exito-clientes', canActivate: [platformGuard], loadComponent: () => import('./features/platform/platform-success.page').then((m) => m.PlatformSuccessPage) },
+          { path: 'calidad-copilot', canActivate: [platformGuard], loadComponent: () => import('./features/platform/platform-quality.page').then((m) => m.PlatformQualityPage) },
+          { path: 'apps-login', canActivate: [platformGuard], loadComponent: () => import('./features/platform/platform-oauth-apps.page').then((m) => m.PlatformOAuthAppsPage) },
+        ],
+      },
       { path: 'settings', redirectTo: 'admin/security', pathMatch: 'full' },
 
       // Consola de administración (ADMIN / OWNER)

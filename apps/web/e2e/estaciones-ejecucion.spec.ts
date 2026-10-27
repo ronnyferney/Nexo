@@ -14,9 +14,9 @@ test.describe('Estaciones virtuales y parámetros de ejecución', () => {
 
     // Alta de la estación POR LA INTERFAZ (admin): se llega desde el pie del menú → Ajustes → tarjeta.
     const estacion = `Estación QA ${Date.now()}`;
-    await page.getByRole('navigation', { name: 'Utilidades' }).getByRole('link', { name: 'Ajustes' }).click();
+    await page.getByRole('group', { name: 'Utilidades' }).getByRole('button', { name: 'Ajustes' }).click();
     await expect(page.getByRole('heading', { name: 'Ajustes', level: 1 })).toBeVisible();
-    await page.getByRole('link', { name: /Estaciones virtuales/ }).click();
+    await page.getByRole('navigation', { name: 'Secciones de configuración' }).getByRole('link', { name: /Estaciones virtuales/ }).click();
     await expect(page.getByRole('heading', { name: 'Estaciones virtuales', level: 1 })).toBeVisible();
     await page.getByRole('button', { name: 'Nueva estación' }).first().click();
     await page.locator('#ev-nombre').fill(estacion);

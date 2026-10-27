@@ -1,0 +1,176 @@
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { AuthService } from '../../core/auth.service';
+import { PlatformApi } from '../../core/platform.api';
+import { IconComponent } from '../../shared/icon.component';
+import { normalize } from '../../layout/sidebar.util';
+
+type Scope = 'all' | 'admin' | 'platform';
+interface SettingItem {
+  icon: string;
+  label: string;
+  /** Ruta relativa a /ajustes (p. ej. «conectores» → /ajustes/conectores). */
+  path: string;
+  scope: Scope;
+}
+interface SettingGroup {
+  title: string;
+  items: SettingItem[];
+}
+
+/**
+ * Catálogo de ajustes agrupado. Cada ítem apunta a una ruta hija de /ajustes que reutiliza la página de
+ * configuración ya existente; así el detalle se abre dentro de este espacio sin duplicar componentes.
+ */
+export const AJUSTES_GROUPS: readonly SettingGroup[] = [
+  {
+    title: 'Conexiones y canales',
+    items: [
+      { icon: 'plug', label: 'Conectores', path: 'conectores', scope: 'all' },
+      { icon: 'send', label: 'Canales externos', path: 'canales-externos', scope: 'admin' },
+      { icon: 'headset', label: 'Voz', path: 'voz', scope: 'admin' },
+      { icon: 'server', label: 'Estaciones virtuales', path: 'estaciones-virtuales', scope: 'admin' },
+      { icon: 'server', label: 'Nexo Edge', path: 'edges', scope: 'admin' },
+    ],
+  },
+  {
+    title: 'Organización',
+    items: [
+      { icon: 'building', label: 'Organización', path: 'organizacion', scope: 'admin' },
+      { icon: 'subunit', label: 'Estructura', path: 'estructura', scope: 'admin' },
+      { icon: 'hash', label: 'Dimensiones', path: 'dimensiones', scope: 'admin' },
+      { icon: 'users', label: 'Grupos', path: 'grupos', scope: 'admin' },
+    ],
+  },
+  {
+    title: 'Workspace y seguridad',
+    items: [
+      { icon: 'settings', label: 'Ajustes generales', path: 'generales', scope: 'admin' },
+      { icon: 'shield', label: 'Seguridad', path: 'seguridad', scope: 'admin' },
+      { icon: 'lock', label: 'Auditoría', path: 'auditoria', scope: 'admin' },
+    ],
+  },
+  {
+    title: 'Economía',
+    items: [
+      { icon: 'wallet', label: 'Presupuestos', path: 'presupuestos', scope: 'admin' },
+      { icon: 'scale', label: 'Imputación de costos', path: 'imputacion', scope: 'admin' },
+    ],
+  },
+  {
+    title: 'Plataforma Nexo',
+    items: [
+      { icon: 'trophy', label: 'Éxito de clientes', path: 'exito-clientes', scope: 'platform' },
+      { icon: 'sparkles', label: 'Calidad del Copilot', path: 'calidad-copilot', scope: 'platform' },
+      { icon: 'plug', label: 'Apps de inicio de sesión', path: 'apps-login', scope: 'platform' },
+    ],
+  },
+];
+
+/**
+ * Espacio de Ajustes al estilo del ejemplo de referencia: una barra lateral propia con buscador y secciones
+ * (iconos + nombre, con la activa resaltada) y, a la derecha, el detalle de la opción seleccionada en un
+ * «router-outlet». Reúne «el resto de la configuración» sin cambiar permisos: cada ítem se filtra por rol.
+ */
+@Component({
+  selector: 'nx-ajustes-shell',
+  imports: [RouterLink, RouterLinkActive, RouterOutlet, IconComponent],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    <div class="ajustes">
+      <aside class="s-nav" aria-label="Ajustes">
+        <div class="s-top">
+          <a class="back" routerLink="/" aria-label="Volver al inicio"><nx-icon name="arrowLeft" [size]="18" /></a>
+          <span class="s-title">Ajustes</span>
+        </div>
+
+        <label class="s-search">
+          <nx-icon name="search" [size]="16" />
+          <input type="search" [value]="query()" (input)="onSearch($event)" placeholder="Buscar en ajustes"
+            aria-label="Buscar en ajustes" />
+        </label>
+
+        <nav class="s-groups" aria-label="Secciones de configuración">
+          @for (g of groups(); track g.title) {
+            <div class="s-group">
+              <h2 class="s-group-title">{{ g.title }}</h2>
+              @for (it of g.items; track it.path) {
+                <a class="s-item" [routerLink]="it.path" routerLinkActive="active">
+                  <nx-icon [name]="it.icon" [size]="18" />
+                  <span>{{ it.label }}</span>
+                </a>
+              }
+            </div>
+          } @empty {
+            <p class="muted small empty">Sin coincidencias.</p>
+          }
+        </nav>
+      </aside>
+
+      <section class="s-body"><router-outlet /></section>
+    </div>
+  `,
+  styles: `
+    .ajustes { display: grid; grid-template-columns: 272px 1fr; gap: 20px; align-items: start; }
+    .s-nav {
+      position: sticky; top: 8px; display: flex; flex-direction: column; gap: 14px;
+      background: var(--surface, #fff); border: 1px solid var(--border, #e6e8f0); border-radius: 14px; padding: 14px;
+    }
+    .s-top { display: flex; align-items: center; gap: 10px; }
+    .back {
+      display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 8px;
+      color: var(--text-muted, #8f98c2); text-decoration: none;
+    }
+    .back:hover { background: var(--surface-2, #f2f4fb); color: var(--text); }
+    .s-title { font-size: 18px; font-weight: 800; color: var(--text); }
+    .s-search {
+      display: flex; align-items: center; gap: 8px; padding: 0 10px; height: 38px;
+      background: var(--surface-2, #f2f4fb); border: 1px solid var(--border, #e6e8f0); border-radius: 10px;
+      color: var(--text-muted, #8f98c2);
+    }
+    .s-search input { flex: 1; border: 0; background: transparent; outline: none; color: var(--text); font-size: 13.5px; }
+    .s-groups { display: flex; flex-direction: column; gap: 14px; }
+    .s-group { display: flex; flex-direction: column; gap: 2px; }
+    .s-group-title {
+      font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+      color: var(--text-muted, #8f98c2); margin: 2px 0 6px; padding: 0 8px;
+    }
+    .s-item {
+      display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 9px;
+      color: var(--text); text-decoration: none; font-size: 13.5px; font-weight: 600; line-height: 1.2;
+    }
+    .s-item nx-icon { color: var(--text-muted, #8f98c2); flex-shrink: 0; }
+    .s-item:hover { background: var(--surface-2, #f2f4fb); }
+    .s-item.active { background: var(--brand-cyan-soft, rgba(22,199,244,.12)); color: var(--brand-ink, #0b1f4d); }
+    .s-item.active nx-icon { color: var(--brand-cyan, #16C7F4); }
+    .empty { padding: 6px 8px; }
+    .s-body { min-width: 0; }
+
+    @media (max-width: 920px) {
+      .ajustes { grid-template-columns: 1fr; }
+      .s-nav { position: static; }
+    }
+  `,
+})
+export class AjustesShellComponent {
+  private readonly auth = inject(AuthService);
+  private readonly platform = inject(PlatformApi);
+
+  protected readonly query = signal('');
+
+  /** Grupos visibles según rol y filtro de búsqueda; se descartan ítems y grupos vacíos. */
+  protected readonly groups = computed<SettingGroup[]>(() => {
+    const isAdmin = this.auth.isAdmin();
+    const isPlatform = !!this.platform.isPlatformAdmin();
+    const can = (s: Scope) => s === 'all' || (s === 'admin' && isAdmin) || (s === 'platform' && isPlatform);
+    const q = normalize(this.query());
+    return AJUSTES_GROUPS.map((g) => ({
+      ...g,
+      items: g.items.filter((it) => can(it.scope) && (!q || normalize(it.label).includes(q))),
+    })).filter((g) => g.items.length > 0);
+  });
+
+  protected onSearch(ev: Event): void {
+    this.query.set((ev.target as HTMLInputElement).value);
+  }
+}
