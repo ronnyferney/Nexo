@@ -133,29 +133,38 @@ export type { NavGroup, NavItem } from './sidebar.util';
               }
             } @else {
               <!-- Menús mayores (nombres claros, sin submenús). -->
-              @for (g of menuAreas(); track g.id) {
-                @if (hasChildren(g)) {
-                  <button
-                    type="button"
-                    class="m-item"
-                    [class.on]="displayGroupId() === g.id"
-                    (click)="drill(g)"
-                    [title]="g.label"
-                  >
-                    <nx-icon [name]="g.icon" /><span class="lbl">{{ g.label }}</span>
-                    <nx-icon class="chev" name="chevronRight" [size]="15" />
-                  </button>
-                } @else {
-                  <a
-                    class="m-item"
-                    [routerLink]="g.items[0].path"
-                    [class.active]="activeItem() === g.items[0].path"
-                    [attr.aria-current]="activeItem() === g.items[0].path ? 'page' : null"
-                    [title]="g.label"
-                  >
-                    <nx-icon [name]="g.icon" /><span class="lbl">{{ g.label }}</span>
-                  </a>
+              <div class="list-main">
+                @for (g of mainAreas(); track g.id) {
+                  @if (hasChildren(g)) {
+                    <button type="button" class="m-item" [class.on]="displayGroupId() === g.id" (click)="drill(g)" [title]="g.label">
+                      <nx-icon [name]="g.icon" /><span class="lbl">{{ g.label }}</span>
+                      <nx-icon class="chev" name="chevronRight" [size]="15" />
+                    </button>
+                  } @else {
+                    <a class="m-item" [routerLink]="g.items[0].path" [class.active]="activeItem() === g.items[0].path"
+                      [attr.aria-current]="activeItem() === g.items[0].path ? 'page' : null" [title]="g.label">
+                      <nx-icon [name]="g.icon" /><span class="lbl">{{ g.label }}</span>
+                    </a>
+                  }
                 }
+              </div>
+              <!-- Utilidades ancladas al PIE del menú. -->
+              @if (footerAreas().length) {
+                <div class="list-foot">
+                  @for (g of footerAreas(); track g.id) {
+                    @if (hasChildren(g)) {
+                      <button type="button" class="m-item" [class.on]="displayGroupId() === g.id" (click)="drill(g)" [title]="g.label">
+                        <nx-icon [name]="g.icon" /><span class="lbl">{{ g.label }}</span>
+                        <nx-icon class="chev" name="chevronRight" [size]="15" />
+                      </button>
+                    } @else {
+                      <a class="m-item" [routerLink]="g.items[0].path" [class.active]="activeItem() === g.items[0].path"
+                        [attr.aria-current]="activeItem() === g.items[0].path ? 'page' : null" [title]="g.label">
+                        <nx-icon [name]="g.icon" /><span class="lbl">{{ g.label }}</span>
+                      </a>
+                    }
+                  }
+                </div>
               }
             }
           </nav>
@@ -215,7 +224,9 @@ export type { NavGroup, NavItem } from './sidebar.util';
     .brand-name { color: #fff; font-size: 18px; font-weight: 800; letter-spacing: .01em; }
     .list-toggle { display: grid; place-items: center; width: 30px; height: 28px; border: 0; border-radius: 7px; background: rgba(255, 255, 255, 0.05); color: #a3acd3; cursor: pointer; }
     .list-toggle:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
-    .list-items { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
+    .list-items { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 2px; }
+    .list-main { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
+    .list-foot { margin-top: auto; display: flex; flex-direction: column; gap: 2px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
     .m-item { position: relative; display: flex; gap: 12px; align-items: center; width: 100%; padding: 10px 12px; border: 0; border-radius: 10px; background: transparent; color: #c0c7e3; font: inherit; font-size: 14px; font-weight: 600; text-align: left; text-decoration: none; cursor: pointer; white-space: nowrap; }
     .m-item .lbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
     .m-item .chev { color: #8f98c2; flex-shrink: 0; }
@@ -285,8 +296,6 @@ export class SidebarComponent {
   );
   protected readonly mainAreas = computed(() => this.areas().filter((g) => !g.footer));
   protected readonly footerAreas = computed(() => this.areas().filter((g) => g.footer));
-  /** Orden de la lista: menús principales y luego las utilidades de pie, todos con nombre. */
-  protected readonly menuAreas = computed(() => [...this.mainAreas(), ...this.footerAreas()]);
   protected readonly activeItem = computed(() => activeItemPath(this.areas(), this.url()));
   protected readonly displayGroupId = computed(() => activeGroupId(this.areas(), this.url()) ?? '');
   protected readonly filtering = computed(() => normalize(this.query()) !== '');
