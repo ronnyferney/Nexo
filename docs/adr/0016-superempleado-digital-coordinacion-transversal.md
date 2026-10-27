@@ -1,8 +1,17 @@
 # 0016. Superempleado digital: coordinación transversal de resultados
 
-- **Estado:** Propuesto
-- **Fecha:** 2026-10-26
+- **Estado:** Propuesto · **Incremento 1 autorizado por el patrocinador (2026-10-27)**; aprobación integral del ADR
+  **pendiente** de su revisión de contenido.
+- **Fecha:** 2026-10-26 (actualizado 2026-10-27)
 - **Responsables:** nexo-architect
+
+> **Autorización del patrocinador (2026-10-27).** Se autoriza **construir el Incremento 1 de coordinación transversal**,
+> **limitado a**: seguimiento de compromisos, detección de bloqueos, coordinación entre áreas y **escalamiento** a
+> humanos. Debe **conservar responsables humanos, permisos, presupuestos y trazabilidad**. El coordinador **no ejecuta
+> acciones sensibles por su cuenta, no se autoaprueba, no amplía presupuesto y no crea empleados digitales**
+> (`AGENTE_NO_CREA_AGENTES`). La **aprobación integral** de este ADR (y los incrementos 2-5) queda **pendiente** de que
+> el patrocinador revise su contenido. Esta autorización es de **construir**; no implica acceso a cuentas/datos, gasto
+> ni activación productiva.
 - **Relacionado:**
   - ADR 0011 (modelo organizacional: `OrgUnit` tipado empresa/línea/área/sede; `Cargo` con `NivelJerarquico`
     `EMPLEADO→LIDER→JEFE→DIRECTOR→GERENTE→SUPEREMPLEADO`; `Agent.cargoId/responsableUserId`; asignaciones matriciales

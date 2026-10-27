@@ -1,8 +1,16 @@
-# Corrección del candado de salida a internet — impacto y migración (requiere aprobación del CEO)
+# Corrección del candado de salida a internet — impacto y migración
 
-> Punto 5 del documento de decisiones del patrocinador. Este documento **prepara** la corrección: no cambia el
-> comportamiento vigente. La parte que modifica comportamiento y los valores de agentes existentes queda **MARCADA para
-> aprobación de Ronny Ferney Garzón Silva**; no se aplica sin su visto bueno.
+> **Decisión del patrocinador (2026-10-27): Opción A, condicionada a cerrar la elusión en agentes con y sin estación.**
+> Implementada. El control único `salidaInternet` se segmentó en dos categorías gobernables por separado
+> (`navegacionWeb` y `sistemasAutorizados`); el enforcement aplica **con o sin estación** (cierre de la elusión) y la
+> migración hace **backfill que preserva los flujos legítimos vigentes** (quien podía salir, sigue; los bloqueados,
+> siguen). El legado `salidaInternet` queda como **puente** de compatibilidad y se retira en un incremento posterior.
+> Evidencia: migración `apps/api/prisma/migrations/20261026250000_candado_internet_segmentado`, reglas
+> `apps/api/src/modules/execution-params/egress-policy.rules.ts`, runtime `agent-runtime.service.ts`, auditoría por
+> categoría (E13). El documento original de análisis se conserva abajo.
+>
+> Lo que la decisión **no** autoriza: acceso a cuentas/datos, gasto ni activación productiva; el candado es un gate
+> ADICIONAL y la salida sigue pasando por `HttpClientService` (SSRF/allowlist/timeout/tamaño).
 
 ## 1. Estado actual (implementado y validado)
 - `Agent.salidaInternet` (bool, default `false`) + asignación opcional de `Agent.estacionVirtualId` (E8).

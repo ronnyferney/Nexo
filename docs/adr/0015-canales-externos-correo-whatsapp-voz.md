@@ -12,6 +12,27 @@
   canales externos: motor de políticas, `ActionGateway`, bandeja de aprobaciones, suspensión). **Este ADR detalla los
   contratos de canal y voz esbozados en ADR 0013 §D5; no lo reemplaza, lo precisa.**
 
+## Actualización del patrocinador (2026-10-27)
+
+El patrocinador (Ronny Ferney Garzón Silva) confirmó estas definiciones. Distingue cuatro autorizaciones independientes
+—**construir / acceso a cuentas y datos / gasto / activación productiva**— y ninguna implica las demás.
+
+- **Correo (pto 1):** Microsoft 365 como primera vía; **Gmail** como alternativa por adaptador. Cuentas/credenciales
+  **por empresa**. *Construido en sandbox* (adaptadores `m365` y `gmail`); activación real **pendiente** (pto 8).
+- **WhatsApp (pto 4):** **Meta WhatsApp Business Platform Cloud API como primera vía del piloto**; **Twilio** alternativo
+  por adaptador independiente. Cuenta/número/credenciales **por empresa**. *Construido en sandbox*; **no** autoriza
+  activación productiva ni gasto.
+- **Voz (pto 9):** evaluación acotada de **Amazon Connect** y **Google Cloud** **sin gasto** (diseño + simuladores ya
+  construidos; stubs inactivos). Servicios pagos **requieren aprobación previa**. Ver `docs/propuesta-presupuesto-voz.md`.
+- **Grabación/retención (pto 6, Jurídica):** controles configurables por empresa (`GrabacionConfig`), desactivados por
+  defecto, `retencionDias` en NULL = pendiente de política. Consultas a Jurídica en
+  `docs/consultas-juridica-grabaciones-evidencia.md`. No se asumen plazos legales ni valor probatorio automático.
+- **Activación real de correo/WhatsApp (pto 8):** **pendiente de autorización específica**. Antes de solicitarla se
+  diligencia `docs/plantilla-solicitud-activacion-real.md` (empresa, buzón/número, responsable, permisos, destinatarios
+  de prueba, costos, desactivación). Credenciales por la bóveda, nunca por chat.
+
+El cuerpo original de este ADR se conserva como propuesta; esta sección fija las decisiones vigentes del patrocinador.
+
 ## Contexto
 
 ADR 0013 estableció el gobierno transversal (`PolicyEngine`, `ActionGateway`, `Aprobacion`, `Suspension`) y declaró que
@@ -22,9 +43,10 @@ las decisiones de primer proveedor que el patrocinador fijó en el Bloque A de
 - **Correo (punto 1, PROPUESTO):** Microsoft 365 como primera implementación; Gmail como alternativa por adaptador.
   Separar el **buzón empresarial** (recibir/leer/responder como empleado digital) del **envío transaccional/masivo**
   (SMTP/ESP). Credenciales y configuración **por empresa**; registro de envíos e **idempotencia**.
-- **WhatsApp (punto 2, PROPUESTO · pendiente validación de costos/onboarding):** Twilio para el primer piloto;
-  integración directa con Meta prevista por adaptador independiente. Propiedad de **cuenta/número por empresa** (no una
-  cuenta única compartida). Piloto ≠ SaaS multiempresa.
+- **WhatsApp (punto 2, DECISIÓN DEL PATROCINADOR 2026-10-27):** **Meta directo (WhatsApp Business Platform Cloud API)
+  como primera vía del piloto**; **Twilio** se mantiene como **adaptador alternativo** independiente. Propiedad de
+  **cuenta/número/credenciales por empresa** (no una cuenta única compartida). Piloto ≠ SaaS multiempresa. Esta
+  decisión **no** autoriza activación productiva ni gasto (ver §Actualización del patrocinador).
 - **Voz/telefonía (punto 3, REQUISITO CONFIRMADO de apertura; proveedor productivo PENDIENTE):** mantener abierta la
   integración con **Amazon Connect** y **Google Cloud**, sin cerrar a Twilio/Vonage/Vapi/Retell. Separar **4 capas**:
   (a) telefonía/números/gestión de llamadas, (b) STT/TTS, (c) motor conversacional, (d) procesos/herramientas/

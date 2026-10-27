@@ -4,6 +4,24 @@
 > mensaje**, lo **PROPUESTO** y lo **PENDIENTE**. Ninguna integración productiva, contratación o gasto se activa con base
 > en este documento; lo que requiere autorización se marca por separado (sección E).
 
+## Actualización del patrocinador (2026-10-27) — reporte por punto
+
+Definiciones del mensaje del 2026-10-27 y su estado. Autorizaciones independientes: **construir / acceso / gasto /
+activación productiva** (una no implica las demás). Rama `claude/ia-agents-api-connectors-ydds00`.
+
+| # | Definición vigente | Avance | Evidencia | Pendiente | Siguiente acción |
+|---|---|---|---|---|---|
+| 1 | Superempleado: **Inc.1 autorizado** (seguimiento de compromisos, detección de bloqueos, coordinación entre áreas, escalamiento); conserva responsables/permisos/presupuestos/trazabilidad; sin autoaprobación; `AGENTE_NO_CREA_AGENTES`. Aprobación integral pendiente. | ADR 0016 actualizado; Inc.1 backend **en construcción**. | `docs/adr/0016-…md` (autorización); código `modules/missions/**` (en validación). | Aprobación integral del ADR (tras su revisión); incrementos 2-5. | Validar y commitear Inc.1 backend; luego su revisión del ADR. |
+| 2 | Candado: **Opción A + cierre de elusión (con y sin estación)**, preservando accesos legítimos por permiso explícito. | **Implementado y commiteado.** | `migrations/20261026250000_candado_internet_segmentado`; `egress-policy.rules.ts`; e2e de cierre de elusión; `docs/correccion-candado-internet.md`. | Toggles en la web (en construcción). | Validar/commitear UI de categorías; endurecer por agente según uso. |
+| 3 | Piloto de cobranza en **sandbox**, datos sintéticos; demostrar asignación/ejecución/revisión/aprobación/evidencia. | Ficha definitiva **en preparación**; seed pendiente. | `docs/plan-piloto-nexo.md` (ficha previa); ficha definitiva en curso. | Su validación de la ficha definitiva (alcance/criterios). | Entregar ficha definitiva; construir seed sandbox. |
+| 4 | WhatsApp: **Meta Cloud API primera vía del piloto**; Twilio alternativo; cuenta/número/credenciales por empresa. No autoriza activación ni gasto. | Confirmado; adaptadores **Meta + Twilio ya construidos (sandbox)**. | ADR 0015 §Actualización; `channels/adapters/whatsapp-*.adapter.ts`. | Activación real (pto 8). | — (listo en sandbox). |
+| 5 | Finanzas: preparar solicitud de umbrales/exposición/fraccionamiento; mientras tanto, aprobación humana; sin acciones monetarias autónomas. | Solicitud **entregada**; mecanismo de aprobaciones ya construido. | `docs/solicitud-finanzas-umbrales.md`; `governance/actions/*`. | Umbrales de Finanzas (por empresa/moneda). | Esperar definición de Finanzas; umbrales en NULL. |
+| 6 | Jurídica: consultas separadas (grabaciones/transcripciones; exportaciones firmadas); seguir con controles configurables; sin plazos ni valor probatorio automático. | Consultas **entregadas**; `GrabacionConfig` ya construido. | `docs/consultas-juridica-grabaciones-evidencia.md`; `channels/voice/grabacion/*`. | Política jurídica (plazos, bases, valor probatorio). | Esperar Jurídica; `retencionDias` en NULL. |
+| 7 | Cumplimiento: pasaporte base + matriz de campos por jurisdicción/sector/caso; conformidad pendiente. | Matriz **entregada**; pasaporte base ya construido (ADR 0014). | `docs/matriz-cumplimiento-campos.md`; módulos del Pasaporte. | Validación sectorial de Cumplimiento. | Esperar Cumplimiento; sin sello de conformidad. |
+| 8 | Activación real correo/WhatsApp: **pendiente de autorización específica**; presentar ficha previa; credenciales por medio seguro. | Plantilla **entregada**. | `docs/plantilla-solicitud-activacion-real.md`. | Su autorización específica por canal/empresa. | Diligenciar la plantilla por empresa antes de solicitar. |
+| 9 | Voz: propuesta acotada para evaluar Connect y Google **sin gasto**; servicios pagos requieren aprobación previa. | Propuesta **entregada**; diseño + simuladores/stubs ya construidos. | `docs/propuesta-presupuesto-voz.md`; `channels/voice/*`. | Aprobación de presupuesto para servicios pagos. | Evaluación sin gasto; cotización oficial para decidir. |
+
+
 ## 0. Rama y commit (evidencia de versión)
 - **Rama:** `claude/ia-agents-api-connectors-ydds00`
 - **Último commit:** `d6f83dc` (2026-10-26 16:15 UTC) · 227 commits en la rama.
