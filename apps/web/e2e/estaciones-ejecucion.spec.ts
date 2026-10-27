@@ -33,21 +33,26 @@ test.describe('Estaciones virtuales y parámetros de ejecución', () => {
     await expect(selector).toBeVisible();
     await selector.selectOption({ index: 1 });
 
-    // Alternar la salida a internet y verificar el aviso de seguridad.
-    const salida = page.getByRole('switch', { name: 'Permitir salida a internet' });
-    await salida.click();
-    await expect(page.getByText(/no.*abre acceso irrestricto/i)).toBeVisible();
+    // Candado segmentado (Opción A): habilitar las dos categorías y verificar el aviso de seguridad.
+    await page.getByRole('switch', { name: 'Permitir navegación web' }).click();
+    await page.getByRole('switch', { name: 'Permitir conexión a sistemas autorizados' }).click();
+    await expect(page.getByText(/acceso irrestricto/i)).toBeVisible();
 
-    // Guardar: el PUT persiste estación + salida (HTTP 200).
+    // Guardar: el PUT persiste estación + categorías del candado (HTTP 200).
     const guardar = page.getByRole('button', { name: 'Guardar parámetros' });
     const [resp] = await Promise.all([
       page.waitForResponse((r) => /\/api\/execution-params\//.test(r.url()) && r.request().method() === 'PUT'),
       guardar.click(),
     ]);
     expect(resp.status()).toBe(200);
-    const guardado = resp.request().postDataJSON() as { estacionVirtualId: string | null; salidaInternet: boolean };
+    const guardado = resp.request().postDataJSON() as {
+      estacionVirtualId: string | null;
+      navegacionWeb: boolean;
+      sistemasAutorizados: boolean;
+    };
     expect(guardado.estacionVirtualId).toBeTruthy();
-    expect(guardado.salidaInternet).toBe(true);
+    expect(guardado.navegacionWeb).toBe(true);
+    expect(guardado.sistemasAutorizados).toBe(true);
     await expect(page.getByText('Parámetros de ejecución guardados')).toBeVisible();
 
     // Tras guardar con éxito, el estado «sin guardar» se limpia (regresión del bug de snapshot no reactivo).
