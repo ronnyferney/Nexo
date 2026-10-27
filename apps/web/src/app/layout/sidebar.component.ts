@@ -88,7 +88,7 @@ export type { NavGroup, NavItem } from './sidebar.util';
       <!-- Nivel 2: panel secundario contextual (hijos del área activa) -->
       @if (panelVisible()) {
         <div class="panel">
-          <header class="panel-head"><strong>{{ areaLabel() }}</strong></header>
+          <header class="panel-head"><strong>{{ filtering() ? 'Resultados' : 'Menú' }}</strong></header>
           <div class="filter">
             <nx-icon name="search" [size]="15" aria-hidden="true" />
             <input
@@ -105,16 +105,31 @@ export type { NavGroup, NavItem } from './sidebar.util';
             }
           </div>
           <nav class="panel-items" aria-label="Navegación principal">
-            @for (item of panelItems(); track item.path) {
-              <a
-                class="nav-link"
-                [routerLink]="item.path"
-                [class.active]="activeItem() === item.path"
-                [attr.aria-current]="activeItem() === item.path ? 'page' : null"
-                [title]="item.label"
-              >
-                <nx-icon [name]="item.icon" /><span class="lbl">{{ item.label }}</span>
-              </a>
+            @for (g of panelGroups(); track g.id) {
+              @if (g.items.length === 1 && g.items[0].label === g.label) {
+                <a
+                  class="nav-link"
+                  [routerLink]="g.items[0].path"
+                  [class.active]="activeItem() === g.items[0].path"
+                  [attr.aria-current]="activeItem() === g.items[0].path ? 'page' : null"
+                  [title]="g.items[0].label"
+                >
+                  <nx-icon [name]="g.items[0].icon" /><span class="lbl">{{ g.items[0].label }}</span>
+                </a>
+              } @else {
+                <p class="grp-title">{{ g.label }}</p>
+                @for (item of g.items; track item.path) {
+                  <a
+                    class="nav-link"
+                    [routerLink]="item.path"
+                    [class.active]="activeItem() === item.path"
+                    [attr.aria-current]="activeItem() === item.path ? 'page' : null"
+                    [title]="item.label"
+                  >
+                    <nx-icon [name]="item.icon" /><span class="lbl">{{ item.label }}</span>
+                  </a>
+                }
+              }
             } @empty {
               <p class="empty">Sin resultados.</p>
             }
@@ -153,6 +168,8 @@ export type { NavGroup, NavItem } from './sidebar.util';
     .filter .clear { position: absolute; right: 6px; display: grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: 6px; background: transparent; color: #a3acd3; cursor: pointer; }
     .filter .clear:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
     .panel-items { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
+    .grp-title { font-size: 10.5px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: #8f98c2; margin: 12px 0 4px; padding: 0 12px; }
+    .grp-title:first-child { margin-top: 2px; }
     a.nav-link { position: relative; display: flex; gap: 11px; align-items: center; padding: 9px 12px; border-radius: 9px; color: #c0c7e3; font-weight: 500; white-space: nowrap; }
     a.nav-link .lbl { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
     a.nav-link:hover { background: rgba(255, 255, 255, 0.06); color: #fff; }
@@ -206,16 +223,13 @@ export class SidebarComponent {
   protected readonly activeItem = computed(() => activeItemPath(this.areas(), this.url()));
   protected readonly displayGroupId = computed(() => activeGroupId(this.areas(), this.url()) ?? this.mainAreas()[0]?.id ?? '');
   protected readonly filtering = computed(() => normalize(this.query()) !== '');
-  /** Título del panel: nombre del área activa, o «Resultados» durante la búsqueda. */
-  protected readonly areaLabel = computed(() => {
-    if (this.filtering()) return 'Resultados';
-    return this.areas().find((g) => g.id === this.displayGroupId())?.label ?? '';
-  });
-  /** Hijos del panel: en búsqueda, todas las coincidencias; si no, los del área activa. */
-  protected readonly panelItems = computed(() => {
-    if (this.filtering()) return filterGroups(this.areas(), this.query()).flatMap((g) => g.items);
-    return this.areas().find((g) => g.id === this.displayGroupId())?.items ?? [];
-  });
+  /**
+   * Contenido del panel: TODAS las áreas visibles con su nombre general y sus sub-ítems (así se leen los nombres
+   * de los menús aunque el riel solo muestre iconos). Durante la búsqueda, solo las áreas con coincidencias.
+   */
+  protected readonly panelGroups = computed(() =>
+    this.filtering() ? filterGroups(this.areas(), this.query()) : this.areas().map((g) => ({ ...g })),
+  );
 
   /** Abre un área: navega a su primer hijo y limpia la búsqueda. El panel pasa a mostrar sus hijos. */
   protected openArea(g: NavGroup): void {
