@@ -111,49 +111,47 @@ export const AJUSTES_GROUPS: readonly SettingGroup[] = [
     </div>
   `,
   styles: `
-    /* Barra de Ajustes como columna a ras (mismo encaje que los demás menús): azul oscuro corporativo —igual que
-       el submenú del menú lateral—, ancho 236px, altura completa bajo el toolbar y sin tarjeta flotante. */
+    /* Barra de Ajustes como columna a ras (mismo encaje que los demás menús), pero en blanco: ancho 236px
+       —igual que el panel secundario del menú—, altura completa bajo el toolbar y sin tarjeta flotante. */
     .ajustes { display: grid; grid-template-columns: 236px 1fr; align-items: start; }
     .s-nav {
       position: sticky; top: 56px; height: calc(100vh - 56px); overflow-y: auto;
       display: flex; flex-direction: column; gap: 14px;
-      background: #0b1430; color: #c9d1ec; border-right: 1px solid rgba(255, 255, 255, 0.08); padding: 16px 14px;
+      background: var(--surface, #fff); border-right: 1px solid var(--border, #e6e8f0); padding: 16px 14px;
     }
-    .s-nav :focus-visible { outline-color: var(--brand-cyan, #16C7F4); }
     .s-top { display: flex; align-items: center; gap: 10px; }
     .back {
       display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 8px;
-      color: #a3acd3; text-decoration: none;
+      color: var(--text-muted, #8f98c2); text-decoration: none;
     }
-    .back:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
-    .s-title { font-size: 18px; font-weight: 800; color: #fff; }
+    .back:hover { background: var(--surface-2, #f2f4fb); color: var(--text); }
+    .s-title { font-size: 18px; font-weight: 800; color: var(--text); }
     .s-search {
       display: flex; align-items: center; gap: 8px; padding: 0 10px; height: 38px;
-      background: #0e1838; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 10px; color: #8f98c2;
+      background: var(--surface-2, #f2f4fb); border: 1px solid var(--border, #e6e8f0); border-radius: 10px;
+      color: var(--text-muted, #8f98c2);
     }
-    .s-search:focus-within { border-color: var(--brand-cyan, #16C7F4); }
-    .s-search input { flex: 1; border: 0; background: transparent; outline: none; color: #fff; font-size: 13.5px; }
-    .s-search input::placeholder { color: #8f98c2; }
+    .s-search input { flex: 1; border: 0; background: transparent; outline: none; color: var(--text); font-size: 13.5px; }
     .s-groups { display: flex; flex-direction: column; gap: 14px; }
     .s-group { display: flex; flex-direction: column; gap: 2px; }
     .s-group-title {
       font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
-      color: #8f98c2; margin: 2px 0 6px; padding: 0 8px;
+      color: var(--text-muted, #8f98c2); margin: 2px 0 6px; padding: 0 8px;
     }
     .s-item {
       display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 9px;
-      color: #c0c7e3; text-decoration: none; font-size: 13.5px; font-weight: 600; line-height: 1.2;
+      color: var(--text); text-decoration: none; font-size: 13.5px; font-weight: 600; line-height: 1.2;
     }
-    .s-item nx-icon { color: #aeb6da; flex-shrink: 0; }
-    .s-item:hover { background: rgba(255, 255, 255, 0.06); color: #fff; }
-    .s-item.active { background: rgba(18, 91, 234, 0.28); color: #fff; box-shadow: inset 0 0 0 1px rgba(22, 199, 244, 0.18); }
+    .s-item nx-icon { color: var(--text-muted, #8f98c2); flex-shrink: 0; }
+    .s-item:hover { background: var(--surface-2, #f2f4fb); }
+    .s-item.active { background: var(--brand-cyan-soft, rgba(22,199,244,.12)); color: var(--brand-ink, #0b1f4d); }
     .s-item.active nx-icon { color: var(--brand-cyan, #16C7F4); }
-    .empty { padding: 6px 8px; color: #8f98c2; }
+    .empty { padding: 6px 8px; }
     .s-body { min-width: 0; }
 
     @media (max-width: 920px) {
       .ajustes { grid-template-columns: 1fr; }
-      .s-nav { position: static; height: auto; border-right: 0; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
+      .s-nav { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--border, #e6e8f0); }
     }
   `,
 })
