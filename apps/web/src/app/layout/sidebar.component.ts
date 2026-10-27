@@ -259,10 +259,13 @@ export class SidebarComponent {
     this.expanded.set(this.expanded() === id ? null : id);
   }
 
-  /** Clic en el icono del riel: despliega el detalle de esa área y navega a su primer ítem. */
+  /**
+   * Clic en el icono del riel: navega a esa área y DEJA EL PANEL PLEGADO (solo nombres de agrupación). El
+   * detalle (sub-ítems) se abre únicamente al pulsar el nombre de la agrupación en el panel.
+   */
   protected openArea(g: NavGroup): void {
     this.query.set('');
-    this.expanded.set(g.id);
+    this.expanded.set(null);
     const first = g.items[0];
     if (first) void this.router.navigateByUrl(first.path);
   }
