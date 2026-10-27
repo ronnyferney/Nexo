@@ -240,6 +240,11 @@ model User {
   passwordResets       PasswordResetToken[]
   responsibleForAgents Agent[]              @relation("AgentResponsible")
   substituteForAgents  Agent[]              @relation("AgentSubstitute")
+  /// Misiones transversales que esta persona patrocina (dueña humana), autoriza o lidera localmente (ADR 0016).
+  /// Back-relations aditivas y opcionales: un usuario sin misiones se comporta igual que antes.
+  misionesPropias      MisionTransversal[]  @relation("MisionDueno")
+  misionesAutorizadas  MisionTransversal[]  @relation("MisionAutorizador")
+  misionesLideradas    MisionParticipante[] @relation("MisionDuenoLocal")
 }
 
 /// Invitación a un workspace (C1): la membresía solo se crea cuando el dueño del correo acepta con el token de un solo
@@ -332,6 +337,9 @@ model Workspace {
   publicaciones             Publicacion[]
   comentarios               Comentario[]
   reacciones                Reaccion[]
+  misiones                  MisionTransversal[]
+  misionParticipantes       MisionParticipante[]
+  misionVinculos            MisionVinculo[]
 }
 
 /// Catálogo de cargos (RF03): perfil reutilizable del empleado digital con propósito, funciones, entregables,
@@ -476,73 +484,73 @@ model ConnectorOperation {
 }
 
 model Agent {
-  id                   String             @id @default(cuid())
+  id                   String              @id @default(cuid())
   name                 String
   description          String?
   /// Nombre de un ícono del design system (p. ej. "inbox"); null = sin ícono (la web muestra "bot").
   icon                 String?
-  provider             String             @default("anthropic")
-  model                String             @default("claude-opus-5-5")
-  systemPrompt         String             @default("")
+  provider             String              @default("anthropic")
+  model                String              @default("claude-opus-5-5")
+  systemPrompt         String              @default("")
   /// low | medium | high | xhigh | max
-  effort               String             @default("medium")
-  maxTurns             Int                @default(12)
+  effort               String              @default("medium")
+  maxTurns             Int                 @default(12)
   /// Perfil estructurado: { role, goals[], responsibilities[], boundaries[], tone, outputFormat, language } (ADR 0003).
-  profile              Json               @default("{}")
+  profile              Json                @default("{}")
   /// Cadena de respaldo "<providerId>:<modelId>" (máx. 3).
-  fallbackModels       String[]           @default([])
+  fallbackModels       String[]            @default([])
   /// Política de enrutamiento multi-modelo (ADR 0010). null = comportamiento actual (principal + fallbackModels).
   routing              Json?
   /// Meta de calidad del bucle de mejora (0..1, ADR 0004).
-  targetScore          Float              @default(0.85)
+  targetScore          Float               @default(0.85)
   /// Ciclo de vida de producción (ADR 0006): solo los agentes LAUNCHED se publican por MCP y ejecutan rutinas.
-  launchStatus         LaunchStatus       @default(DRAFT)
+  launchStatus         LaunchStatus        @default(DRAFT)
   launchedAt           DateTime?
   launchOverrideReason String?
   /// Visibilidad y propiedad (ADR 0007).
-  visibility           AgentVisibility    @default(PRIVATE)
+  visibility           AgentVisibility     @default(PRIVATE)
   ownerId              String?
   shares               AgentShare[]
   /// Centro de costo cuando el agente corre sin usuario (flujos, webhooks, MCP).
   costCenterId         String?
-  costCenter           OrgUnit?           @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+  costCenter           OrgUnit?            @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
   /// Expediente del empleado digital (RF02/RF04). Cargo que desempeña (perfil reutilizable), responsable humano
   /// titular y suplente. Un agente no puede publicarse sin responsable (RF06).
   cargoId              String?
-  cargo                Cargo?             @relation(fields: [cargoId], references: [id], onDelete: SetNull)
+  cargo                Cargo?              @relation(fields: [cargoId], references: [id], onDelete: SetNull)
   responsableUserId    String?
-  responsableUser      User?              @relation("AgentResponsible", fields: [responsableUserId], references: [id], onDelete: SetNull)
+  responsableUser      User?               @relation("AgentResponsible", fields: [responsableUserId], references: [id], onDelete: SetNull)
   suplenteUserId       String?
-  suplenteUser         User?              @relation("AgentSubstitute", fields: [suplenteUserId], references: [id], onDelete: SetNull)
+  suplenteUser         User?               @relation("AgentSubstitute", fields: [suplenteUserId], references: [id], onDelete: SetNull)
   /// Línea de mando entre empleados digitales (E3/RF32). Agente al que este reporta (su supervisor directo); null = raíz
   /// del organigrama. La jerarquía NO concede acceso a datos (ADR 0007): el acceso lo resuelve `AgentAccessService`.
   reportaAAgentId      String?
-  reportaA             Agent?             @relation("Jerarquia", fields: [reportaAAgentId], references: [id], onDelete: SetNull)
-  subordinados         Agent[]            @relation("Jerarquia")
+  reportaA             Agent?              @relation("Jerarquia", fields: [reportaAAgentId], references: [id], onDelete: SetNull)
+  subordinados         Agent[]             @relation("Jerarquia")
   /// Parámetros de ejecución del empleado digital (E8/RF). Aditivos y opcionales: los agentes previos quedan sin
   /// estación, sin salida a internet y con `parametrosEjecucion = {}`. Ningún campo existente cambia ni se vuelve
   /// obligatorio. Esta es la capa de CONFIGURACIÓN gobernada; el aprovisionamiento real de la VM y el runtime RPA
   /// llegan en un incremento posterior (TODO E8-2).
   /// Estación virtual (máquina) asignada; null = sin estación. SetNull: retirar/borrar la estación NO borra el agente.
   estacionVirtualId    String?
-  estacionVirtual      EstacionVirtual?   @relation(fields: [estacionVirtualId], references: [id], onDelete: SetNull)
+  estacionVirtual      EstacionVirtual?    @relation(fields: [estacionVirtualId], references: [id], onDelete: SetNull)
   /// LEGADO (E8). Gate único de salida a internet, reemplazado por las categorías `navegacionWeb` y
   /// `sistemasAutorizados`. Se conserva como espejo de lectura una versión (se retira en un incremento posterior cuando
   /// el runtime lea solo las categorías). `set()` lo mantiene coherente con las categorías.
-  salidaInternet       Boolean            @default(false)
+  salidaInternet       Boolean             @default(false)
   /// Candado de salida a internet segmentado (E8 · corrección Opción A). Categorías gobernables por separado; el
   /// enforcement aplica CON O SIN estación asignada (cierre de la elusión). Siguen siendo gates ADICIONALES: cuando
   /// habilitan, la salida pasa SIEMPRE por `HttpClientService` (SSRF/allowlist/timeout/tamaño), nunca un bypass.
   /// La comunicación con proveedores de IA NO es un toggle de usuario: la gobierna el runtime (ADR 0010), aparte.
   /// Default `false` (concesión explícita); la migración hace backfill preservando los flujos legítimos vigentes.
   /// `navegacionWeb` = navegación/fetch web general; `sistemasAutorizados` = conectores/sistemas de negocio autorizados.
-  navegacionWeb        Boolean            @default(false)
-  sistemasAutorizados  Boolean            @default(false)
+  navegacionWeb        Boolean             @default(false)
+  sistemasAutorizados  Boolean             @default(false)
   /// Parámetros de ejecución extensibles (p. ej. horario de operación, límites). JSON para no migrar el esquema por
   /// cada parámetro nuevo. Los agentes previos quedan con `{}`.
-  parametrosEjecucion  Json               @default("{}")
+  parametrosEjecucion  Json                @default("{}")
   workspaceId          String
-  workspace            Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace            Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   tools                AgentTool[]
   conversations        Conversation[]
   skills               AgentSkill[]
@@ -555,8 +563,11 @@ model Agent {
   versions             AgentVersion[]
   suggestions          PromptSuggestion[]
   runs                 AgentRun[]
-  createdAt            DateTime           @default(now())
-  updatedAt            DateTime           @updatedAt
+  /// Misiones transversales que este empleado digital coordina (ADR 0016). Coordinar es un ROL, no un poder: NO
+  /// concede acceso a los datos de las empresas participantes (ADR 0007). Back-relation aditiva y opcional.
+  misionesCoordinadas  MisionTransversal[]
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
 
   @@index([workspaceId])
   @@index([workspaceId, reportaAAgentId])
@@ -772,37 +783,40 @@ model LlmAuthFlow {
 
 /// Unidad corporativa (árbol). La raíz (parentId = null) es el tope global del workspace.
 model OrgUnit {
-  id                String           @id @default(cuid())
-  name              String
-  code              String?
+  id                    String               @id @default(cuid())
+  name                  String
+  code                  String?
   /// Modelos permitidos "<providerId>:<modelId>". Vacío = hereda del padre.
-  allowedModels     String[]         @default([])
-  parentId          String?
-  parent            OrgUnit?         @relation("OrgTree", fields: [parentId], references: [id], onDelete: Restrict)
-  children          OrgUnit[]        @relation("OrgTree")
-  workspaceId       String
-  workspace         Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  allowedModels         String[]             @default([])
+  parentId              String?
+  parent                OrgUnit?             @relation("OrgTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children              OrgUnit[]            @relation("OrgTree")
+  workspaceId           String
+  workspace             Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   /// Dimensión jerárquica/funcional (ADR 0011 D2). Las unidades previas migran a `AREA_FUNCIONAL` (default neutro).
-  tipo              OrgUnitTipo      @default(AREA_FUNCIONAL)
+  tipo                  OrgUnitTipo          @default(AREA_FUNCIONAL)
   /// Empresa (OrgUnit `EMPRESA`) a la que pertenece la unidad. Desnormalizado para filtrar barato por empresa
   /// (ADR 0011 D1/D2). `null` en las unidades ya existentes (retrocompatible). Referencia blanda: se valida en servicio.
-  empresaId         String?
+  empresaId             String?
   /// Responsable humano de la unidad (RF43). Referencia blanda a `User` (no concede acceso: ADR 0011 D6).
-  responsableUserId String?
+  responsableUserId     String?
   /// Estado de vigencia de la unidad (ADR 0011 D2). Las unidades previas quedan `ACTIVA`.
-  estado            EstadoEstructura @default(ACTIVA)
+  estado                EstadoEstructura     @default(ACTIVA)
   /// Vigencia de la unidad (RF43). Opcionales; `null` = sin límite.
-  vigenteDesde      DateTime?
-  vigenteHasta      DateTime?
-  memberships       Membership[]
-  agents            Agent[]
-  budget            Budget?
-  ledger            BudgetLedger[]
-  alerts            BudgetAlert[]
-  usage             UsageRecord[]
-  invitations       Invitation[]
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  vigenteDesde          DateTime?
+  vigenteHasta          DateTime?
+  memberships           Membership[]
+  agents                Agent[]
+  budget                Budget?
+  ledger                BudgetLedger[]
+  alerts                BudgetAlert[]
+  usage                 UsageRecord[]
+  invitations           Invitation[]
+  /// Participaciones de esta unidad (empresa/línea/área/sede) en misiones transversales (ADR 0016). Declarar una
+  /// participación NO concede acceso a sus datos (ADR 0007). Back-relation aditiva y opcional.
+  misionParticipaciones MisionParticipante[]
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
 
   @@index([workspaceId])
   @@index([workspaceId, tipo])
@@ -850,29 +864,29 @@ model BudgetAlert {
 
 /// Registro de consumo por llamada al modelo. No guarda contenido de prompts ni respuestas.
 model UsageRecord {
-  id               String      @id @default(cuid())
-  workspaceId      String
-  workspace        Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  orgUnitId        String?
-  orgUnit          OrgUnit?    @relation(fields: [orgUnitId], references: [id], onDelete: SetNull)
-  userId           String?
-  agentId          String?
-  workflowId       String?
-  executionId      String?
-  conversationId   String?
-  source           UsageSource
-  providerId       String
-  model            String
-  inputTokens      Int
-  outputTokens     Int
-  cacheReadTokens  Int         @default(0)
-  cacheWriteTokens Int         @default(0)
-  costUsd          Decimal     @db.Decimal(18, 8)
+  id                  String      @id @default(cuid())
+  workspaceId         String
+  workspace           Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  orgUnitId           String?
+  orgUnit             OrgUnit?    @relation(fields: [orgUnitId], references: [id], onDelete: SetNull)
+  userId              String?
+  agentId             String?
+  workflowId          String?
+  executionId         String?
+  conversationId      String?
+  source              UsageSource
+  providerId          String
+  model               String
+  inputTokens         Int
+  outputTokens        Int
+  cacheReadTokens     Int         @default(0)
+  cacheWriteTokens    Int         @default(0)
+  costUsd             Decimal     @db.Decimal(18, 8)
   /// Trazabilidad de enrutamiento (ADR 0010 D5): motivo de selección como código(s) auditable(s), nunca el
   /// razonamiento interno del modelo. Varios motivos se separan por coma. `null` = sin política de enrutamiento.
-  routingReason    String?
+  routingReason       String?
   /// Rol del tramo en la orquestación (ADR 0010 D5): `draft`/`verify`/nombre de rol. `null` sin enrutamiento.
-  role             String?
+  role                String?
   /// Dimensiones de imputación integradas (ADR 0011 D5/RF45), capturadas como snapshot histórico en el momento de la
   /// ejecución (RF46/QA16). Son *etiquetas* del gasto ya medido: referencias blandas (IDs), validadas en servicio. NO
   /// cambian el cálculo del costo (ADR 0002 intacto) ni crean un segundo libro mayor. `areaEjecutoraId` suele coincidir
@@ -886,8 +900,8 @@ model UsageRecord {
   /// Snapshot histórico de las dimensiones configurables (ADR 0011 D8/RF46/QA16): mapa `{ dimensionCodigo: valor }`
   /// congelado al momento del hecho económico. Aditivo; los registros previos quedan `{}`. NO altera el cálculo del
   /// costo (ADR 0002 intacto): es solo una etiqueta analítica para pivotar en las consolas, no un libro mayor paralelo.
-  dimensiones      Json        @default("{}")
-  createdAt        DateTime    @default(now())
+  dimensiones         Json        @default("{}")
+  createdAt           DateTime    @default(now())
 
   @@index([workspaceId, createdAt])
   @@index([orgUnitId, createdAt])
@@ -1646,9 +1660,9 @@ enum TipoCanal {
 /// Objetivo (RF07): indicador, línea base, meta y plazo con dueño humano y responsable digital. Agrupa tareas.
 /// Lo autoriza un humano (el sistema solo propone). Vínculo opcional a una unidad/empresa/línea por `orgUnitId`.
 model Objetivo {
-  id                 String    @id @default(cuid())
+  id                 String          @id @default(cuid())
   workspaceId        String
-  workspace          Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace          Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   /// Empresa / área / línea de negocio a la que pertenece (referencia blanda, validada en servicio).
   orgUnitId          String?
   codigo             String
@@ -1663,11 +1677,14 @@ model Objetivo {
   /// Responsable digital (referencia blanda a `Agent`).
   responsableAgentId String?
   /// Vigencia e historia (QA16): una reorganización no altera objetivos pasados.
-  validFrom          DateTime  @default(now())
+  validFrom          DateTime        @default(now())
   validTo            DateTime?
   tareas             Tarea[]
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  /// Vínculos de misiones transversales que agrupan este objetivo por REFERENCIA (ADR 0016). Vincular NO concede
+  /// acceso ni redefine el objetivo: conserva su `orgUnitId`, dueño local y autoridad. Back-relation aditiva/opcional.
+  misionVinculos     MisionVinculo[]
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
 
   @@unique([workspaceId, codigo])
   @@index([workspaceId, orgUnitId])
@@ -1708,6 +1725,9 @@ model Tarea {
   incumplimientos       Incumplimiento[]
   mensajes              MensajeAgente[]
   transferencias        ContratoTransferencia[]
+  /// Vínculos de misiones transversales que agrupan esta tarea por REFERENCIA (ADR 0016). Vincular NO concede acceso
+  /// ni crea una segunda cadena de mando: conserva su dueño local y su autoridad. Back-relation aditiva/opcional.
+  misionVinculos        MisionVinculo[]
   createdAt             DateTime                @default(now())
   updatedAt             DateTime                @updatedAt
 
@@ -2062,19 +2082,22 @@ model ContratoTransferencia {
 /// Canal de coordinación transversal por misión/proceso/área (RF36). Mencionar/referenciar NO concede acceso (QA12):
 /// el alcance se valida en consulta y entrega, no por visibilidad. Un canal entre empresas exige permiso explícito.
 model Canal {
-  id          String      @id @default(cuid())
+  id          String             @id @default(cuid())
   workspaceId String
-  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace   Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   orgUnitId   String?
   tipo        TipoCanal
   misionId    String?
   nombre      String
   descripcion String?
-  validFrom   DateTime    @default(now())
+  validFrom   DateTime           @default(now())
   validTo     DateTime?
   hilos       HiloCanal[]
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  /// Misión transversal que usa este canal MISION como espacio de coordinación (ADR 0016 · E5/D5). Enlazar un canal
+  /// NO concede acceso (QA12). Relación 1-1 opcional (el lado dueño es `MisionTransversal.canalId`). Aditiva/opcional.
+  mision      MisionTransversal?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
 
   @@index([workspaceId, tipo])
 }
@@ -2096,6 +2119,110 @@ model HiloCanal {
   updatedAt    DateTime  @updatedAt
 
   @@index([workspaceId, canalId])
+}
+
+// --- Coordinación transversal: superempleado digital (E3 · ADR 0016) ---
+
+/// Ciclo de vida de una misión transversal (ADR 0016 D2). Transiciones verificables, análogas a `EstadoResultado`:
+/// PROPUESTA -> AUTORIZADA -> EN_CURSO -> EN_VALIDACION -> LOGRADA, con las ramas DETENIDA (bloqueo/suspensión que exige
+/// decisión humana) y CANCELADA. Crear/autorizar/detener/cancelar lo hace SIEMPRE un humano (nunca un agente).
+enum EstadoMision {
+  PROPUESTA
+  AUTORIZADA
+  EN_CURSO
+  EN_VALIDACION
+  LOGRADA
+  DETENIDA
+  CANCELADA
+}
+
+/// Misión transversal (ADR 0016 D2): objeto DELGADO de coordinación de un resultado que cruza varias empresas/líneas/
+/// áreas/sedes. Agrupa por REFERENCIA trabajo existente (Objetivo/Tarea de E4); no redefine el trabajo ni su presupuesto.
+/// Tiene un DUEÑO humano (patrocina y rinde cuentas) y, opcional, un COORDINADOR digital (superempleado: Cargo nivel
+/// SUPEREMPLEADO) que coordina pero NO ejecuta ni se autoaprueba. La misión la crea y autoriza un humano con nivel
+/// suficiente; ningún agente lo hace (`AGENTE_NO_CREA_AGENTES`). Coordinar/participar/vincular NO concede acceso (ADR
+/// 0007): los permisos siguen explícitos. Todo aditivo y opt-in: un workspace sin misiones se comporta igual.
+model MisionTransversal {
+  id                  String               @id @default(cuid())
+  workspaceId         String
+  workspace           Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  nombre              String
+  proposito           String?
+  resultadoEsperado   String
+  /// Indicador de misión consolidado sobre E10 (no reemplaza los indicadores de resultado).
+  indicador           String?
+  lineaBase           String?
+  meta                String?
+  plazo               DateTime?
+  estado              EstadoMision         @default(PROPUESTA)
+  /// Humano que patrocina y rinde cuentas (la misión la autoriza una persona). Referencia con back-relation opcional.
+  duenoUserId         String
+  dueno               User                 @relation("MisionDueno", fields: [duenoUserId], references: [id], onDelete: Restrict)
+  /// Superempleado (Cargo nivel SUPEREMPLEADO): responsable de coordinar, NO de ejecutar. Coordinar no concede acceso.
+  coordinadorAgentId  String?
+  coordinador         Agent?               @relation(fields: [coordinadorAgentId], references: [id], onDelete: SetNull)
+  /// Canal MISION existente (E5/D5) enlazado como espacio de coordinación, opcional. Enlazar no concede acceso (QA12).
+  canalId             String?              @unique
+  canal               Canal?               @relation(fields: [canalId], references: [id], onDelete: SetNull)
+  /// Quién la autorizó (humano con nivel suficiente) y cuándo. Null mientras está en PROPUESTA.
+  autorizadaPorUserId String?
+  autorizadaPor       User?                @relation("MisionAutorizador", fields: [autorizadaPorUserId], references: [id], onDelete: SetNull)
+  autorizadaAt        DateTime?
+  /// Motivo de la última detención/cancelación (código/razón auditable; nunca el razonamiento del modelo).
+  motivo              String?
+  validFrom           DateTime             @default(now())
+  validTo             DateTime?
+  participantes       MisionParticipante[]
+  vinculos            MisionVinculo[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  @@index([workspaceId, estado])
+  @@index([workspaceId, coordinadorAgentId])
+}
+
+/// Participante explícito de una misión (ADR 0016 D2): una empresa/línea/área/sede (`orgUnitId`) con su dueño local
+/// humano y, opcional, su agente líder. Declarar un participante NO concede acceso (ADR 0007): solo nombra quién
+/// colabora; los permisos siguen explícitos. `alcance` es la forma JSON (versionable) del alcance aprobado.
+model MisionParticipante {
+  id               String            @id @default(cuid())
+  workspaceId      String
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  misionId         String
+  mision           MisionTransversal @relation(fields: [misionId], references: [id], onDelete: Cascade)
+  orgUnitId        String
+  orgUnit          OrgUnit           @relation(fields: [orgUnitId], references: [id], onDelete: Restrict)
+  /// Dueño humano de la participación local (referencia con back-relation opcional; no concede acceso).
+  duenoLocalUserId String?
+  duenoLocal       User?             @relation("MisionDuenoLocal", fields: [duenoLocalUserId], references: [id], onDelete: SetNull)
+  /// Agente líder del área en la misión (referencia blanda a `Agent`; nombrarlo NO le concede acceso, ADR 0007).
+  agenteLiderId    String?
+  /// Alcance aprobado de la participación (forma JSON versionable). Declarar participante NO concede acceso.
+  alcance          Json              @default("{}")
+  createdAt        DateTime          @default(now())
+
+  @@unique([workspaceId, misionId, orgUnitId])
+  @@index([workspaceId, misionId])
+}
+
+/// Vínculo de una misión a trabajo EXISTENTE (ADR 0016 D2): agrupa por REFERENCIA un `Objetivo` y/o una `Tarea` de un
+/// área. No redefine ni duplica el trabajo: cada objetivo/tarea conserva su `orgUnitId`, dueño local y autoridad
+/// `FUNCIONAL_PRINCIPAL`. La misión añade una capa de coordinación, nunca una segunda cadena de mando. No concede acceso.
+model MisionVinculo {
+  id          String            @id @default(cuid())
+  workspaceId String
+  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  misionId    String
+  mision      MisionTransversal @relation(fields: [misionId], references: [id], onDelete: Cascade)
+  objetivoId  String?
+  objetivo    Objetivo?         @relation(fields: [objetivoId], references: [id], onDelete: Cascade)
+  tareaId     String?
+  tarea       Tarea?            @relation(fields: [tareaId], references: [id], onDelete: Cascade)
+  createdAt   DateTime          @default(now())
+
+  @@index([workspaceId, misionId])
+  @@index([workspaceId, objetivoId])
+  @@index([workspaceId, tareaId])
 }
 
 // --- Gobierno de acciones (E6 · ADR 0013 D1-D4) ---
@@ -2726,30 +2853,30 @@ model VoiceCall {
 /// política", NO un plazo por defecto: no se inventan plazos legales ni se declara valor probatorio automático; la
 /// activación en producción queda gated por validación jurídica. Multi-tenant: toda consulta filtra por `workspaceId`.
 model GrabacionConfig {
-  id                   String   @id @default(cuid())
-  workspaceId          String
+  id                    String   @id @default(cuid())
+  workspaceId           String
   /// Empresa (OrgUnit tipo EMPRESA) dueña de la configuración. Referencia blanda.
-  empresaId            String
+  empresaId             String
   /// Habilita marcar/persistir referencias de audio de la llamada. OFF por defecto.
-  grabarAudio          Boolean  @default(false)
+  grabarAudio           Boolean  @default(false)
   /// Habilita persistir referencias de la transcripción. OFF por defecto (hoy la transcripción cruda nunca se persiste).
-  guardarTranscripcion Boolean  @default(false)
+  guardarTranscripcion  Boolean  @default(false)
   /// Habilita persistir el resumen de la llamada. OFF por defecto.
-  guardarResumen       Boolean  @default(false)
+  guardarResumen        Boolean  @default(false)
   /// Habilita persistir evidencia asociada a la llamada. OFF por defecto.
-  guardarEvidencia     Boolean  @default(false)
+  guardarEvidencia      Boolean  @default(false)
   /// Exige autorización (cuando corresponda) antes de grabar. ON por defecto (postura conservadora).
-  requiereAutorizacion Boolean  @default(true)
+  requiereAutorizacion  Boolean  @default(true)
   /// Finalidad declarada del tratamiento. Opcional; texto libre, sin declarar cumplimiento normativo.
-  finalidad            String?
+  finalidad             String?
   /// Plazo de conservación en días. null = pendiente de política (NO es un plazo por defecto ni legal).
-  retencionDias        Int?
+  retencionDias         Int?
   /// Roles del workspace que pueden acceder a la grabación. Vacío por defecto.
-  accesoRoles          String[] @default([])
+  accesoRoles           String[] @default([])
   /// Habilita la eliminación automática al vencer el plazo. OFF por defecto (no ejecuta borrados productivos aquí).
-  eliminacionAutomatica Boolean @default(false)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  eliminacionAutomatica Boolean  @default(false)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   @@unique([workspaceId, empresaId])
   @@index([workspaceId])

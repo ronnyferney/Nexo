@@ -38,6 +38,13 @@ export const AUDIT_ACTIONS = {
   /// Cambio de los controles configurables de grabación/retención de una empresa (E14 · ADR 0015 D3/D4). Actor humano,
   /// empresa y, en metadata, las banderas anterior/nuevo (cambio sensible que Jurídica debe poder auditar).
   GRABACION_CONFIG_MODIFICADA: 'GRABACION_CONFIG_MODIFICADA',
+  /// Ciclo de vida de una misión transversal (E3 · ADR 0016). Crear/autorizar/detener/cancelar lo hace SIEMPRE un
+  /// humano (nunca un agente): el actor es `USER`, el target la `MisionTransversal` y, en metadata, el detalle
+  /// (coordinador, dueño, motivo, estado previo/nuevo). Coordinar/vincular/participar NO concede acceso (ADR 0007).
+  MISION_CREADA: 'MISION_CREADA',
+  MISION_AUTORIZADA: 'MISION_AUTORIZADA',
+  MISION_DETENIDA: 'MISION_DETENIDA',
+  MISION_CANCELADA: 'MISION_CANCELADA',
 } as const;
 
 /** Código de acción auditable. Texto abierto (`string`): se recomienda usar las constantes de `AUDIT_ACTIONS`. */

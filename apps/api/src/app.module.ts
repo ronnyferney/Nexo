@@ -37,6 +37,7 @@ import { KnowledgeModule } from './modules/knowledge/knowledge.module';
 import { CollaborationModule } from './modules/collaboration/collaboration.module';
 import { CommunityModule } from './modules/community/community.module';
 import { MessagingModule } from './modules/messaging/messaging.module';
+import { MissionsModule } from './modules/missions/missions.module';
 import { McpServerModule } from './modules/mcp-server/mcp-server.module';
 import { OAuthModule } from './modules/oauth/oauth.module';
 import { ResultsModule } from './modules/results/results.module';
@@ -108,6 +109,7 @@ import { WorkspacesModule } from './modules/workspaces/workspaces.module';
     ResultsModule,
     ConsolasModule,
     MessagingModule,
+    MissionsModule,
     CollaborationModule,
     CommunityModule,
     RoutinesModule,
