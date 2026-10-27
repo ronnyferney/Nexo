@@ -5,35 +5,42 @@ import { filter, map } from 'rxjs';
 import { AuthService } from '../core/auth.service';
 import { PlatformApi } from '../core/platform.api';
 import { IconComponent } from '../shared/icon.component';
-import { activeItemPath, filterGroups, NAV_GROUPS, normalize, visibleGroups } from './sidebar.util';
+import {
+  activeGroupId,
+  activeItemPath,
+  filterGroups,
+  NAV_GROUPS,
+  normalize,
+  visibleGroups,
+  type NavGroup,
+} from './sidebar.util';
 
 export type { NavGroup, NavItem } from './sidebar.util';
 
-/** Clave de `localStorage` donde se recuerda si el menú está plegado a iconos (por visor). */
-const RAIL_STORE_KEY = 'nexo.sidebar.rail';
+/** Clave de `localStorage` donde se recuerda si el panel secundario está oculto (por visor). */
+const PANEL_STORE_KEY = 'nexo.sidebar.panelHidden';
 
-function loadRail(): boolean {
+function loadPanelHidden(): boolean {
   try {
-    return localStorage.getItem(RAIL_STORE_KEY) === '1';
+    return localStorage.getItem(PANEL_STORE_KEY) === '1';
   } catch {
     return false;
   }
 }
-function saveRail(rail: boolean): void {
+function savePanelHidden(hidden: boolean): void {
   try {
-    localStorage.setItem(RAIL_STORE_KEY, rail ? '1' : '0');
+    localStorage.setItem(PANEL_STORE_KEY, hidden ? '1' : '0');
   } catch {
     /* almacenamiento no disponible: no se recuerda, pero la UI sigue funcionando */
   }
 }
 
 /**
- * Menú lateral único y expandible (patrón de apps modernas tipo Fireflies), con los colores corporativos de NEXO:
- *  - Arriba: conmutador de usuario/workspace y botón de plegar/expandir.
- *  - Lista SEGMENTADA por secciones (con etiqueta sutil y divisores), operativas arriba.
- *  - Pie fijo: utilidades (Integraciones, Ajustes, Plataforma).
- *  - Plegable a solo iconos; el estado se recuerda por visor.
- *  - Menú de usuario (cuenta/workspace/salir) desde el conmutador superior.
+ * Navegación lateral de DOS NIVELES (patrón de apps modernas tipo Fireflies), con los colores corporativos de NEXO:
+ *  - **Riel** angosto de iconos: un icono por ÁREA principal (grupo). Debajo, separado, las utilidades de pie
+ *    (Conecta tus apps, Conecta tu IA, Ajustes); al fondo, el usuario (con desplegable de cuenta y cierre de sesión).
+ *  - **Panel secundario contextual**: muestra los HIJOS del área activa (o las coincidencias de la búsqueda), con su
+ *    título. Se puede ocultar para ganar espacio (recordado por visor).
  *
  * Presentación pura sobre el estado de sesión y la URL; la arquitectura de información vive en `sidebar.util.ts`.
  * No cambia rutas ni permisos.
@@ -44,203 +51,205 @@ function saveRail(rail: boolean): void {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [RouterLink, IconComponent],
   template: `
-    <aside class="sb" [class.rail]="rail()">
-      <!-- Cabecera: marca + plegar (el usuario va al pie) -->
-      <div class="top">
-        <a class="brand" routerLink="/" aria-label="Nexo: ir al inicio" title="Nexo">
+    <aside class="nav" [class.panel-hidden]="panelHidden()">
+      <!-- Nivel 1: riel de iconos (áreas principales + utilidades + usuario) -->
+      <div class="rail">
+        <a class="brand-ico" routerLink="/" aria-label="Nexo: ir al inicio" title="Nexo">
           <img class="insignia" src="brand/insignia.png" width="30" height="30" alt="" />
-          @if (!rail()) { <strong>Nexo</strong> }
         </a>
         <button
           type="button"
-          class="collapse"
-          [attr.aria-expanded]="!rail()"
-          [attr.aria-label]="rail() ? 'Expandir el menú' : 'Plegar el menú'"
-          [title]="rail() ? 'Expandir el menú' : 'Plegar el menú'"
-          (click)="toggleRail()"
+          class="rail-toggle"
+          [attr.aria-label]="panelHidden() ? 'Mostrar el panel' : 'Ocultar el panel'"
+          [title]="panelHidden() ? 'Mostrar el panel' : 'Ocultar el panel'"
+          (click)="togglePanel()"
         >
           <nx-icon name="sidebarToggle" [size]="16" />
         </button>
-      </div>
 
-      @if (!rail()) {
-        <div class="filter">
-          <nx-icon name="search" [size]="15" aria-hidden="true" />
-          <input
-            type="search"
-            [value]="query()"
-            (input)="query.set($any($event.target).value)"
-            placeholder="Buscar en el menú…"
-            aria-label="Buscar en el menú"
-          />
-          @if (query()) {
-            <button type="button" class="clear" title="Limpiar búsqueda" aria-label="Limpiar búsqueda" (click)="query.set('')">
-              <nx-icon name="x" [size]="14" />
+        <nav class="rail-areas" aria-label="Áreas">
+          @for (g of mainAreas(); track g.id) {
+            <button
+              type="button"
+              class="rail-ico area"
+              [class.active]="displayGroupId() === g.id"
+              [attr.aria-current]="displayGroupId() === g.id ? 'true' : null"
+              [attr.aria-label]="g.label"
+              [title]="g.label"
+              (click)="openArea(g)"
+            >
+              <nx-icon [name]="g.icon" [size]="19" />
             </button>
           }
+        </nav>
+
+        @if (footerAreas().length) {
+          <div class="rail-foot" role="group" aria-label="Utilidades">
+            @for (g of footerAreas(); track g.id) {
+              <button
+                type="button"
+                class="rail-ico foot"
+                [class.active]="displayGroupId() === g.id"
+                [attr.aria-current]="displayGroupId() === g.id ? 'true' : null"
+                [attr.aria-label]="g.label"
+                [title]="g.label"
+                (click)="openArea(g)"
+              >
+                <nx-icon [name]="g.icon" [size]="19" />
+              </button>
+            }
+          </div>
+        }
+
+        @if (auth.me(); as me) {
+          <button
+            type="button"
+            class="rail-user"
+            aria-haspopup="menu"
+            [attr.aria-expanded]="userOpen()"
+            [attr.aria-label]="'Menú de usuario: ' + me.name"
+            [title]="me.name"
+            (click)="toggleUser()"
+          >
+            <span class="avatar">{{ me.name.charAt(0) }}</span>
+          </button>
+        }
+      </div>
+
+      <!-- Nivel 2: panel secundario contextual (hijos del área activa) -->
+      @if (!panelHidden()) {
+        <div class="panel">
+          <header class="panel-head"><strong>{{ areaLabel() }}</strong></header>
+          <div class="filter">
+            <nx-icon name="search" [size]="15" aria-hidden="true" />
+            <input
+              type="search"
+              [value]="query()"
+              (input)="query.set($any($event.target).value)"
+              placeholder="Buscar en el menú…"
+              aria-label="Buscar en el menú"
+            />
+            @if (query()) {
+              <button type="button" class="clear" title="Limpiar búsqueda" aria-label="Limpiar búsqueda" (click)="query.set('')">
+                <nx-icon name="x" [size]="14" />
+              </button>
+            }
+          </div>
+          <nav class="panel-items" aria-label="Navegación principal">
+            @for (item of panelItems(); track item.path) {
+              <a
+                class="nav-link"
+                [routerLink]="item.path"
+                [class.active]="activeItem() === item.path"
+                [attr.aria-current]="activeItem() === item.path ? 'page' : null"
+                [title]="item.label"
+              >
+                <nx-icon [name]="item.icon" /><span class="lbl">{{ item.label }}</span>
+              </a>
+            } @empty {
+              <p class="empty">Sin resultados.</p>
+            }
+          </nav>
         </div>
       }
 
-      <!-- Secciones operativas -->
-      <nav class="main" aria-label="Navegación principal">
-        @for (group of mainGroups(); track group.id) {
-          @if (!group.pinned && !rail() && !filtering()) {
-            <p class="section">{{ group.label }}</p>
-          }
-          <div class="grp" role="group" [attr.aria-label]="group.label">
-            @for (item of group.items; track item.path) {
-              <a
-                class="nav-link"
-                [routerLink]="item.path"
-                [class.active]="activeItem() === item.path"
-                [attr.aria-current]="activeItem() === item.path ? 'page' : null"
-                [title]="item.label"
-              >
-                <nx-icon [name]="item.icon" />@if (!rail()) { <span class="lbl">{{ item.label }}</span> }
-              </a>
-            }
-          </div>
-        } @empty {
-          @if (footerGroups().length === 0) { <p class="empty">Sin resultados.</p> }
-        }
-      </nav>
-
-      <div class="spacer"></div>
-
-      <!-- Pie: utilidades (Integraciones, Ajustes, Plataforma) -->
-      @if (footerGroups().length) {
-        <nav class="footer-nav" aria-label="Utilidades">
-          @for (group of footerGroups(); track group.id) {
-            @for (item of group.items; track item.path) {
-              <a
-                class="nav-link"
-                [routerLink]="item.path"
-                [class.active]="activeItem() === item.path"
-                [attr.aria-current]="activeItem() === item.path ? 'page' : null"
-                [title]="item.label"
-              >
-                <nx-icon [name]="item.icon" />@if (!rail()) { <span class="lbl">{{ item.label }}</span> }
-              </a>
-            }
-          }
-        </nav>
-      }
-
-      <!-- Usuario al pie: conmutador con desplegable (cuenta/ajustes + cerrar sesión) -->
-      @if (auth.me(); as me) {
-        <button
-          type="button"
-          class="user-switch foot-user"
-          aria-haspopup="menu"
-          [attr.aria-expanded]="userOpen()"
-          [attr.aria-label]="'Menú de usuario: ' + me.name"
-          [title]="me.name"
-          (click)="toggleUser()"
-        >
-          <span class="avatar">{{ me.name.charAt(0) }}</span>
-          @if (!rail()) {
-            <span class="who"><strong>{{ me.name }}</strong><small>{{ workspaceName() }}</small></span>
-            <nx-icon class="chev" name="chevronUp" [size]="14" />
-          }
-        </button>
-      }
-
-      <!-- Menú de usuario (cuenta / workspace / salir) -->
+      <!-- Menú de usuario, anclado sobre el riel: nombre+correo, organizaciones, cuenta, administración, salir -->
       @if (userOpen() && auth.me(); as me) {
         <div class="backdrop" (click)="closeUser()"></div>
         <div class="user-menu" role="menu" aria-label="Menú de usuario">
           <div class="u-head">
-            <span class="avatar lg">{{ me.name.charAt(0) }}</span>
-            <div class="u-who"><strong>{{ me.name }}</strong><small>{{ workspaceName() }}</small></div>
+            <strong>{{ me.name }}</strong>
+            <small>{{ me.email }}</small>
           </div>
-          @if (me.memberships.length > 1) {
-            <label class="u-ws">
-              <span>Workspace</span>
-              <select aria-label="Cambiar de workspace" [value]="me.activeWorkspaceId" (change)="switch($any($event.target).value)">
-                @for (m of me.memberships; track m.workspace.id) {
-                  <option [value]="m.workspace.id">{{ m.workspace.name }}</option>
-                }
-              </select>
-            </label>
+          <div class="u-sec" role="group" aria-label="Organizaciones">
+            @for (m of me.memberships; track m.workspace.id) {
+              <button
+                type="button"
+                class="u-item"
+                role="menuitemradio"
+                [attr.aria-checked]="m.workspace.id === me.activeWorkspaceId"
+                (click)="switchFrom(m.workspace.id, me.activeWorkspaceId)"
+              >
+                <nx-icon [name]="m.workspace.id === me.activeWorkspaceId ? 'check' : 'building'" [size]="16" />{{ m.workspace.name }}
+              </button>
+            }
+          </div>
+          <div class="u-sec">
+            <a class="u-item" role="menuitem" routerLink="/account" (click)="closeUser()"><nx-icon name="user" [size]="16" />Perfil y cuenta</a>
+          </div>
+          @if (auth.isAdmin()) {
+            <div class="u-sec">
+              <a class="u-item" role="menuitem" routerLink="/ajustes" (click)="closeUser()"><nx-icon name="building" [size]="16" />Administración</a>
+              <a class="u-item" role="menuitem" routerLink="/admin/settings" (click)="closeUser()"><nx-icon name="settings" [size]="16" />Configuración</a>
+            </div>
           }
-          <a class="u-item" role="menuitem" routerLink="/account" (click)="closeUser()"><nx-icon name="settings" [size]="16" />Mi cuenta y ajustes</a>
-          <button type="button" class="u-item" role="menuitem" aria-label="Cerrar sesión" (click)="auth.logout()"><nx-icon name="logout" [size]="16" />Cerrar sesión</button>
+          <div class="u-sec">
+            <button type="button" class="u-item danger" role="menuitem" aria-label="Cerrar sesión" (click)="auth.logout()"><nx-icon name="logout" [size]="16" />Cerrar sesión</button>
+          </div>
         </div>
       }
     </aside>
   `,
   styles: `
     :host { display: contents; }
-    .sb { width: 248px; background: var(--brand-navy, #08102D); color: #c9d1ec; display: flex; flex-direction: column; padding: 12px 12px 14px; border-right: 1px solid rgba(255, 255, 255, 0.08); position: sticky; top: 0; height: 100vh; flex-shrink: 0; transition: width 0.16s ease; }
-    .sb.rail { width: 68px; padding: 12px 10px 14px; }
-    .sb::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(120% 40% at 0% 0%, rgba(18, 91, 234, 0.14), transparent 70%); }
-    .sb > * { position: relative; z-index: 1; }
-    .sb :focus-visible { outline-color: var(--brand-cyan, #16C7F4); }
-    /* Cabecera */
-    .top { display: flex; align-items: center; gap: 8px; padding: 2px 2px 12px; }
-    .user-switch { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; padding: 6px 8px; border: 0; border-radius: 10px; background: transparent; color: #fff; font: inherit; cursor: pointer; text-align: left; }
-    .user-switch:hover { background: rgba(255, 255, 255, 0.06); }
-    .brand { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; color: #fff; padding: 2px 6px; }
-    .brand strong { font-size: 16px; font-weight: 800; }
-    .insignia { width: 30px; height: 30px; display: block; flex-shrink: 0; }
-    .avatar { width: 30px; height: 30px; border-radius: 9px; background: #16307a; box-shadow: 0 0 0 2px rgba(22, 199, 244, 0.35); color: #fff; display: grid; place-items: center; font-weight: 700; text-transform: uppercase; font-size: 13px; flex-shrink: 0; }
-    .who { flex: 1; min-width: 0; }
-    .who strong { display: block; color: #fff; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .who small { display: block; color: #a3acd3; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .user-switch .chev { color: #8f98c2; flex-shrink: 0; }
-    /* Usuario anclado al pie como tarjeta de cuenta limpia (sin recortes). */
-    .foot-user { width: 100%; margin-top: 10px; padding: 9px 10px; gap: 10px; border-radius: 11px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.08); }
-    .foot-user:hover { background: rgba(255, 255, 255, 0.1); border-color: rgba(22, 199, 244, 0.25); }
-    .foot-user .who strong { font-size: 13px; }
-    .foot-user .chev { margin-left: auto; }
-    .foot-user:focus-visible { outline: 2px solid var(--brand-cyan, #16C7F4); outline-offset: 1px; }
-    .sb.rail .foot-user { justify-content: center; padding: 9px 0; }
-    .collapse { flex-shrink: 0; display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 8px; background: rgba(255, 255, 255, 0.05); color: #a3acd3; cursor: pointer; }
-    .collapse:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
-    .sb.rail .top { flex-direction: column; gap: 10px; }
-    .sb.rail .user-switch, .sb.rail .brand { flex: none; justify-content: center; padding: 4px; }
-    /* Filtro */
-    .filter { position: relative; display: flex; align-items: center; margin-bottom: 8px; }
+    .nav { display: flex; position: sticky; top: 0; height: 100vh; flex-shrink: 0; }
+    /* Riel (nivel 1): azul profundo corporativo. */
+    .rail { width: 60px; background: var(--brand-navy, #08102D); display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px 8px; border-right: 1px solid rgba(255, 255, 255, 0.08); }
+    .rail :focus-visible { outline-color: var(--brand-cyan, #16C7F4); }
+    .brand-ico { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; }
+    .insignia { width: 30px; height: 30px; display: block; }
+    .rail-toggle { display: grid; place-items: center; width: 30px; height: 26px; margin-bottom: 4px; border: 0; border-radius: 7px; background: rgba(255, 255, 255, 0.05); color: #a3acd3; cursor: pointer; }
+    .rail-toggle:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+    .rail-areas { display: flex; flex-direction: column; gap: 4px; overflow-y: auto; overflow-x: hidden; flex: 1; width: 100%; align-items: center; }
+    .rail-ico { position: relative; display: grid; place-items: center; width: 42px; height: 42px; border: 0; border-radius: 11px; background: transparent; color: #aeb6da; cursor: pointer; }
+    .rail-ico:hover { background: rgba(255, 255, 255, 0.07); color: #fff; }
+    .rail-ico.active { background: rgba(18, 91, 234, 0.3); color: #fff; box-shadow: inset 0 0 0 1px rgba(22, 199, 244, 0.22); }
+    .rail-ico.active nx-icon { color: var(--brand-cyan, #16C7F4); }
+    .rail-ico.active::before { content: ''; position: absolute; left: -8px; top: 9px; bottom: 9px; width: 3px; border-radius: 0 3px 3px 0; background: var(--brand-gradient, linear-gradient(135deg, #125BEA, #16C7F4, #8550E9)); }
+    .rail-foot { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 4px; padding-top: 6px; margin-top: 2px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+    .rail-user { width: 100%; display: flex; justify-content: center; padding-top: 8px; margin-top: 4px; border-top: 1px solid rgba(255, 255, 255, 0.08); border-radius: 0; background: transparent; border-left: 0; border-right: 0; border-bottom: 0; cursor: pointer; }
+    .avatar { width: 32px; height: 32px; border-radius: 50%; background: #16307a; box-shadow: 0 0 0 2px rgba(22, 199, 244, 0.35); color: #fff; display: grid; place-items: center; font-weight: 700; text-transform: uppercase; font-size: 13px; }
+    /* Panel secundario (nivel 2). */
+    .panel { width: 236px; background: #0b1430; color: #c9d1ec; display: flex; flex-direction: column; padding: 14px 12px; border-right: 1px solid rgba(255, 255, 255, 0.08); }
+    .panel :focus-visible { outline-color: var(--brand-cyan, #16C7F4); }
+    .panel-head { padding: 4px 8px 12px; }
+    .panel-head strong { color: #fff; font-size: 15px; font-weight: 800; }
+    .filter { position: relative; display: flex; align-items: center; margin-bottom: 10px; }
     .filter nx-icon { position: absolute; left: 10px; color: #8f98c2; pointer-events: none; }
     .filter input { width: 100%; background: #0e1838; color: #fff; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 9px; padding: 8px 30px 8px 32px; font: inherit; font-size: 13px; }
     .filter input::placeholder { color: #8f98c2; }
     .filter input:focus-visible { border-color: var(--brand-cyan, #16C7F4); outline: none; }
     .filter .clear { position: absolute; right: 6px; display: grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: 6px; background: transparent; color: #a3acd3; cursor: pointer; }
     .filter .clear:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
-    /* Secciones */
-    .main { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; overflow-x: hidden; }
-    .grp { display: flex; flex-direction: column; gap: 2px; }
-    .section { margin: 12px 12px 4px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #6f78a2; }
-    .section:first-of-type { margin-top: 2px; }
+    .panel-items { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
     a.nav-link { position: relative; display: flex; gap: 11px; align-items: center; padding: 9px 12px; border-radius: 9px; color: #c0c7e3; font-weight: 500; white-space: nowrap; }
     a.nav-link .lbl { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
     a.nav-link:hover { background: rgba(255, 255, 255, 0.06); color: #fff; }
     a.nav-link.active { background: rgba(18, 91, 234, 0.28); color: #fff; box-shadow: inset 0 0 0 1px rgba(22, 199, 244, 0.18); }
     a.nav-link.active::before { content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: var(--brand-gradient, linear-gradient(135deg, #125BEA, #16C7F4, #8550E9)); }
     a.nav-link.active nx-icon { color: var(--brand-cyan, #16C7F4); }
-    .sb.rail a.nav-link { justify-content: center; padding: 10px 0; }
     .empty { color: #8f98c2; font-size: 12.5px; padding: 8px 12px; }
-    .spacer { flex: 1; min-height: 8px; }
-    /* Pie */
-    .footer-nav { display: flex; flex-direction: column; gap: 2px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
-    /* Menú de usuario */
+    /* Menú de usuario desplegable (sobre el riel, abajo a la izquierda). */
     .backdrop { position: fixed; inset: 0; z-index: 40; }
-    .user-menu { position: fixed; left: 14px; bottom: 76px; z-index: 41; width: 250px; background: #0e1838; color: #c9d1ec; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px; padding: 10px; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; gap: 4px; }
-    .u-head { display: flex; gap: 10px; align-items: center; padding: 6px 8px 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); margin-bottom: 4px; }
-    .avatar.lg { width: 38px; height: 38px; font-size: 15px; border-radius: 50%; }
-    .u-who { min-width: 0; }
-    .u-who strong { display: block; color: #fff; font-size: 13.5px; }
-    .u-who small { display: block; color: #a3acd3; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .u-ws { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px 8px; }
-    .u-ws span { font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #8f98c2; }
-    .u-ws select { background: #111c45; color: #fff; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 8px; padding: 7px; }
-    .u-item { display: flex; gap: 10px; align-items: center; padding: 9px 10px; border: 0; border-radius: 8px; background: transparent; color: #c0c7e3; font: inherit; font-size: 13px; text-align: left; cursor: pointer; width: 100%; }
+    .user-menu { position: fixed; left: 68px; bottom: 14px; z-index: 41; width: 250px; background: #0e1838; color: #c9d1ec; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px; padding: 10px; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; gap: 4px; }
+    .u-head { padding: 4px 10px 10px; min-width: 0; }
+    .u-head strong { display: block; color: #fff; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .u-head small { display: block; color: #a3acd3; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .u-sec { display: flex; flex-direction: column; gap: 2px; padding: 6px 0; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+    .u-item { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; color: #c0c7e3; font: inherit; font-size: 13px; text-align: left; cursor: pointer; width: 100%; }
+    .u-item nx-icon { color: #8f98c2; flex-shrink: 0; }
     .u-item:hover { background: rgba(255, 255, 255, 0.07); color: #fff; }
+    .u-item[aria-checked='true'] { color: #fff; }
+    .u-item[aria-checked='true'] nx-icon { color: var(--brand-cyan, #16C7F4); }
+    .u-item.danger:hover { background: rgba(224, 49, 79, 0.14); color: #ff8aa0; }
+    .u-item.danger:hover nx-icon { color: #ff8aa0; }
     @media (max-width: 900px) {
-      .sb, .sb.rail { width: 100%; height: auto; position: relative; border-right: 0; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
-      .sb.rail .top { flex-direction: row; }
-      .sb.rail a.nav-link { justify-content: flex-start; padding: 9px 12px; }
-      .main { max-height: 50vh; }
+      .nav { position: relative; height: auto; width: 100%; flex-direction: column; }
+      .rail { flex-direction: row; width: 100%; height: auto; border-right: 0; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
+      .rail-areas, .rail-foot { flex-direction: row; }
+      .rail-foot, .rail-user { border-top: 0; border-left: 1px solid rgba(255, 255, 255, 0.08); padding-top: 0; padding-left: 6px; margin-left: 2px; }
+      .rail-ico.active::before { display: none; }
+      .panel, .nav.panel-hidden .panel { width: 100%; border-right: 0; max-height: 50vh; }
       .user-menu { left: 12px; right: 12px; width: auto; }
     }
   `,
@@ -257,29 +266,41 @@ export class SidebarComponent {
     { initialValue: this.router.url },
   );
   protected readonly query = signal('');
-  protected readonly rail = signal<boolean>(loadRail());
+  protected readonly panelHidden = signal<boolean>(loadPanelHidden());
   protected readonly userOpen = signal(false);
 
-  /** Grupos visibles según el rol. */
-  private readonly visible = computed(() =>
+  /** Áreas visibles según el rol. */
+  private readonly areas = computed(() =>
     visibleGroups(NAV_GROUPS, { isAdmin: this.auth.isAdmin(), isPlatformAdmin: !!this.platform.isPlatformAdmin() }),
   );
-  protected readonly activeItem = computed(() => activeItemPath(this.visible(), this.url()));
+  /** Áreas principales (riel superior) y de pie (utilidades). */
+  protected readonly mainAreas = computed(() => this.areas().filter((g) => !g.footer));
+  protected readonly footerAreas = computed(() => this.areas().filter((g) => g.footer));
+  protected readonly activeItem = computed(() => activeItemPath(this.areas(), this.url()));
+  protected readonly displayGroupId = computed(() => activeGroupId(this.areas(), this.url()) ?? this.mainAreas()[0]?.id ?? '');
   protected readonly filtering = computed(() => normalize(this.query()) !== '');
-  /** Secciones operativas (no de pie), filtradas por la búsqueda. */
-  protected readonly mainGroups = computed(() =>
-    filterGroups(this.visible().filter((g) => !g.footer), this.query()),
-  );
-  /** Secciones de pie (utilidades), filtradas por la búsqueda. */
-  protected readonly footerGroups = computed(() =>
-    filterGroups(this.visible().filter((g) => g.footer), this.query()),
-  );
+  /** Título del panel: nombre del área activa, o «Resultados» durante la búsqueda. */
+  protected readonly areaLabel = computed(() => {
+    if (this.filtering()) return 'Resultados';
+    return this.areas().find((g) => g.id === this.displayGroupId())?.label ?? '';
+  });
+  /** Hijos del panel: en búsqueda, todas las coincidencias; si no, los del área activa. */
+  protected readonly panelItems = computed(() => {
+    if (this.filtering()) return filterGroups(this.areas(), this.query()).flatMap((g) => g.items);
+    return this.areas().find((g) => g.id === this.displayGroupId())?.items ?? [];
+  });
 
-  protected toggleRail(): void {
-    const next = !this.rail();
-    this.rail.set(next);
-    if (next) this.query.set('');
-    saveRail(next);
+  /** Abre un área: navega a su primer hijo y limpia la búsqueda. El panel pasa a mostrar sus hijos. */
+  protected openArea(g: NavGroup): void {
+    this.query.set('');
+    const first = g.items[0];
+    if (first) void this.router.navigateByUrl(first.path);
+  }
+
+  protected togglePanel(): void {
+    const next = !this.panelHidden();
+    this.panelHidden.set(next);
+    savePanelHidden(next);
   }
   protected toggleUser(): void {
     this.userOpen.update((v) => !v);
@@ -293,7 +314,12 @@ export class SidebarComponent {
     return me?.memberships.find((m) => m.workspace.id === me.activeWorkspaceId)?.workspace.name ?? '';
   }
 
-  async switch(id: string) {
+  /** Cambia de organización (workspace); si ya es la activa, solo cierra el menú. */
+  async switchFrom(id: string, activeId: string) {
+    if (id === activeId) {
+      this.closeUser();
+      return;
+    }
     await this.auth.switchWorkspace(id);
     location.reload();
   }

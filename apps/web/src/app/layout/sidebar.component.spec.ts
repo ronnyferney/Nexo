@@ -15,20 +15,24 @@ function makeAuth() {
   };
 }
 
-describe('SidebarComponent (menú único segmentado con pie)', () => {
+describe('SidebarComponent (dos niveles: riel + panel contextual)', () => {
   let fixture: ComponentFixture<SidebarComponent>;
   let el: HTMLElement;
   let auth: ReturnType<typeof makeAuth>;
   let platform: { isPlatformAdmin: ReturnType<typeof signal<boolean>> };
 
-  const links = () => el.querySelectorAll<HTMLAnchorElement>('a.nav-link');
-  const paths = () => [...links()].map((a) => a.getAttribute('href') ?? '');
-  const sections = () => el.querySelectorAll<HTMLElement>('.main p.section');
-  const footerPaths = () => [...el.querySelectorAll<HTMLAnchorElement>('.footer-nav a.nav-link')].map((a) => a.getAttribute('href') ?? '');
+  const mainAreas = () => el.querySelectorAll<HTMLButtonElement>('.rail .rail-ico.area');
+  const footAreas = () => el.querySelectorAll<HTMLButtonElement>('.rail .rail-ico.foot');
+  const panelLinks = () => el.querySelectorAll<HTMLAnchorElement>('.panel a.nav-link');
+  const panelPaths = () => [...panelLinks()].map((a) => a.getAttribute('href') ?? '');
   const search = (text: string) => {
     const input = el.querySelector('.filter input') as HTMLInputElement;
     input.value = text;
     input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+  };
+  const openUser = () => {
+    (el.querySelector('.rail-user') as HTMLButtonElement).click();
     fixture.detectChanges();
   };
 
@@ -53,85 +57,75 @@ describe('SidebarComponent (menú único segmentado con pie)', () => {
     fixture.detectChanges();
   });
 
-  it('renderiza la marca, el filtro y la navegación principal accesibles', () => {
-    expect(el.querySelector('.brand')?.getAttribute('aria-label')).toContain('Nexo');
-    expect(el.querySelector('.main')?.getAttribute('aria-label')).toBe('Navegación principal');
+  it('renderiza el riel, la marca, el panel y el filtro accesibles', () => {
+    expect(el.querySelector('.brand-ico')?.getAttribute('aria-label')).toContain('Nexo');
+    expect(el.querySelector('.panel nav')?.getAttribute('aria-label')).toBe('Navegación principal');
     expect(el.querySelector('.filter input')?.getAttribute('aria-label')).toBe('Buscar en el menú');
+    expect(el.querySelector('.rail-areas')?.getAttribute('aria-label')).toBe('Áreas');
   });
 
-  it('un VIEWER ve los 24 enlaces comunes y ninguna ruta de admin/plataforma', () => {
-    expect(links().length).toBe(24);
-    expect(paths().some((p) => p.startsWith('/admin'))).toBeFalse();
-    expect(paths().some((p) => p.startsWith('/platform'))).toBeFalse();
+  it('un VIEWER ve 6 áreas principales y 2 utilidades en el riel; ninguna ruta de admin/plataforma en el panel', () => {
+    // home, work, agents, comms, governance, finance (org admin oculta).
+    expect(mainAreas().length).toBe(6);
+    // utilidades: Conecta tus apps + Ajustes (Conecta tu IA es admin).
+    expect(footAreas().length).toBe(2);
+    search('políticas');
+    expect(panelPaths().some((p) => p.startsWith('/admin'))).toBeFalse();
   });
 
-  it('segmenta en secciones operativas y ancla las utilidades al pie (Integraciones)', () => {
-    const labels = [...sections()].map((p) => p.textContent?.trim());
-    expect(labels).toContain('Agentes');
-    // work, agents, comms, governance, finance (home fijada; org/settings/plataforma ocultas al VIEWER).
-    expect(sections().length).toBe(5);
-    // El pie para VIEWER: «Conecta tus apps» y «Ajustes» (Conecta tu IA es admin).
-    expect(footerPaths()).toEqual(['/integrations', '/ajustes']);
-  });
-
-  it('pliega a solo iconos: oculta filtro, etiquetas y textos; mantiene los enlaces', () => {
-    const toggle = el.querySelector('.collapse') as HTMLButtonElement;
-    expect(el.querySelector('.sb.rail')).toBeNull();
-    toggle.click();
-    fixture.detectChanges();
-    expect(el.querySelector('.sb.rail')).not.toBeNull();
-    expect(el.querySelector('.filter')).toBeNull();
-    expect(sections().length).toBe(0);
-    expect(el.querySelector('a.nav-link .lbl')).toBeNull();
-    expect(links().length).toBe(24);
-  });
-
-  it('marca el ítem activo según la ruta con aria-current (ruta inicial «/»)', () => {
-    const active = el.querySelector('a.nav-link.active');
+  it('el panel muestra el área activa y marca el ítem activo con aria-current (ruta inicial «/»)', () => {
+    const active = el.querySelector('.panel a.nav-link.active');
     expect(active?.getAttribute('aria-current')).toBe('page');
     expect(active?.getAttribute('href')).toBe('/');
   });
 
-  it('filtra en todo el menú y muestra el estado vacío sin coincidencias', () => {
+  it('busca en todas las áreas y muestra el estado vacío sin coincidencias', () => {
     search('skills');
-    expect(paths()).toEqual(['/skills']);
+    expect(panelPaths()).toEqual(['/skills']);
+    expect(el.querySelector('.panel-head strong')?.textContent).toContain('Resultados');
     search('xyz-no-existe');
-    expect(links().length).toBe(0);
-    expect(el.querySelector('.main .empty')).not.toBeNull();
+    expect(panelLinks().length).toBe(0);
+    expect(el.querySelector('.panel .empty')).not.toBeNull();
   });
 
-  it('muestra rutas de administración y el pie de 3 utilidades cuando el usuario es admin', () => {
+  it('oculta y muestra el panel secundario (solo riel)', () => {
+    expect(el.querySelector('.panel')).not.toBeNull();
+    (el.querySelector('.rail-toggle') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(el.querySelector('.panel')).toBeNull();
+    expect(el.querySelector('.nav.panel-hidden')).not.toBeNull();
+  });
+
+  it('un admin ve 7 áreas principales (incluye Organización) y 3 utilidades', () => {
     auth.isAdmin.set(true);
     fixture.detectChanges();
-    expect(paths()).toContain('/admin/politicas');
-    // Pie de admin: exactamente las 3 utilidades (Conecta tus apps, Conecta tu IA, Ajustes).
-    expect(footerPaths()).toEqual(['/integrations', '/admin/providers', '/ajustes']);
-    // La configuración detallada ya NO cuelga del menú (vive en el hub /ajustes).
-    expect(paths()).not.toContain('/admin/settings');
-    expect(paths().some((p) => p.startsWith('/platform'))).toBeFalse();
+    expect(mainAreas().length).toBe(7);
+    expect(footAreas().length).toBe(3);
+    search('políticas');
+    expect(panelPaths()).toContain('/admin/politicas');
   });
 
-  it('la plataforma ya no aparece en el menú (se movió al hub) ni siquiera para admin de plataforma', () => {
-    platform.isPlatformAdmin.set(true);
-    fixture.detectChanges();
-    expect(paths().some((p) => p.startsWith('/platform'))).toBeFalse();
-    expect(footerPaths()).toContain('/ajustes');
-  });
-
-  it('abre el menú de usuario desde el conmutador superior y muestra nombre/workspace', () => {
-    auth.me.set({ name: 'Ana', activeWorkspaceId: 'w1', memberships: [{ workspace: { id: 'w1', name: 'Acme' } }] });
+  it('el menú de usuario muestra nombre y correo, y las organizaciones como opciones', () => {
+    auth.me.set({
+      name: 'Ana Pérez',
+      email: 'ana@acme.co',
+      activeWorkspaceId: 'w1',
+      memberships: [{ workspace: { id: 'w1', name: 'Acme' } }],
+    });
     fixture.detectChanges();
     expect(el.querySelector('.user-menu')).toBeNull();
-    (el.querySelector('.user-switch') as HTMLButtonElement).click();
-    fixture.detectChanges();
-    expect(el.querySelector('.user-menu .u-who strong')?.textContent).toContain('Ana');
-    expect(el.querySelector('.user-menu .u-who small')?.textContent).toContain('Acme');
-    expect(el.querySelector('.user-menu select')).toBeNull();
+    openUser();
+    expect(el.querySelector('.user-menu .u-head strong')?.textContent).toContain('Ana Pérez');
+    expect(el.querySelector('.user-menu .u-head small')?.textContent).toContain('ana@acme.co');
+    // La organización activa aparece marcada (aria-checked).
+    const org = el.querySelector('.user-menu [role="menuitemradio"]');
+    expect(org?.getAttribute('aria-checked')).toBe('true');
   });
 
-  it('muestra el selector de workspace en el menú de usuario con más de una membresía', () => {
+  it('lista todas las organizaciones (workspaces) con más de una membresía', () => {
     auth.me.set({
       name: 'Ana',
+      email: 'ana@acme.co',
       activeWorkspaceId: 'w1',
       memberships: [
         { workspace: { id: 'w1', name: 'Acme' } },
@@ -139,18 +133,14 @@ describe('SidebarComponent (menú único segmentado con pie)', () => {
       ],
     });
     fixture.detectChanges();
-    (el.querySelector('.user-switch') as HTMLButtonElement).click();
-    fixture.detectChanges();
-    const select = el.querySelector('.user-menu select');
-    expect(select).not.toBeNull();
-    expect(select?.querySelectorAll('option').length).toBe(2);
+    openUser();
+    expect(el.querySelectorAll('.user-menu [role="menuitemradio"]').length).toBe(2);
   });
 
   it('cierra sesión desde el menú de usuario', () => {
-    auth.me.set({ name: 'Ana', activeWorkspaceId: 'w1', memberships: [{ workspace: { id: 'w1', name: 'Acme' } }] });
+    auth.me.set({ name: 'Ana', email: 'ana@acme.co', activeWorkspaceId: 'w1', memberships: [{ workspace: { id: 'w1', name: 'Acme' } }] });
     fixture.detectChanges();
-    (el.querySelector('.user-switch') as HTMLButtonElement).click();
-    fixture.detectChanges();
+    openUser();
     (el.querySelector('.user-menu button[aria-label="Cerrar sesión"]') as HTMLButtonElement).click();
     expect(auth.logout).toHaveBeenCalled();
   });
