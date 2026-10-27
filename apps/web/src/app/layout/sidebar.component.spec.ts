@@ -22,9 +22,8 @@ describe('SidebarComponent', () => {
   let platform: { isPlatformAdmin: ReturnType<typeof signal<boolean>> };
 
   const links = () => el.querySelectorAll<HTMLAnchorElement>('nav a.nav-link');
-  const groupHeads = () => el.querySelectorAll<HTMLButtonElement>('nav button.group-head');
-  const headByLabel = (label: string) =>
-    [...groupHeads()].find((b) => b.querySelector('.g-label')?.textContent?.trim() === label)!;
+  const sections = () => el.querySelectorAll<HTMLElement>('nav p.section');
+  const collapseBtn = () => el.querySelector('button.collapse') as HTMLButtonElement;
 
   beforeEach(async () => {
     try {
@@ -60,24 +59,32 @@ describe('SidebarComponent', () => {
     expect(paths.some((p) => p.startsWith('/platform'))).toBeFalse();
   });
 
-  it('presenta las secciones como encabezados colapsables accesibles', () => {
-    const heads = groupHeads();
+  it('muestra etiquetas de sección (grupos no fijados) en estado expandido', () => {
     // work, agents, comms, org, governance, finance (home está fijada; admin/plataforma ocultas al VIEWER).
-    expect(heads.length).toBe(6);
-    for (const h of heads) {
-      expect(h.getAttribute('aria-expanded')).toBeTruthy();
-      expect(h.getAttribute('aria-controls')).toBeTruthy();
-    }
+    const labels = [...sections()].map((p) => p.textContent?.trim());
+    expect(labels).toContain('Agentes');
+    expect(sections().length).toBe(6);
   });
 
-  it('pliega y despliega una sección al pulsar su encabezado', () => {
-    const head = headByLabel('Agentes');
-    expect(head.getAttribute('aria-expanded')).toBe('true');
-    expect(el.querySelector('#grp-items-agents')).not.toBeNull();
-    head.click();
+  it('pliega a riel de iconos: oculta filtro, etiquetas de sección y textos; mantiene los iconos/enlaces', () => {
+    const toggle = collapseBtn();
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(el.querySelector('.sidebar.rail')).toBeNull();
+
+    toggle.click();
     fixture.detectChanges();
-    expect(head.getAttribute('aria-expanded')).toBe('false');
-    expect(el.querySelector('#grp-items-agents')).toBeNull();
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(el.querySelector('.sidebar.rail')).not.toBeNull();
+    // En riel no hay filtro, ni etiquetas de sección, ni textos de ítem; los enlaces (iconos) siguen presentes.
+    expect(el.querySelector('.filter')).toBeNull();
+    expect(sections().length).toBe(0);
+    expect(el.querySelector('nav a.nav-link .lbl')).toBeNull();
+    expect(links().length).toBe(24);
+
+    toggle.click();
+    fixture.detectChanges();
+    expect(el.querySelector('.sidebar.rail')).toBeNull();
+    expect(el.querySelector('.filter')).not.toBeNull();
   });
 
   it('marca el ítem activo según la ruta con aria-current', () => {
@@ -105,9 +112,9 @@ describe('SidebarComponent', () => {
   it('muestra los enlaces de administración cuando el usuario es admin', () => {
     auth.isAdmin.set(true);
     fixture.detectChanges();
-    expect(headByLabel('Administración')).toBeDefined();
     const paths = [...links()].map((a) => a.getAttribute('href') ?? '');
     expect(paths).toContain('/admin/politicas');
+    expect(paths).toContain('/canales-externos');
     expect(paths.some((p) => p.startsWith('/platform'))).toBeFalse();
   });
 
