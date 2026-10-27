@@ -216,3 +216,17 @@ export function activeGroupId(groups: readonly NavGroup[], url: string): string 
   if (!active) return null;
   return groups.find((g) => g.items.some((i) => i.path === active))?.id ?? null;
 }
+
+/**
+ * Título de la sección activa para el toolbar superior: la etiqueta del ítem activo; si no hay ítem
+ * coincidente, la del grupo activo; y como respaldo, «Inicio».
+ */
+export function titleForUrl(groups: readonly NavGroup[], url: string): string {
+  const active = activeItemPath(groups, url);
+  if (active) {
+    const item = groups.flatMap((g) => g.items).find((i) => i.path === active);
+    if (item) return item.label;
+  }
+  const gid = activeGroupId(groups, url);
+  return groups.find((g) => g.id === gid)?.label ?? 'Inicio';
+}

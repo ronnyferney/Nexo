@@ -1,50 +1,99 @@
-import { Component } from '@angular/core';
+import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
+import { AuthService } from '../core/auth.service';
+import { PlatformApi } from '../core/platform.api';
+import { LayoutService } from './layout.service';
 import { TopbarComponent } from './topbar.component';
 
-@Component({
-  standalone: true,
-  imports: [TopbarComponent],
-  template: `
-    <nx-topbar [showMenu]="showMenu" (menuToggle)="toggled = toggled + 1">
-      <span class="title">Inicio</span>
-      <button actions class="btn">Acción</button>
-    </nx-topbar>
-  `,
-})
-class HostComponent {
-  showMenu = false;
-  toggled = 0;
+function makeAuth() {
+  return {
+    me: signal<any>(null),
+    isAdmin: signal(false),
+    logout: jasmine.createSpy('logout'),
+    switchWorkspace: jasmine.createSpy('switchWorkspace').and.resolveTo(undefined),
+  };
 }
 
-describe('TopbarComponent', () => {
-  let fixture: ComponentFixture<HostComponent>;
+describe('TopbarComponent (toolbar superior)', () => {
+  let fixture: ComponentFixture<TopbarComponent>;
   let el: HTMLElement;
+  let auth: ReturnType<typeof makeAuth>;
+  let layout: LayoutService;
+
+  const openUser = () => {
+    (el.querySelector('.t-user') as HTMLButtonElement).click();
+    fixture.detectChanges();
+  };
 
   beforeEach(async () => {
-    await TestBed.configureTestingModule({ imports: [HostComponent] }).compileComponents();
-    fixture = TestBed.createComponent(HostComponent);
+    try {
+      localStorage.clear();
+    } catch {
+      /* sin almacenamiento */
+    }
+    auth = makeAuth();
+    await TestBed.configureTestingModule({
+      imports: [TopbarComponent],
+      providers: [
+        provideRouter([]),
+        { provide: AuthService, useValue: auth },
+        { provide: PlatformApi, useValue: { isPlatformAdmin: signal(false) } },
+      ],
+    }).compileComponents();
+    layout = TestBed.inject(LayoutService);
+    fixture = TestBed.createComponent(TopbarComponent);
     el = fixture.nativeElement as HTMLElement;
     fixture.detectChanges();
   });
 
-  it('expone un landmark banner y proyecta contenido y acciones', () => {
-    expect(el.querySelector('header.topbar')?.getAttribute('role')).toBe('banner');
-    expect(el.querySelector('.topbar-start .title')?.textContent).toContain('Inicio');
-    expect(el.querySelector('.topbar-end .btn')?.textContent).toContain('Acción');
+  it('muestra el título de la sección activa y el buscador accesible', () => {
+    expect(el.querySelector('.t-title')?.textContent).toContain('Inicio');
+    expect(el.querySelector('.t-search input')?.getAttribute('aria-label')).toBe('Buscar en Nexo');
   });
 
-  it('no muestra el botón de menú por defecto', () => {
-    expect(el.querySelector('.menu-toggle')).toBeNull();
+  it('el botón de colapsar alterna el estado compartido del panel', () => {
+    expect(layout.panelHidden()).toBeFalse();
+    (el.querySelector('.t-toggle') as HTMLButtonElement).click();
+    expect(layout.panelHidden()).toBeTrue();
   });
 
-  it('muestra el botón de menú accesible y emite menuToggle al pulsarlo', () => {
-    fixture.componentInstance.showMenu = true;
+  it('el menú de usuario muestra nombre, correo y la organización activa marcada', () => {
+    auth.me.set({
+      name: 'Ana Pérez',
+      email: 'ana@acme.co',
+      activeWorkspaceId: 'w1',
+      memberships: [{ workspace: { id: 'w1', name: 'Acme' } }],
+    });
     fixture.detectChanges();
-    const btn = el.querySelector('.menu-toggle') as HTMLButtonElement;
-    expect(btn).not.toBeNull();
-    expect(btn.getAttribute('aria-label')).toBe('Abrir navegación');
-    btn.click();
-    expect(fixture.componentInstance.toggled).toBe(1);
+    expect(el.querySelector('.user-menu')).toBeNull();
+    openUser();
+    expect(el.querySelector('.user-menu .u-head strong')?.textContent).toContain('Ana Pérez');
+    expect(el.querySelector('.user-menu .u-head small')?.textContent).toContain('ana@acme.co');
+    const org = el.querySelector('.user-menu [role="menuitemradio"]');
+    expect(org?.getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('lista todas las organizaciones con más de una membresía', () => {
+    auth.me.set({
+      name: 'Ana',
+      email: 'ana@acme.co',
+      activeWorkspaceId: 'w1',
+      memberships: [
+        { workspace: { id: 'w1', name: 'Acme' } },
+        { workspace: { id: 'w2', name: 'Globex' } },
+      ],
+    });
+    fixture.detectChanges();
+    openUser();
+    expect(el.querySelectorAll('.user-menu [role="menuitemradio"]').length).toBe(2);
+  });
+
+  it('cierra sesión desde el menú de usuario', () => {
+    auth.me.set({ name: 'Ana', email: 'ana@acme.co', activeWorkspaceId: 'w1', memberships: [{ workspace: { id: 'w1', name: 'Acme' } }] });
+    fixture.detectChanges();
+    openUser();
+    (el.querySelector('.user-menu button[aria-label="Cerrar sesión"]') as HTMLButtonElement).click();
+    expect(auth.logout).toHaveBeenCalled();
   });
 });

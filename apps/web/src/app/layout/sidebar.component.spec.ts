@@ -31,10 +31,6 @@ describe('SidebarComponent (dos niveles: riel + panel contextual)', () => {
     input.dispatchEvent(new Event('input'));
     fixture.detectChanges();
   };
-  const openUser = () => {
-    (el.querySelector('.rail-user') as HTMLButtonElement).click();
-    fixture.detectChanges();
-  };
 
   beforeEach(async () => {
     try {
@@ -105,43 +101,10 @@ describe('SidebarComponent (dos niveles: riel + panel contextual)', () => {
     expect(panelPaths()).toContain('/admin/politicas');
   });
 
-  it('el menú de usuario muestra nombre y correo, y las organizaciones como opciones', () => {
-    auth.me.set({
-      name: 'Ana Pérez',
-      email: 'ana@acme.co',
-      activeWorkspaceId: 'w1',
-      memberships: [{ workspace: { id: 'w1', name: 'Acme' } }],
-    });
-    fixture.detectChanges();
-    expect(el.querySelector('.user-menu')).toBeNull();
-    openUser();
-    expect(el.querySelector('.user-menu .u-head strong')?.textContent).toContain('Ana Pérez');
-    expect(el.querySelector('.user-menu .u-head small')?.textContent).toContain('ana@acme.co');
-    // La organización activa aparece marcada (aria-checked).
-    const org = el.querySelector('.user-menu [role="menuitemradio"]');
-    expect(org?.getAttribute('aria-checked')).toBe('true');
-  });
-
-  it('lista todas las organizaciones (workspaces) con más de una membresía', () => {
-    auth.me.set({
-      name: 'Ana',
-      email: 'ana@acme.co',
-      activeWorkspaceId: 'w1',
-      memberships: [
-        { workspace: { id: 'w1', name: 'Acme' } },
-        { workspace: { id: 'w2', name: 'Globex' } },
-      ],
-    });
-    fixture.detectChanges();
-    openUser();
-    expect(el.querySelectorAll('.user-menu [role="menuitemradio"]').length).toBe(2);
-  });
-
-  it('cierra sesión desde el menú de usuario', () => {
+  it('el menú de usuario ya no vive en el riel (se movió al toolbar superior)', () => {
     auth.me.set({ name: 'Ana', email: 'ana@acme.co', activeWorkspaceId: 'w1', memberships: [{ workspace: { id: 'w1', name: 'Acme' } }] });
     fixture.detectChanges();
-    openUser();
-    (el.querySelector('.user-menu button[aria-label="Cerrar sesión"]') as HTMLButtonElement).click();
-    expect(auth.logout).toHaveBeenCalled();
+    expect(el.querySelector('.rail-user')).toBeNull();
+    expect(el.querySelector('.user-menu')).toBeNull();
   });
 });

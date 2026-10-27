@@ -3,6 +3,7 @@ import { RouterOutlet } from '@angular/router';
 import { AuthService } from '../core/auth.service';
 import { PlatformApi } from '../core/platform.api';
 import { SidebarComponent } from './sidebar.component';
+import { TopbarComponent } from './topbar.component';
 
 /**
  * Shell de la aplicación: compone el «chrome» persistente (barra lateral) con el área de contenido
@@ -11,14 +12,18 @@ import { SidebarComponent } from './sidebar.component';
  */
 @Component({
   selector: 'nx-shell',
-  imports: [RouterOutlet, SidebarComponent],
+  imports: [RouterOutlet, SidebarComponent, TopbarComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <nx-sidebar />
-    <main><router-outlet /></main>
+    <div class="col">
+      <nx-topbar />
+      <main><router-outlet /></main>
+    </div>
   `,
   styles: `
     :host { display: flex; min-height: 100vh; }
+    .col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
     main { flex: 1; min-width: 0; }
     @media (max-width: 900px) { :host { flex-direction: column; } }
   `,

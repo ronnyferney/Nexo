@@ -5,6 +5,7 @@ import { filter, map } from 'rxjs';
 import { AuthService } from '../core/auth.service';
 import { PlatformApi } from '../core/platform.api';
 import { IconComponent } from '../shared/icon.component';
+import { LayoutService } from './layout.service';
 import {
   activeGroupId,
   activeItemPath,
@@ -17,30 +18,12 @@ import {
 
 export type { NavGroup, NavItem } from './sidebar.util';
 
-/** Clave de `localStorage` donde se recuerda si el panel secundario está oculto (por visor). */
-const PANEL_STORE_KEY = 'nexo.sidebar.panelHidden';
-
-function loadPanelHidden(): boolean {
-  try {
-    return localStorage.getItem(PANEL_STORE_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-function savePanelHidden(hidden: boolean): void {
-  try {
-    localStorage.setItem(PANEL_STORE_KEY, hidden ? '1' : '0');
-  } catch {
-    /* almacenamiento no disponible: no se recuerda, pero la UI sigue funcionando */
-  }
-}
-
 /**
  * Navegación lateral de DOS NIVELES (patrón de apps modernas tipo Fireflies), con los colores corporativos de NEXO:
  *  - **Riel** angosto de iconos: un icono por ÁREA principal (grupo). Debajo, separado, las utilidades de pie
- *    (Conecta tus apps, Conecta tu IA, Ajustes); al fondo, el usuario (con desplegable de cuenta y cierre de sesión).
+ *    (Conecta tus apps, Conecta tu IA, Ajustes). El menú de usuario vive en el toolbar superior (`nx-topbar`).
  *  - **Panel secundario contextual**: muestra los HIJOS del área activa (o las coincidencias de la búsqueda), con su
- *    título. Se puede ocultar para ganar espacio (recordado por visor).
+ *    título. Se puede ocultar para ganar espacio (estado compartido en `LayoutService`, recordado por visor).
  *
  * Presentación pura sobre el estado de sesión y la URL; la arquitectura de información vive en `sidebar.util.ts`.
  * No cambia rutas ni permisos.
@@ -100,20 +83,6 @@ function savePanelHidden(hidden: boolean): void {
             }
           </div>
         }
-
-        @if (auth.me(); as me) {
-          <button
-            type="button"
-            class="rail-user"
-            aria-haspopup="menu"
-            [attr.aria-expanded]="userOpen()"
-            [attr.aria-label]="'Menú de usuario: ' + me.name"
-            [title]="me.name"
-            (click)="toggleUser()"
-          >
-            <span class="avatar">{{ me.name.charAt(0) }}</span>
-          </button>
-        }
       </div>
 
       <!-- Nivel 2: panel secundario contextual (hijos del área activa) -->
@@ -152,42 +121,6 @@ function savePanelHidden(hidden: boolean): void {
           </nav>
         </div>
       }
-
-      <!-- Menú de usuario, anclado sobre el riel: nombre+correo, organizaciones, cuenta, administración, salir -->
-      @if (userOpen() && auth.me(); as me) {
-        <div class="backdrop" (click)="closeUser()"></div>
-        <div class="user-menu" role="menu" aria-label="Menú de usuario">
-          <div class="u-head">
-            <strong>{{ me.name }}</strong>
-            <small>{{ me.email }}</small>
-          </div>
-          <div class="u-sec" role="group" aria-label="Organizaciones">
-            @for (m of me.memberships; track m.workspace.id) {
-              <button
-                type="button"
-                class="u-item"
-                role="menuitemradio"
-                [attr.aria-checked]="m.workspace.id === me.activeWorkspaceId"
-                (click)="switchFrom(m.workspace.id, me.activeWorkspaceId)"
-              >
-                <nx-icon [name]="m.workspace.id === me.activeWorkspaceId ? 'check' : 'building'" [size]="16" />{{ m.workspace.name }}
-              </button>
-            }
-          </div>
-          <div class="u-sec">
-            <a class="u-item" role="menuitem" routerLink="/account" (click)="closeUser()"><nx-icon name="user" [size]="16" />Perfil y cuenta</a>
-          </div>
-          @if (auth.isAdmin()) {
-            <div class="u-sec">
-              <a class="u-item" role="menuitem" routerLink="/ajustes" (click)="closeUser()"><nx-icon name="building" [size]="16" />Administración</a>
-              <a class="u-item" role="menuitem" routerLink="/admin/settings" (click)="closeUser()"><nx-icon name="settings" [size]="16" />Configuración</a>
-            </div>
-          }
-          <div class="u-sec">
-            <button type="button" class="u-item danger" role="menuitem" aria-label="Cerrar sesión" (click)="auth.logout()"><nx-icon name="logout" [size]="16" />Cerrar sesión</button>
-          </div>
-        </div>
-      }
     </aside>
   `,
   styles: `
@@ -207,8 +140,6 @@ function savePanelHidden(hidden: boolean): void {
     .rail-ico.active nx-icon { color: var(--brand-cyan, #16C7F4); }
     .rail-ico.active::before { content: ''; position: absolute; left: -8px; top: 9px; bottom: 9px; width: 3px; border-radius: 0 3px 3px 0; background: var(--brand-gradient, linear-gradient(135deg, #125BEA, #16C7F4, #8550E9)); }
     .rail-foot { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 4px; padding-top: 6px; margin-top: 2px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
-    .rail-user { width: 100%; display: flex; justify-content: center; padding-top: 8px; margin-top: 4px; border-top: 1px solid rgba(255, 255, 255, 0.08); border-radius: 0; background: transparent; border-left: 0; border-right: 0; border-bottom: 0; cursor: pointer; }
-    .avatar { width: 32px; height: 32px; border-radius: 50%; background: #16307a; box-shadow: 0 0 0 2px rgba(22, 199, 244, 0.35); color: #fff; display: grid; place-items: center; font-weight: 700; text-transform: uppercase; font-size: 13px; }
     /* Panel secundario (nivel 2). */
     .panel { width: 236px; background: #0b1430; color: #c9d1ec; display: flex; flex-direction: column; padding: 14px 12px; border-right: 1px solid rgba(255, 255, 255, 0.08); }
     .panel :focus-visible { outline-color: var(--brand-cyan, #16C7F4); }
@@ -229,28 +160,13 @@ function savePanelHidden(hidden: boolean): void {
     a.nav-link.active::before { content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 0 3px 3px 0; background: var(--brand-gradient, linear-gradient(135deg, #125BEA, #16C7F4, #8550E9)); }
     a.nav-link.active nx-icon { color: var(--brand-cyan, #16C7F4); }
     .empty { color: #8f98c2; font-size: 12.5px; padding: 8px 12px; }
-    /* Menú de usuario desplegable (sobre el riel, abajo a la izquierda). */
-    .backdrop { position: fixed; inset: 0; z-index: 40; }
-    .user-menu { position: fixed; left: 68px; bottom: 14px; z-index: 41; width: 250px; background: #0e1838; color: #c9d1ec; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px; padding: 10px; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; gap: 4px; }
-    .u-head { padding: 4px 10px 10px; min-width: 0; }
-    .u-head strong { display: block; color: #fff; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .u-head small { display: block; color: #a3acd3; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .u-sec { display: flex; flex-direction: column; gap: 2px; padding: 6px 0; border-top: 1px solid rgba(255, 255, 255, 0.08); }
-    .u-item { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; color: #c0c7e3; font: inherit; font-size: 13px; text-align: left; cursor: pointer; width: 100%; }
-    .u-item nx-icon { color: #8f98c2; flex-shrink: 0; }
-    .u-item:hover { background: rgba(255, 255, 255, 0.07); color: #fff; }
-    .u-item[aria-checked='true'] { color: #fff; }
-    .u-item[aria-checked='true'] nx-icon { color: var(--brand-cyan, #16C7F4); }
-    .u-item.danger:hover { background: rgba(224, 49, 79, 0.14); color: #ff8aa0; }
-    .u-item.danger:hover nx-icon { color: #ff8aa0; }
     @media (max-width: 900px) {
       .nav { position: relative; height: auto; width: 100%; flex-direction: column; }
       .rail { flex-direction: row; width: 100%; height: auto; border-right: 0; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
       .rail-areas, .rail-foot { flex-direction: row; }
-      .rail-foot, .rail-user { border-top: 0; border-left: 1px solid rgba(255, 255, 255, 0.08); padding-top: 0; padding-left: 6px; margin-left: 2px; }
+      .rail-foot { border-top: 0; border-left: 1px solid rgba(255, 255, 255, 0.08); padding-top: 0; padding-left: 6px; margin-left: 2px; }
       .rail-ico.active::before { display: none; }
       .panel, .nav.panel-hidden .panel { width: 100%; border-right: 0; max-height: 50vh; }
-      .user-menu { left: 12px; right: 12px; width: auto; }
     }
   `,
 })
@@ -265,9 +181,10 @@ export class SidebarComponent {
     ),
     { initialValue: this.router.url },
   );
+  private readonly layout = inject(LayoutService);
   protected readonly query = signal('');
-  protected readonly panelHidden = signal<boolean>(loadPanelHidden());
-  protected readonly userOpen = signal(false);
+  /** Estado de colapso compartido con el toolbar (`LayoutService`). */
+  protected readonly panelHidden = this.layout.panelHidden;
   /**
    * El espacio de Ajustes (/ajustes) trae su propia barra lateral de secciones, así que el panel secundario del
    * menú (que allí solo mostraría «Ajustes») se oculta para no duplicar navegación. No altera la preferencia del
@@ -308,29 +225,6 @@ export class SidebarComponent {
   }
 
   protected togglePanel(): void {
-    const next = !this.panelHidden();
-    this.panelHidden.set(next);
-    savePanelHidden(next);
-  }
-  protected toggleUser(): void {
-    this.userOpen.update((v) => !v);
-  }
-  protected closeUser(): void {
-    this.userOpen.set(false);
-  }
-
-  workspaceName() {
-    const me = this.auth.me();
-    return me?.memberships.find((m) => m.workspace.id === me.activeWorkspaceId)?.workspace.name ?? '';
-  }
-
-  /** Cambia de organización (workspace); si ya es la activa, solo cierra el menú. */
-  async switchFrom(id: string, activeId: string) {
-    if (id === activeId) {
-      this.closeUser();
-      return;
-    }
-    await this.auth.switchWorkspace(id);
-    location.reload();
+    this.layout.togglePanel();
   }
 }
