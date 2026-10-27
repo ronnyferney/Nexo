@@ -59,6 +59,27 @@ const STEPS = [
         </div>
       }
 
+      <section class="assistant" aria-label="Accesos rápidos">
+        <div class="assistant-head"><nx-icon name="sparkles" [size]="16" /><span>Asistente personal</span></div>
+        <div class="ac-grid">
+          <a class="ac-card" routerLink="/trabajo">
+            <div class="ac-ico work"><nx-icon name="checkCircle" [size]="20" /></div>
+            <strong>Mi trabajo</strong>
+            <span class="muted small">Objetivos, tareas y resultados al día.</span>
+          </a>
+          <a class="ac-card" routerLink="/aprobaciones">
+            <div class="ac-ico appr"><nx-icon name="thumbsUp" [size]="20" /></div>
+            <strong>Aprobaciones</strong>
+            <span class="muted small">Revisa y autoriza lo que está pendiente.</span>
+          </a>
+          <a class="ac-card" routerLink="/agents">
+            <div class="ac-ico agents"><nx-icon name="bot" [size]="20" /></div>
+            <strong>Empleados digitales</strong>
+            <span class="muted small">Crea, gobierna y sigue a tus agentes.</span>
+          </a>
+        </div>
+      </section>
+
       <section class="grid grid-4" aria-label="Resumen de la plataforma">
         @for (k of kpis(); track k.label) {
           <a class="card hover kpi" [routerLink]="k.link">
@@ -237,6 +258,19 @@ const STEPS = [
     .pct.danger, .pct.over { color: var(--danger); }
     .chart-note { margin: 0; }
 
+    /* Asistente personal: fila de tarjetas de acceso rápido (estilo home moderno). */
+    .assistant { margin-bottom: 18px; }
+    .assistant-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-weight: 700; color: var(--text); }
+    .assistant-head nx-icon { color: var(--brand-cyan, #16C7F4); }
+    .ac-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .ac-card { display: flex; flex-direction: column; gap: 6px; padding: 16px; border-radius: 14px; background: var(--surface); border: 1px solid var(--border); transition: border-color 0.14s, transform 0.14s, box-shadow 0.14s; }
+    .ac-card:hover { border-color: var(--brand-cyan, #16C7F4); transform: translateY(-2px); box-shadow: 0 10px 28px rgba(18, 91, 234, 0.12); }
+    .ac-card strong { color: var(--text); font-size: 15px; }
+    .ac-ico { width: 40px; height: 40px; border-radius: 11px; display: grid; place-items: center; margin-bottom: 4px; color: #fff; }
+    .ac-ico.work { background: linear-gradient(135deg, #125BEA, #16C7F4); }
+    .ac-ico.appr { background: linear-gradient(135deg, #16C7F4, #8550E9); }
+    .ac-ico.agents { background: linear-gradient(135deg, #8550E9, #125BEA); }
+    @media (max-width: 760px) { .ac-grid { grid-template-columns: 1fr; } }
     .crit { margin-bottom: 16px; }
     .crit p { margin: 2px 0 6px; font-weight: 450; }
     .crit .grow { flex: 1; min-width: 0; }
@@ -250,10 +284,14 @@ export class DashboardPage implements OnInit {
   private readonly api = inject(ApiService);
   private readonly access = inject(AccessApi);
   protected readonly auth = inject(AuthService);
-  /** Saludo dinámico del encabezado «hero»: incluye el nombre si hay sesión y el emoji. */
+  /** Saludo dinámico del encabezado «hero»: según la hora del día, con el nombre de pila y el emoji. */
   readonly greeting = computed(() => {
     const me = this.auth.me();
-    return `Hola${me ? ', ' + me.name : ''} 👋`;
+    const h = new Date().getHours();
+    const saludo = h < 6 ? 'Buenas noches' : h < 12 ? 'Buenos días' : h < 19 ? 'Buenas tardes' : 'Buenas noches';
+    const emoji = h < 6 || h >= 19 ? '🌙' : '☀️';
+    const nombre = me ? ', ' + me.name.split(' ')[0] : '';
+    return `${saludo}${nombre} ${emoji}`;
   });
   readonly critical = signal<AgentHealthSummary[]>([]);
   readonly steps = STEPS;
