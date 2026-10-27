@@ -45,30 +45,12 @@ function saveRail(rail: boolean): void {
   imports: [RouterLink, IconComponent],
   template: `
     <aside class="sb" [class.rail]="rail()">
-      <!-- Cabecera: conmutador de usuario + plegar -->
+      <!-- Cabecera: marca + plegar (el usuario va al pie) -->
       <div class="top">
-        @if (auth.me(); as me) {
-          <button
-            type="button"
-            class="user-switch"
-            aria-haspopup="menu"
-            [attr.aria-expanded]="userOpen()"
-            [attr.aria-label]="'Menú de usuario: ' + me.name"
-            [title]="me.name"
-            (click)="toggleUser()"
-          >
-            <span class="avatar">{{ me.name.charAt(0) }}</span>
-            @if (!rail()) {
-              <span class="who"><strong>{{ me.name }}</strong></span>
-              <nx-icon class="chev" name="chevronDown" [size]="14" />
-            }
-          </button>
-        } @else {
-          <a class="brand" routerLink="/" aria-label="Nexo: ir al inicio" title="Nexo">
-            <img class="insignia" src="brand/insignia.png" width="30" height="30" alt="" />
-            @if (!rail()) { <strong>Nexo</strong> }
-          </a>
-        }
+        <a class="brand" routerLink="/" aria-label="Nexo: ir al inicio" title="Nexo">
+          <img class="insignia" src="brand/insignia.png" width="30" height="30" alt="" />
+          @if (!rail()) { <strong>Nexo</strong> }
+        </a>
         <button
           type="button"
           class="collapse"
@@ -144,6 +126,25 @@ function saveRail(rail: boolean): void {
         </nav>
       }
 
+      <!-- Usuario al pie: conmutador con desplegable (cuenta/ajustes + cerrar sesión) -->
+      @if (auth.me(); as me) {
+        <button
+          type="button"
+          class="user-switch foot-user"
+          aria-haspopup="menu"
+          [attr.aria-expanded]="userOpen()"
+          [attr.aria-label]="'Menú de usuario: ' + me.name"
+          [title]="me.name"
+          (click)="toggleUser()"
+        >
+          <span class="avatar">{{ me.name.charAt(0) }}</span>
+          @if (!rail()) {
+            <span class="who"><strong>{{ me.name }}</strong><small>{{ workspaceName() }}</small></span>
+            <nx-icon class="chev" name="chevronUp" [size]="14" />
+          }
+        </button>
+      }
+
       <!-- Menú de usuario (cuenta / workspace / salir) -->
       @if (userOpen() && auth.me(); as me) {
         <div class="backdrop" (click)="closeUser()"></div>
@@ -185,7 +186,12 @@ function saveRail(rail: boolean): void {
     .avatar { width: 30px; height: 30px; border-radius: 9px; background: #16307a; box-shadow: 0 0 0 2px rgba(22, 199, 244, 0.35); color: #fff; display: grid; place-items: center; font-weight: 700; text-transform: uppercase; font-size: 13px; flex-shrink: 0; }
     .who { flex: 1; min-width: 0; }
     .who strong { display: block; color: #fff; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .who small { display: block; color: #a3acd3; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .user-switch .chev { color: #8f98c2; flex-shrink: 0; }
+    /* Usuario anclado al pie, debajo de las utilidades. */
+    .foot-user { width: 100%; margin-top: 6px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08); border-radius: 0; }
+    .foot-user:hover { background: rgba(255, 255, 255, 0.06); border-radius: 10px; }
+    .sb.rail .foot-user { justify-content: center; }
     .collapse { flex-shrink: 0; display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 8px; background: rgba(255, 255, 255, 0.05); color: #a3acd3; cursor: pointer; }
     .collapse:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
     .sb.rail .top { flex-direction: column; gap: 10px; }
@@ -216,7 +222,7 @@ function saveRail(rail: boolean): void {
     .footer-nav { display: flex; flex-direction: column; gap: 2px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
     /* Menú de usuario */
     .backdrop { position: fixed; inset: 0; z-index: 40; }
-    .user-menu { position: fixed; left: 14px; top: 56px; z-index: 41; width: 250px; background: #0e1838; color: #c9d1ec; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px; padding: 10px; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; gap: 4px; }
+    .user-menu { position: fixed; left: 14px; bottom: 64px; z-index: 41; width: 250px; background: #0e1838; color: #c9d1ec; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px; padding: 10px; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; gap: 4px; }
     .u-head { display: flex; gap: 10px; align-items: center; padding: 6px 8px 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); margin-bottom: 4px; }
     .avatar.lg { width: 38px; height: 38px; font-size: 15px; border-radius: 50%; }
     .u-who { min-width: 0; }
