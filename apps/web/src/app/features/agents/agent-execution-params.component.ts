@@ -11,8 +11,9 @@ import {
   estacionLabel,
   estacionesSeleccionables,
   formatParametrosJson,
+  navegacionWebResumen,
   parseParametrosJson,
-  salidaInternetResumen,
+  sistemasAutorizadosResumen,
 } from './execution-params.util';
 
 /**
@@ -53,25 +54,36 @@ import {
           </div>
         </nx-agent-section>
 
-        <nx-agent-section icon="globe" title="Salida a internet" [status]="salida() ? 'complete' : 'optional'"
-          [statusLabel]="salida() ? 'Habilitada' : 'Desactivada'"
-          description="Controla si el empleado digital puede hacer llamadas salientes a internet.">
+        <nx-agent-section icon="globe" title="Salida a internet" status="optional"
+          description="Gates independientes de salida del empleado digital. Cada categoría es un permiso ADICIONAL: cuando se habilita, la salida igual pasa por las protecciones del servidor. Ambas aplican con o sin estación asignada.">
           <label class="salida-row">
             <span class="switch">
-              <input type="checkbox" role="switch" [checked]="salida()" [disabled]="!canEdit()"
-                aria-label="Permitir salida a internet" (change)="salida.set($any($event.target).checked)" />
+              <input type="checkbox" role="switch" [checked]="navegacionWeb()" [disabled]="!canEdit()"
+                aria-label="Permitir navegación web" (change)="navegacionWeb.set($any($event.target).checked)" />
               <span></span>
             </span>
             <span class="salida-text">
-              <strong>Permitir salida a internet</strong>
-              <span class="muted small block">{{ resumen() }}</span>
+              <strong>Navegación web</strong>
+              <span class="muted small block">{{ resumenNavegacion() }}</span>
+            </span>
+          </label>
+          <label class="salida-row">
+            <span class="switch">
+              <input type="checkbox" role="switch" [checked]="sistemasAutorizados()" [disabled]="!canEdit()"
+                aria-label="Permitir conexión a sistemas autorizados" (change)="sistemasAutorizados.set($any($event.target).checked)" />
+              <span></span>
+            </span>
+            <span class="salida-text">
+              <strong>Conexión a sistemas autorizados</strong>
+              <span class="muted small block">{{ resumenSistemas() }}</span>
             </span>
           </label>
           <div class="callout info" role="note">
             <nx-icon name="shield" [size]="16" />
-            <span class="small">Permitir la salida a internet <strong>no</strong> abre acceso irrestricto: toda llamada
-              saliente sigue pasando por el control de seguridad (SSRF / allowlist, tiempo y tamaño). Con el interruptor
-              desactivado, el agente no puede salir a internet.</span>
+            <span class="small">Cada categoría es un permiso <strong>adicional</strong>: habilitarla <strong>no</strong>
+              abre acceso irrestricto, toda salida sigue pasando por el control de seguridad del servidor (SSRF /
+              allowlist, tiempo y tamaño). Los gates aplican con o sin estación asignada. La comunicación con los
+              proveedores de IA no es un interruptor de usuario: la gestiona la plataforma.</span>
           </div>
         </nx-agent-section>
 
@@ -128,15 +140,22 @@ export class AgentExecutionParamsComponent implements OnInit {
   readonly estaciones = signal<EstacionVirtual[]>([]);
 
   readonly estacionId = signal<string | null>(null);
-  readonly salida = signal(false);
+  readonly navegacionWeb = signal(false);
+  readonly sistemasAutorizados = signal(false);
   readonly paramsText = signal('{}');
 
   /** Instantánea guardada (signal, para que `dirty` recalcule al guardar), para detectar cambios y habilitar «Guardar». */
-  private readonly snapshot = signal({ estacionId: null as string | null, salida: false, params: '{}' });
+  private readonly snapshot = signal({
+    estacionId: null as string | null,
+    navegacionWeb: false,
+    sistemasAutorizados: false,
+    params: '{}',
+  });
 
   readonly ejemplo = '{ "horarioOperacion": "L-V 9-18", "maxEjecucionesDiarias": 100 }';
   readonly label = estacionLabel;
-  readonly resumen = computed(() => salidaInternetResumen(this.salida()));
+  readonly resumenNavegacion = computed(() => navegacionWebResumen(this.navegacionWeb()));
+  readonly resumenSistemas = computed(() => sistemasAutorizadosResumen(this.sistemasAutorizados()));
 
   readonly estacionesOptions = computed(() => estacionesSeleccionables(this.estaciones(), this.estacionId()));
 
@@ -148,7 +167,8 @@ export class AgentExecutionParamsComponent implements OnInit {
     const parsed = parseParametrosJson(this.paramsText());
     return {
       estacionId: this.estacionId(),
-      salida: this.salida(),
+      navegacionWeb: this.navegacionWeb(),
+      sistemasAutorizados: this.sistemasAutorizados(),
       params: parsed.error ? this.paramsText() : JSON.stringify(parsed.value ?? {}),
     };
   }
@@ -156,7 +176,12 @@ export class AgentExecutionParamsComponent implements OnInit {
   readonly dirty = computed(() => {
     const cur = this.currentSnapshot();
     const snap = this.snapshot();
-    return cur.estacionId !== snap.estacionId || cur.salida !== snap.salida || cur.params !== snap.params;
+    return (
+      cur.estacionId !== snap.estacionId ||
+      cur.navegacionWeb !== snap.navegacionWeb ||
+      cur.sistemasAutorizados !== snap.sistemasAutorizados ||
+      cur.params !== snap.params
+    );
   });
 
   ngOnInit() {
@@ -182,11 +207,13 @@ export class AgentExecutionParamsComponent implements OnInit {
 
   private apply(p: ParametrosEjecucion) {
     this.estacionId.set(p.estacionVirtualId ?? null);
-    this.salida.set(p.salidaInternet);
+    this.navegacionWeb.set(p.navegacionWeb);
+    this.sistemasAutorizados.set(p.sistemasAutorizados);
     this.paramsText.set(formatParametrosJson(p.parametrosEjecucion));
     this.snapshot.set({
       estacionId: p.estacionVirtualId ?? null,
-      salida: p.salidaInternet,
+      navegacionWeb: p.navegacionWeb,
+      sistemasAutorizados: p.sistemasAutorizados,
       params: JSON.stringify(p.parametrosEjecucion ?? {}),
     });
   }
@@ -195,7 +222,8 @@ export class AgentExecutionParamsComponent implements OnInit {
   reset() {
     const snap = this.snapshot();
     this.estacionId.set(snap.estacionId);
-    this.salida.set(snap.salida);
+    this.navegacionWeb.set(snap.navegacionWeb);
+    this.sistemasAutorizados.set(snap.sistemasAutorizados);
     this.paramsText.set(formatParametrosJson(snap.params ? JSON.parse(snap.params) : {}));
   }
 
@@ -210,7 +238,8 @@ export class AgentExecutionParamsComponent implements OnInit {
     try {
       const updated = await this.api.guardarParametros(this.agentId(), {
         estacionVirtualId: this.estacionId(),
-        salidaInternet: this.salida(),
+        navegacionWeb: this.navegacionWeb(),
+        sistemasAutorizados: this.sistemasAutorizados(),
         parametrosEjecucion: parsed.value,
       });
       this.apply(updated);

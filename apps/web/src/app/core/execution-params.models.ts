@@ -39,7 +39,20 @@ export interface EstacionVirtualUpdate extends Partial<EstacionVirtualInput> {
 export interface ParametrosEjecucion {
   agentId: string;
   estacionVirtualId: string | null;
-  /** Gate de salida a internet: `false` = sin llamadas salientes. Nunca es un bypass del control de seguridad. */
+  /**
+   * Gate de navegación/fetch web general: `false` = sin navegación web. Es un gate ADICIONAL; cuando habilita, la
+   * salida sigue pasando por el control de seguridad del servidor. Aplica con o sin estación asignada.
+   */
+  navegacionWeb: boolean;
+  /**
+   * Gate de conexión a conectores/sistemas de negocio (REST/SOAP/GraphQL/MCP): `false` = sin acceso a sistemas. Es un
+   * gate ADICIONAL; cuando habilita, la salida sigue pasando por el control de seguridad. Aplica con o sin estación.
+   */
+  sistemasAutorizados: boolean;
+  /**
+   * Gate legado de salida a internet (PUENTE/espejo de las dos categorías). Se conserva por compatibilidad; la UI usa
+   * `navegacionWeb` y `sistemasAutorizados`.
+   */
   salidaInternet: boolean;
   /** Parámetros extensibles (p. ej. horario de operación, límites). */
   parametrosEjecucion: Record<string, unknown>;
@@ -51,6 +64,11 @@ export interface ParametrosEjecucion {
  */
 export interface SetParametrosEjecucion {
   estacionVirtualId?: string | null;
+  /** Gate de navegación/fetch web general. */
+  navegacionWeb?: boolean;
+  /** Gate de conexión a conectores/sistemas de negocio (REST/SOAP/GraphQL/MCP). */
+  sistemasAutorizados?: boolean;
+  /** Gate legado de salida a internet (PUENTE/espejo). Opcional; preferir las dos categorías. */
   salidaInternet?: boolean;
   parametrosEjecucion?: Record<string, unknown>;
 }

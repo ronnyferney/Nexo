@@ -5,10 +5,11 @@ import {
   estadoEstacionBadgeClass,
   estadoEstacionLabel,
   formatParametrosJson,
+  navegacionWebResumen,
   parseParametrosJson,
   puedeAdministrarEstaciones,
   puedeEditarParametros,
-  salidaInternetResumen,
+  sistemasAutorizadosResumen,
   validarNombreEstacion,
 } from './execution-params.util';
 
@@ -125,10 +126,19 @@ describe('execution-params.util', () => {
     });
   });
 
-  describe('salidaInternetResumen', () => {
-    it('describe el estado del toggle', () => {
-      expect(salidaInternetResumen(true)).toContain('control de seguridad');
-      expect(salidaInternetResumen(false)).toContain('no puede salir a internet');
+  describe('navegacionWebResumen', () => {
+    it('describe el estado del gate de navegación web', () => {
+      expect(navegacionWebResumen(true)).toContain('control de seguridad');
+      expect(navegacionWebResumen(true)).toContain('adicional');
+      expect(navegacionWebResumen(false)).toContain('no puede navegar');
+    });
+  });
+
+  describe('sistemasAutorizadosResumen', () => {
+    it('describe el estado del gate de conexión a sistemas autorizados', () => {
+      expect(sistemasAutorizadosResumen(true)).toContain('control de seguridad');
+      expect(sistemasAutorizadosResumen(true)).toContain('adicional');
+      expect(sistemasAutorizadosResumen(false)).toContain('no puede conectarse');
     });
   });
 });

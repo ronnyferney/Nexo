@@ -88,9 +88,23 @@ export function validarNombreEstacion(nombre: string): string | null {
   return null;
 }
 
-/** Explicación del significado de seguridad del toggle de salida a internet, según su estado. */
-export function salidaInternetResumen(enabled: boolean): string {
+/**
+ * Explicación del gate de navegación web general (fetch/navegación a internet), según su estado. Es un gate ADICIONAL:
+ * al habilitarlo, la salida sigue pasando por el control de seguridad del servidor. Aplica con o sin estación.
+ */
+export function navegacionWebResumen(enabled: boolean): string {
   return enabled
-    ? 'Habilitada: el agente puede hacer llamadas salientes, que SIEMPRE pasan por el control de seguridad (SSRF/allowlist, tiempo y tamaño). No es acceso irrestricto.'
-    : 'Desactivada: el agente no puede salir a internet.';
+    ? 'Habilitada: el agente puede navegar y hacer fetch web, que SIEMPRE pasan por el control de seguridad del servidor (SSRF/allowlist, tiempo y tamaño). Es un permiso adicional, no acceso irrestricto.'
+    : 'Desactivada: el agente no puede navegar ni hacer fetch a internet.';
+}
+
+/**
+ * Explicación del gate de conexión a conectores/sistemas de negocio (REST/SOAP/GraphQL/MCP), según su estado. Es un
+ * gate ADICIONAL: al habilitarlo, la salida sigue pasando por el control de seguridad del servidor. Aplica con o sin
+ * estación.
+ */
+export function sistemasAutorizadosResumen(enabled: boolean): string {
+  return enabled
+    ? 'Habilitada: el agente puede conectarse a los conectores y sistemas autorizados (REST/SOAP/GraphQL/MCP), que SIEMPRE pasan por el control de seguridad del servidor. Es un permiso adicional, no acceso irrestricto.'
+    : 'Desactivada: el agente no puede conectarse a conectores ni sistemas de negocio.';
 }
