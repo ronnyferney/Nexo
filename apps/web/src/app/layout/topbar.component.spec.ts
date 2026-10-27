@@ -3,7 +3,6 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { AuthService } from '../core/auth.service';
 import { PlatformApi } from '../core/platform.api';
-import { LayoutService } from './layout.service';
 import { TopbarComponent } from './topbar.component';
 
 function makeAuth() {
@@ -19,7 +18,6 @@ describe('TopbarComponent (toolbar superior)', () => {
   let fixture: ComponentFixture<TopbarComponent>;
   let el: HTMLElement;
   let auth: ReturnType<typeof makeAuth>;
-  let layout: LayoutService;
 
   const openUser = () => {
     (el.querySelector('.t-user') as HTMLButtonElement).click();
@@ -41,7 +39,6 @@ describe('TopbarComponent (toolbar superior)', () => {
         { provide: PlatformApi, useValue: { isPlatformAdmin: signal(false) } },
       ],
     }).compileComponents();
-    layout = TestBed.inject(LayoutService);
     fixture = TestBed.createComponent(TopbarComponent);
     el = fixture.nativeElement as HTMLElement;
     fixture.detectChanges();
@@ -52,10 +49,8 @@ describe('TopbarComponent (toolbar superior)', () => {
     expect(el.querySelector('.t-search input')?.getAttribute('aria-label')).toBe('Buscar en Nexo');
   });
 
-  it('el botón de colapsar alterna el estado compartido del panel', () => {
-    expect(layout.panelHidden()).toBeFalse();
-    (el.querySelector('.t-toggle') as HTMLButtonElement).click();
-    expect(layout.panelHidden()).toBeTrue();
+  it('no duplica el botón de colapsar: ese control vive en el menú lateral', () => {
+    expect(el.querySelector('.t-toggle')).toBeNull();
   });
 
   it('el menú de usuario muestra nombre, correo y la organización activa marcada', () => {

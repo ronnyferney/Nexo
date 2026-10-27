@@ -5,7 +5,6 @@ import { filter, map } from 'rxjs';
 import { AuthService } from '../core/auth.service';
 import { PlatformApi } from '../core/platform.api';
 import { IconComponent } from '../shared/icon.component';
-import { LayoutService } from './layout.service';
 import { filterGroups, NAV_GROUPS, titleForUrl, visibleGroups } from './sidebar.util';
 
 /**
@@ -25,15 +24,6 @@ import { filterGroups, NAV_GROUPS, titleForUrl, visibleGroups } from './sidebar.
   template: `
     <header class="topbar">
       <div class="left">
-        <button
-          type="button"
-          class="t-toggle"
-          [attr.aria-label]="layout.panelHidden() ? 'Mostrar el panel' : 'Ocultar el panel'"
-          [title]="layout.panelHidden() ? 'Mostrar el panel' : 'Ocultar el panel'"
-          (click)="layout.togglePanel()"
-        >
-          <nx-icon name="sidebarToggle" [size]="17" />
-        </button>
         <span class="t-title">{{ title() }}</span>
       </div>
 
@@ -108,11 +98,6 @@ import { filterGroups, NAV_GROUPS, titleForUrl, visibleGroups } from './sidebar.
       background: var(--surface, #fff); border-bottom: 1px solid var(--border, #e6e8f0);
     }
     .left { display: flex; align-items: center; gap: 10px; min-width: 0; }
-    .t-toggle {
-      display: grid; place-items: center; width: 34px; height: 34px; border: 0; border-radius: 9px;
-      background: transparent; color: var(--text-muted, #8f98c2); cursor: pointer; flex-shrink: 0;
-    }
-    .t-toggle:hover { background: var(--surface-2, #f2f4fb); color: var(--text); }
     .t-title { font-size: 16px; font-weight: 700; color: var(--text); margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
     .t-search {
@@ -163,7 +148,6 @@ import { filterGroups, NAV_GROUPS, titleForUrl, visibleGroups } from './sidebar.
 export class TopbarComponent {
   protected readonly auth = inject(AuthService);
   protected readonly platform = inject(PlatformApi);
-  protected readonly layout = inject(LayoutService);
   private readonly router = inject(Router);
 
   private readonly url = toSignal(
