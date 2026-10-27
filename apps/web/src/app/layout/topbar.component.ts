@@ -34,7 +34,7 @@ import { filterGroups, NAV_GROUPS, titleForUrl, visibleGroups } from './sidebar.
         >
           <nx-icon name="sidebarToggle" [size]="17" />
         </button>
-        <h1 class="t-title">{{ title() }}</h1>
+        <span class="t-title">{{ title() }}</span>
       </div>
 
       <form class="t-search" role="search" (submit)="submitSearch($event)">
