@@ -36,3 +36,29 @@ npm start                                    # http://localhost:4200 (proxy /api
   `chore:`); `tipo!:` o `BREAKING CHANGE:` para cambios incompatibles. Los prefijos deciden la versión (`docs/release.md`).
 - **Versiones:** no edites a mano las versiones de los `package.json` ni el CHANGELOG fuera de `scripts/release.mjs`; el
   despliegue solo usa versiones publicadas.
+
+## Navegación de la web (modelo del menú, acordado con el patrocinador)
+
+El «chrome» vive en `apps/web/src/app/layout/` (`shell`, `sidebar`, `topbar`, `layout.service`); la info del menú en
+`sidebar.util.ts`. Convenciones a respetar (no reintroducir patrones anteriores):
+
+- **Menú lateral = una sola columna con NOMBRES** (icono + nombre), azul oscuro corporativo. Por defecto **sin submenús**.
+- **Submenú al pulsar**: al hacer clic en un menú con hijos, la columna se contrae a un riel de iconos y aparece su
+  **submenú** a la derecha (mismo azul oscuro del menú) con botón «volver». Los menús de un solo destino solo navegan.
+- **Utilidades al pie**: «Conecta tus apps», «Conecta tu IA» y «Ajustes» van ancladas al PIE del menú, separadas por una
+  línea; el resto de la configuración vive en el hub `/ajustes`.
+- **Ajustes** (`/ajustes`): espacio propio con su barra lateral (buscador + secciones) a ras y de altura completa; su
+  barra va en **blanco** (excepción deliberada del patrocinador, no la unifiques a oscuro). Reusa las páginas existentes
+  como rutas hijas.
+- **Un solo botón de colapsar**, en la cabecera del menú lateral (no en el toolbar). El **menú de usuario** vive en el
+  **toolbar** (arriba-derecha), no en el riel. El título del toolbar NO es `h1` (el `h1` lo pone el `PageHeader`).
+- El estado de colapso se comparte vía `LayoutService`; en `/ajustes` el panel del menú se oculta (barra propia).
+- Validar siempre con `npm run build` + `npm run test:ci` (Karma necesita `CHROME_BIN`). El dev server (`ng serve`) cachea
+  errores viejos: el build de producción es la referencia; si hay overlay de Vite, limpiar `.angular/cache` y reiniciar.
+
+## Preferencias del patrocinador (gobierno)
+
+- Distinguir 4 tipos de autorización —**construir / acceso / gasto / activación productiva**—; una no implica las otras.
+  No contratar, habilitar gasto, ampliar permisos ni activar producción por suposición. Credenciales solo por medio
+  seguro (bóveda), nunca por chat. No registrar recomendaciones como aprobaciones.
+- Trato: «usted»; reportar por punto (avance, evidencia, pendiente, siguiente acción) cuando se pida estado.
