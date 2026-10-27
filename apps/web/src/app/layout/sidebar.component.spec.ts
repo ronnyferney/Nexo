@@ -3,9 +3,10 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { AuthService } from '../core/auth.service';
 import { PlatformApi } from '../core/platform.api';
+import { LayoutService } from './layout.service';
 import { SidebarComponent } from './sidebar.component';
 
-/** Stubs mínimos basados en signals: el sidebar solo lee estado de sesión y rol. */
+/** Stubs mínimos basados en signals: el menú solo lee estado de sesión y rol. */
 function makeAuth() {
   return {
     me: signal<any>(null),
@@ -15,20 +16,25 @@ function makeAuth() {
   };
 }
 
-describe('SidebarComponent (dos niveles: riel + panel contextual)', () => {
+describe('SidebarComponent (lista con nombres → submenú al pulsar)', () => {
   let fixture: ComponentFixture<SidebarComponent>;
   let el: HTMLElement;
   let auth: ReturnType<typeof makeAuth>;
-  let platform: { isPlatformAdmin: ReturnType<typeof signal<boolean>> };
+  let layout: LayoutService;
 
-  const mainAreas = () => el.querySelectorAll<HTMLButtonElement>('.rail .rail-ico.area');
-  const footAreas = () => el.querySelectorAll<HTMLButtonElement>('.rail .rail-ico.foot');
+  const menuItems = () => el.querySelectorAll<HTMLElement>('.list .m-item');
   const panelLinks = () => el.querySelectorAll<HTMLAnchorElement>('.panel a.nav-link');
   const panelPaths = () => [...panelLinks()].map((a) => a.getAttribute('href') ?? '');
   const search = (text: string) => {
     const input = el.querySelector('.filter input') as HTMLInputElement;
     input.value = text;
     input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+  };
+  /** Pulsa el menú mayor cuyo nombre coincide (sea enlace o botón). */
+  const clickMenu = (label: string) => {
+    const item = [...menuItems()].find((m) => m.querySelector('.lbl')?.textContent?.trim() === label);
+    (item as HTMLElement).click();
     fixture.detectChanges();
   };
 
@@ -39,69 +45,87 @@ describe('SidebarComponent (dos niveles: riel + panel contextual)', () => {
       /* sin almacenamiento */
     }
     auth = makeAuth();
-    platform = { isPlatformAdmin: signal(false) };
     await TestBed.configureTestingModule({
       imports: [SidebarComponent],
       providers: [
         provideRouter([]),
         { provide: AuthService, useValue: auth },
-        { provide: PlatformApi, useValue: platform },
+        { provide: PlatformApi, useValue: { isPlatformAdmin: signal(false) } },
       ],
     }).compileComponents();
+    layout = TestBed.inject(LayoutService);
     fixture = TestBed.createComponent(SidebarComponent);
     el = fixture.nativeElement as HTMLElement;
     fixture.detectChanges();
   });
 
-  it('renderiza el riel, la marca, el panel y el filtro accesibles', () => {
-    expect(el.querySelector('.brand-ico')?.getAttribute('aria-label')).toContain('Nexo');
-    expect(el.querySelector('.panel nav')?.getAttribute('aria-label')).toBe('Navegación principal');
+  it('por defecto muestra la lista con nombres (marca, filtro) y sin submenús', () => {
+    expect(el.querySelector('.list')).not.toBeNull();
+    expect(el.querySelector('.rail')).toBeNull();
+    expect(el.querySelector('.panel')).toBeNull();
+    expect(el.querySelector('.brand')?.getAttribute('aria-label')).toContain('Nexo');
+    expect(el.querySelector('.list nav')?.getAttribute('aria-label')).toBe('Navegación principal');
     expect(el.querySelector('.filter input')?.getAttribute('aria-label')).toBe('Buscar en el menú');
-    expect(el.querySelector('.rail-areas')?.getAttribute('aria-label')).toBe('Áreas');
   });
 
-  it('un VIEWER ve 6 áreas principales y 2 utilidades en el riel; ninguna ruta de admin/plataforma en el panel', () => {
-    // home, work, agents, comms, governance, finance (org admin oculta).
-    expect(mainAreas().length).toBe(6);
-    // utilidades: Conecta tus apps + Ajustes (Conecta tu IA es admin).
-    expect(footAreas().length).toBe(2);
+  it('un VIEWER ve 8 menús mayores con nombre (6 principales + 2 utilidades); ninguna ruta de admin', () => {
+    expect(menuItems().length).toBe(8);
     search('políticas');
-    expect(panelPaths().some((p) => p.startsWith('/admin'))).toBeFalse();
+    expect([...menuItems()].length).toBe(0); // políticas es admin: sin resultados para VIEWER
   });
 
-  it('el panel muestra el área activa y marca el ítem activo con aria-current (ruta inicial «/»)', () => {
-    const active = el.querySelector('.panel a.nav-link.active');
+  it('un admin ve 10 menús mayores (incluye Organización y «Conecta tu IA»)', () => {
+    auth.isAdmin.set(true);
+    fixture.detectChanges();
+    expect(menuItems().length).toBe(10);
+  });
+
+  it('marca el ítem activo con aria-current en la lista (ruta inicial «/»)', () => {
+    const active = el.querySelector('.list a.m-item.active');
     expect(active?.getAttribute('aria-current')).toBe('page');
     expect(active?.getAttribute('href')).toBe('/');
   });
 
-  it('busca en todas las áreas y muestra el estado vacío sin coincidencias', () => {
-    search('skills');
-    expect(panelPaths()).toEqual(['/skills']);
-    expect(el.querySelector('.panel-head strong')?.textContent).toContain('Resultados');
-    search('xyz-no-existe');
-    expect(panelLinks().length).toBe(0);
-    expect(el.querySelector('.panel .empty')).not.toBeNull();
-  });
-
-  it('oculta y muestra el panel secundario (solo riel)', () => {
+  it('al pulsar un menú mayor con sub-ítems, aparece el riel + su submenú', () => {
+    expect(el.querySelector('.panel')).toBeNull();
+    clickMenu('Agentes');
+    expect(el.querySelector('.rail')).not.toBeNull();
     expect(el.querySelector('.panel')).not.toBeNull();
-    (el.querySelector('.rail-toggle') as HTMLButtonElement).click();
+    expect(el.querySelector('.panel-head strong')?.textContent).toContain('Agentes');
+    expect(panelPaths()).toContain('/agents');
+    expect(panelPaths()).toContain('/skills');
+    // «Volver al menú» cierra el submenú y regresa a la lista.
+    (el.querySelector('.panel-head .back') as HTMLButtonElement).click();
     fixture.detectChanges();
     expect(el.querySelector('.panel')).toBeNull();
-    expect(el.querySelector('.nav.panel-hidden')).not.toBeNull();
+    expect(el.querySelector('.list')).not.toBeNull();
   });
 
-  it('un admin ve 7 áreas principales (incluye Organización) y 3 utilidades', () => {
-    auth.isAdmin.set(true);
+  it('un menú de un solo destino (Inicio) es enlace directo, no abre submenú', () => {
+    clickMenu('Inicio');
+    expect(el.querySelector('.panel')).toBeNull();
+    expect(el.querySelector('.list')).not.toBeNull();
+  });
+
+  it('busca en todas las áreas y muestra el estado vacío sin coincidencias', () => {
+    search('skills');
+    expect([...menuItems()].map((m) => m.getAttribute('href'))).toContain('/skills');
+    search('xyz-no-existe');
+    expect(menuItems().length).toBe(0);
+    expect(el.querySelector('.list .empty')).not.toBeNull();
+  });
+
+  it('al colapsar (toolbar/riel) queda solo el riel de iconos', () => {
+    expect(el.querySelector('.list')).not.toBeNull();
+    (el.querySelector('.list-toggle') as HTMLButtonElement).click();
     fixture.detectChanges();
-    expect(mainAreas().length).toBe(7);
-    expect(footAreas().length).toBe(3);
-    search('políticas');
-    expect(panelPaths()).toContain('/admin/politicas');
+    expect(layout.panelHidden()).toBeTrue();
+    expect(el.querySelector('.list')).toBeNull();
+    expect(el.querySelector('.rail')).not.toBeNull();
+    expect(el.querySelector('.nav.collapsed')).not.toBeNull();
   });
 
-  it('el menú de usuario ya no vive en el riel (se movió al toolbar superior)', () => {
+  it('el menú de usuario ya no vive en el menú lateral (está en el toolbar)', () => {
     auth.me.set({ name: 'Ana', email: 'ana@acme.co', activeWorkspaceId: 'w1', memberships: [{ workspace: { id: 'w1', name: 'Acme' } }] });
     fixture.detectChanges();
     expect(el.querySelector('.rail-user')).toBeNull();
