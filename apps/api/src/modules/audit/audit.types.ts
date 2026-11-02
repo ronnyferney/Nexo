@@ -30,6 +30,12 @@ export const AUDIT_ACTIONS = {
   CUADRILLA_PUBLICADA: 'CUADRILLA_PUBLICADA',
   CUADRILLA_RETIRADA: 'CUADRILLA_RETIRADA',
   CUADRILLA_INSTANCIADA: 'CUADRILLA_INSTANCIADA',
+  /// Agent Hub · plantillas de CUADRILLA (ADR 0019 · Inc.3): publicar e instalar composiciones gobernadas de varios
+  /// cargos/roles. Lo opera SIEMPRE un humano (nunca un agente: respeta `AGENTE_NO_CREA_AGENTES`, ADR 0016). Actor
+  /// humano, plantilla de cuadrilla y versión; al instalar, además la `CuadrillaPlantilla` BORRADOR creada. La plantilla
+  /// no contiene secretos, responsables ni credenciales; instalar no concede accesos (crea un borrador gobernado).
+  CUADRILLA_PLANTILLA_PUBLICADA: 'CUADRILLA_PLANTILLA_PUBLICADA',
+  CUADRILLA_PLANTILLA_INSTALADA: 'CUADRILLA_PLANTILLA_INSTALADA',
   /// Cambio de la línea de mando entre empleados digitales (E3/RF32). Actor humano, agente y supervisor previo/nuevo.
   JERARQUIA_MODIFICADA: 'JERARQUIA_MODIFICADA',
   /// Ciclo de vida de una estación virtual (E8). Actor humano, estación y, en el retiro, su estado previo/nuevo.

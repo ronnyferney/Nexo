@@ -23,6 +23,7 @@ import { VoiceModule } from './modules/channels/voice/voice.module';
 import { ConsolasModule } from './modules/consolas/consolas.module';
 import { CopilotModule } from './modules/copilot/copilot.module';
 import { CrewsModule } from './modules/crews/crews.module';
+import { CrewTemplatesModule } from './modules/crew-templates/crew-templates.module';
 import { DataProtectionModule } from './modules/data-protection/data-protection.module';
 import { DurabilityModule } from './modules/durability/durability.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -104,6 +105,7 @@ import { WorkspacesModule } from './modules/workspaces/workspaces.module';
     HierarchyModule,
     ExecutionParamsModule,
     CrewsModule,
+    CrewTemplatesModule,
     CopilotModule,
     SkillsModule,
     KnowledgeModule,

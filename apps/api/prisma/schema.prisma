@@ -2012,6 +2012,48 @@ model AgentTemplateVersion {
   @@index([workspaceId, templateId])
 }
 
+/// Plantilla de CUADRILLA publicada en el Agent Hub (ADR 0019 · Inc.3). Empaqueta la COMPOSICIÓN gobernada de un equipo
+/// de empleados digitales (varios cargos/roles, ADR 0014): es CONFIGURACIÓN reutilizable, nunca credenciales, secretos
+/// ni responsables. Las referencias a workspace/usuario son blandas (se validan en servicio y NO conceden acceso). Una
+/// plantilla solo es visible e instalable DENTRO de su propio workspace (aislamiento multi-tenant estricto).
+/// Publicar/instalar lo opera SIEMPRE una persona (respeta `AGENTE_NO_CREA_AGENTES`, ADR 0016).
+model CrewTemplate {
+  id                 String                @id @default(cuid())
+  workspaceId        String
+  nombre             String
+  descripcion        String?
+  /// Cuadrilla de origen a partir de la cual se publicó (referencia blanda). Permite agregar una versión nueva al
+  /// volver a publicar desde la misma cuadrilla. La cuadrilla puede cambiar o borrarse después sin romper la plantilla.
+  sourceCuadrillaId  String?
+  /// Humano que publicó la plantilla (nunca un agente: respeta `AGENTE_NO_CREA_AGENTES`, ADR 0016).
+  publicadoPorUserId String
+  versiones          CrewTemplateVersion[]
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  @@index([workspaceId])
+  @@index([workspaceId, sourceCuadrillaId])
+}
+
+/// Versión INMUTABLE y append-only de una plantilla de cuadrilla (como `CuadrillaVersion`). El `payload` contiene SOLO
+/// la composición declarativa y SANEADA: propósito/proceso, metadatos de la versión y los miembros (rol, cargo/ref,
+/// nivel esperado, skills por referencia portable, conectores/política/criterios SUGERIDOS y delegación). NUNCA
+/// secretos, credenciales ni responsables. Publicar no reescribe: crea una versión nueva (correlativa por plantilla).
+model CrewTemplateVersion {
+  id                 String       @id @default(cuid())
+  workspaceId        String
+  templateId         String
+  template           CrewTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  version            Int
+  payload            Json         @default("{}")
+  notas              String?
+  publicadoPorUserId String
+  createdAt          DateTime     @default(now())
+
+  @@unique([templateId, version])
+  @@index([workspaceId, templateId])
+}
+
 /// Incumplimiento + plan de recuperación (RF31): alerta, responsable, plazo, y LÍMITES explícitos de reintentos,
 /// gasto y ciclos, con escalamiento al siguiente nivel digital. Al agotar el límite se declara (nunca queda activo
 /// indefinidamente ocultando un resultado no logrado). Lo detecta el cron de reconciliación existente.
