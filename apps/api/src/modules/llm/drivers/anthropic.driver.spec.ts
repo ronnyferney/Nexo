@@ -9,11 +9,13 @@ import type { AddressInfo } from 'node:net';
 import { HttpClientService } from '../../../common/http/http-client.service';
 import {
   AnthropicDriver,
+  buildCachedSystem,
   claudeSdkClient,
   isCustomAnthropicEndpoint,
   providerErrorMessage,
   stripHistoricalThinking,
 } from './anthropic.driver';
+import type { LlmRunRequest } from '../llm-provider';
 
 describe('Driver de Claude por canal', () => {
   const token = () => Promise.resolve('token-google');
@@ -116,6 +118,90 @@ describe('Razonamiento preservado: se descarta el de turnos ya cerrados del hist
     const out = stripHistoricalThinking(history);
     expect(out[0]).toBe(history[0]);
     expect(out[1]).toBe(history[1]);
+  });
+});
+
+describe('ADR 0017 Inc.1 · caché de prompts del prefijo estable', () => {
+  it('marca el system prompt como un bloque cacheable (cache_control efímero)', () => {
+    const system = buildCachedSystem('Eres un asistente útil.');
+    expect(system).toEqual([{ type: 'text', text: 'Eres un asistente útil.', cache_control: { type: 'ephemeral' } }]);
+  });
+
+  it('nunca cachea un system prompt con un marcador de secreto de la bóveda; lo deja en texto plano', () => {
+    expect(buildCachedSystem('Clave: {{ secrets.API_KEY }}')).toBe('Clave: {{ secrets.API_KEY }}');
+    expect(buildCachedSystem('Clave: {{secrets.API_KEY}}')).toBe('Clave: {{secrets.API_KEY}}');
+  });
+
+  it('un prompt vacío no produce bloque de system (nada que cachear)', () => {
+    expect(buildCachedSystem('')).toBeUndefined();
+  });
+
+  it('la petición a Anthropic lleva cache_control en el system y en la última herramienta', async () => {
+    type RequestBody = {
+      system?: Array<{ type: string; text: string; cache_control?: { type: string } }>;
+      tools?: Array<{ name: string; cache_control?: { type: string } }>;
+    };
+    let body: RequestBody = {};
+    // SSE mínimo de un turno `end_turn` con un bloque de texto: lo que el SDK de streaming espera leer.
+    const sse = [
+      'event: message_start',
+      'data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-opus-5-5","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":12,"output_tokens":1,"cache_creation_input_tokens":12,"cache_read_input_tokens":0}}}',
+      '',
+      'event: content_block_start',
+      'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}',
+      '',
+      'event: content_block_delta',
+      'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hola"}}',
+      '',
+      'event: content_block_stop',
+      'data: {"type":"content_block_stop","index":0}',
+      '',
+      'event: message_delta',
+      'data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":3}}',
+      '',
+      'event: message_stop',
+      'data: {"type":"message_stop"}',
+      '',
+      '',
+    ].join('\n');
+    const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const req = input instanceof Request ? input : null;
+      const raw = typeof init?.body === 'string' ? init.body : '';
+      if (raw) body = JSON.parse(raw) as RequestBody;
+      const url = String(req ? req.url : input);
+      expect(url).toContain('/v1/messages');
+      return new Response(sse, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    }) as typeof fetch;
+    const driver = new AnthropicDriver({ safeFetch: () => fetchFn } as unknown as HttpClientService);
+    const client = driver.create({ apiKey: 'sk-ant-x' });
+
+    const usages: { cacheWriteTokens: number }[] = [];
+    const req: LlmRunRequest = {
+      model: 'claude-opus-5-5',
+      system: 'Eres un agente de Nexo.',
+      effort: 'medium',
+      history: [],
+      userMessage: 'Hola',
+      tools: [
+        { name: 'primera', description: 'una', inputSchema: { type: 'object', properties: {} } },
+        { name: 'ultima', description: 'otra', inputSchema: { type: 'object', properties: {} } },
+      ],
+      maxTurns: 3,
+      executeTool: async () => ({ content: 'ok' }),
+      onUsage: async (u) => {
+        usages.push(u);
+      },
+    };
+    const result = await client.run(req);
+
+    expect(result.text).toBe('Hola');
+    expect(body.system).toEqual([
+      { type: 'text', text: 'Eres un agente de Nexo.', cache_control: { type: 'ephemeral' } },
+    ]);
+    // El punto de corte va solo en la última herramienta (límite del bloque estable), no en las anteriores.
+    expect(body.tools?.map((t) => t.cache_control)).toEqual([undefined, { type: 'ephemeral' }]);
+    // Los tokens de caché del `usage` se reportan por `onUsage` (se persisten en UsageRecord).
+    expect(usages[0].cacheWriteTokens).toBe(12);
   });
 });
 

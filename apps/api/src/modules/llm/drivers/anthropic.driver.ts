@@ -22,6 +22,18 @@ import {
 
 type MessageParam = Anthropic.Beta.Messages.BetaMessageParam;
 type ToolResultBlock = Anthropic.Beta.Messages.BetaToolResultBlockParam;
+type TextBlockParam = Anthropic.Beta.Messages.BetaTextBlockParam;
+
+/** Punto de corte de caché efímera del prefijo estable del turno (ADR 0017 Inc.1). */
+const EPHEMERAL_CACHE: Anthropic.Beta.Messages.BetaCacheControlEphemeral = { type: 'ephemeral' };
+
+/**
+ * Marcador de secreto de la bóveda (`{{ secrets.NOMBRE }}`) en el system prompt. El prompt de un agente se compone de
+ * configuración estática y no pasa por el motor de plantillas que resuelve secretos, así que no debería contenerlo;
+ * aun así, si apareciera, NO se cachea ese bloque: el contenido cacheado nunca incluye secretos (ADR 0017: «el cache
+ * nunca cachea secretos»).
+ */
+const SECRET_MARKER = /\{\{\s*secrets\./;
 
 /** Modelo con el que se verifica un canal sin API de modelos (conteo de tokens: gratuito). */
 const VERIFY_MODEL = 'claude-haiku-5-5';
@@ -226,9 +238,25 @@ export function stripHistoricalThinking(history: MessageParam[]): MessageParam[]
 }
 
 /**
+ * Prefijo estable del turno con caché de prompts (ADR 0017 Inc.1): el system prompt del agente, que es idéntico en
+ * todos los turnos del hilo y entre hilos del mismo agente. Se devuelve como un único bloque de texto con un punto de
+ * corte de caché efímera (`cache_control`), de modo que Anthropic reutilice ese prefijo y cobre los tokens de entrada
+ * repetidos a la tarifa de lectura de caché (mucho más barata) en lugar de reprocesarlo cada vez.
+ *
+ * Si el prompt está vacío se devuelve `undefined` (nada que cachear). Si contiene un marcador de secreto de la bóveda
+ * se devuelve como texto plano **sin** `cache_control`: jamás se cachea un contenido con secretos. Es una degradación
+ * con gracia: el turno sigue funcionando, solo que sin el ahorro de la caché.
+ */
+export function buildCachedSystem(text: string): string | TextBlockParam[] | undefined {
+  if (!text) return undefined;
+  if (SECRET_MARKER.test(text)) return text;
+  return [{ type: 'text', text, cache_control: EPHEMERAL_CACHE }];
+}
+
+/**
  * Cliente Claude (Messages API) con bucle de tool use manual:
- * streaming, thinking adaptativo + effort, caché automática de prompts (ahorro de costos),
- * fallback server-side ante rechazos por política e historial nativo append-only.
+ * streaming, thinking adaptativo + effort, caché de prompts del prefijo estable (system + herramientas, ADR 0017
+ * Inc.1, ahorro de costos), fallback server-side ante rechazos por política e historial nativo append-only.
  */
 class AnthropicClient implements LlmClient {
   private readonly logger = new Logger('AnthropicClient');
@@ -314,12 +342,18 @@ class AnthropicClient implements LlmClient {
       ...stripHistoricalThinking(req.history as MessageParam[]),
       { role: 'user', content: req.userMessage } as MessageParam,
     ];
-    const tools: Anthropic.Beta.Messages.BetaTool[] = req.tools.map((t) => ({
+    // Las definiciones de herramientas también son parte del prefijo estable del agente: se marca el límite del bloque
+    // con `cache_control` en la última para que entren en la caché de prompts (ADR 0017 Inc.1). Las herramientas no
+    // contienen secretos (son esquemas JSON estructurales de las operaciones).
+    const last = req.tools.length - 1;
+    const tools: Anthropic.Beta.Messages.BetaTool[] = req.tools.map((t, i) => ({
       name: t.name,
       description: t.description,
       input_schema: t.inputSchema as Anthropic.Beta.Messages.BetaTool.InputSchema,
       eager_input_streaming: true,
+      ...(i === last ? { cache_control: EPHEMERAL_CACHE } : {}),
     }));
+    const system = buildCachedSystem(req.system);
     const usage = { inputTokens: 0, outputTokens: 0 };
     let text = '';
     let stopReason = 'end_turn';
@@ -333,12 +367,11 @@ class AnthropicClient implements LlmClient {
         {
           model: req.model,
           max_tokens: 64000,
-          system: req.system || undefined,
+          system,
           messages: history,
           tools: tools.length ? tools : undefined,
           thinking: { type: 'adaptive' },
           output_config: { effort: req.effort },
-          cache_control: { type: 'ephemeral' },
           // El fallback server-side solo aplica a los canales operados por Anthropic (no a proxies/gateways).
           ...(!this.serverFallback
             ? {}
@@ -355,11 +388,18 @@ class AnthropicClient implements LlmClient {
       const u = message.usage;
       usage.inputTokens += u.input_tokens;
       usage.outputTokens += u.output_tokens;
+      const cacheRead = u.cache_read_input_tokens ?? 0;
+      const cacheWrite = u.cache_creation_input_tokens ?? 0;
+      // Observabilidad de la caché de prompts (ADR 0017 Inc.1). La métrica persistente va en `UsageRecord`
+      // (`cacheReadTokens`/`cacheWriteTokens`, campos existentes) vía `onUsage`; aquí solo se deja traza en logs.
+      if (cacheRead || cacheWrite) {
+        this.logger.debug(`Caché de prompts: lectura=${cacheRead} escritura=${cacheWrite} tokens de entrada`);
+      }
       await req.onUsage?.({
         inputTokens: u.input_tokens,
         outputTokens: u.output_tokens,
-        cacheReadTokens: u.cache_read_input_tokens ?? 0,
-        cacheWriteTokens: u.cache_creation_input_tokens ?? 0,
+        cacheReadTokens: cacheRead,
+        cacheWriteTokens: cacheWrite,
       });
 
       stopReason = message.stop_reason ?? 'end_turn';
