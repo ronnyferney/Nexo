@@ -22,6 +22,9 @@ import type {
   Cargo,
   CargoInput,
   Connector,
+  ContactoPerfil,
+  CreateContactoInput,
+  CreateOrganizacionInput,
   Execution,
   LlmConnection,
   LlmConnectionInput,
@@ -35,6 +38,7 @@ import type {
   Session,
   OrgMember,
   OrgMemberCreateInput,
+  OrganizacionPerfil,
   OrgUnit,
   OrgUnitCreateInput,
   OrgUnitOption,
@@ -172,6 +176,15 @@ export class ApiService {
     this.post<AgentTemplateDetail>('/agent-templates/publish', data);
   installAgentTemplate = (id: string, version?: number) =>
     this.post<AgentTemplateInstallResult>(`/agent-templates/${id}/install`, version ? { version } : {});
+
+  // Perfiles de contacto y organización (ADR 0018). Son CONTEXTO, no conceden permisos.
+  // Lectura (resolver por correo/dominio) para cualquier miembro; el alta exige EDITOR+ (gate del servidor).
+  contactoPorCorreo = (correo: string) =>
+    this.get<ContactoPerfil>('/profiles/contactos/por-correo', { correo });
+  organizacionPorDominio = (dominio: string) =>
+    this.get<OrganizacionPerfil>('/profiles/organizaciones/por-dominio', { dominio });
+  crearContacto = (data: CreateContactoInput) => this.post<ContactoPerfil>('/profiles/contactos', data);
+  crearOrganizacion = (data: CreateOrganizacionInput) => this.post<OrganizacionPerfil>('/profiles/organizaciones', data);
 
   // Catálogo de IA, unidades y consumo propio (cualquier rol)
   llmCatalog = () => this.get<ProviderInfo[]>('/llm/catalog');

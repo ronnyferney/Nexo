@@ -267,6 +267,79 @@ export interface AgentTemplateInstallResult {
   aviso: string;
 }
 
+// ===== Perfiles de contacto y organización (ADR 0018) =====
+// Espejo tipado de `profiles/*`. Los perfiles son CONTEXTO (memoria operativa), NO conceden permisos y no
+// admiten secretos; el `workspaceId` lo deriva la API de la sesión. PII (`correos`/`telefonos`) en claro en Inc.1.
+
+/** Perfil de organización (`GET /profiles/organizaciones/por-dominio`). Incluye `contactos` al resolver por dominio o id. */
+export interface OrganizacionPerfil {
+  id: string;
+  workspaceId: string;
+  nombre: string;
+  /** Dominio principal (p. ej. `acme.com`); único por workspace cuando está presente. */
+  dominio: string | null;
+  /** Tipo o sector (texto libre, sin taxonomía impuesta). */
+  tipoSector: string | null;
+  notas: string | null;
+  /** Procedencia del dato (p. ej. correo, carga manual). */
+  fuente: string | null;
+  /** Contactos vinculados (presente al resolver por dominio o por id). */
+  contactos?: ContactoPerfil[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Perfil de contacto/persona (`GET /profiles/contactos/por-correo`). Incluye `organizacion` vinculada. */
+export interface ContactoPerfil {
+  id: string;
+  workspaceId: string;
+  nombre: string;
+  /** Correo principal; único por workspace cuando está presente. */
+  correoPrincipal: string | null;
+  /** Correos conocidos (incluye el principal). */
+  correos: string[];
+  /** Teléfonos conocidos; `null` si no hay. */
+  telefonos: string[] | null;
+  /** Idioma preferido (p. ej. `es`, `en`). */
+  idioma: string | null;
+  /** Tono preferido para dirigirse al contacto (texto libre). */
+  tono: string | null;
+  organizacionId: string | null;
+  /** Organización vinculada (presente al resolver por correo o por id). */
+  organizacion?: OrganizacionPerfil | null;
+  /** Señales derivadas con fuente/evidencia (p. ej. puntualidad de pago); `null` si no hay. */
+  senales: string[] | null;
+  fuente: string | null;
+  /** Última interacción observada (la fija el enriquecimiento del correo). */
+  ultimaInteraccionEn: string | null;
+  /** Nº de interacciones acumuladas. */
+  interaccionesCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Cuerpo de `POST /profiles/contactos`. */
+export interface CreateContactoInput {
+  nombre: string;
+  correoPrincipal?: string;
+  correos?: string[];
+  telefonos?: string[];
+  idioma?: string;
+  tono?: string;
+  organizacionId?: string;
+  senales?: string[];
+  fuente?: string;
+}
+
+/** Cuerpo de `POST /profiles/organizaciones`. */
+export interface CreateOrganizacionInput {
+  nombre: string;
+  dominio?: string;
+  tipoSector?: string;
+  notas?: string;
+  fuente?: string;
+}
+
 // ===== Gobierno de IA (ADR 0002) =====
 
 export type LlmKind = 'ANTHROPIC' | 'OPENAI_COMPATIBLE' | 'MOCK';

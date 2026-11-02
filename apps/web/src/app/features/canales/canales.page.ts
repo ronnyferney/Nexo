@@ -17,6 +17,7 @@ import { ToastService } from '../../core/toast.service';
 import { IconComponent } from '../../shared/icon.component';
 import { JsonEditorComponent } from '../../shared/json-editor.component';
 import { RelativeTimePipe } from '../../shared/relative-time.pipe';
+import { FichaRemitenteComponent } from './ficha-remitente.component';
 import {
   ADJUNTO_TIPOS,
   destinoPlaceholder,
@@ -51,7 +52,7 @@ interface FormCuenta {
  */
 @Component({
   selector: 'nx-canales-externos',
-  imports: [FormsModule, DatePipe, IconComponent, JsonEditorComponent, RelativeTimePipe],
+  imports: [FormsModule, DatePipe, IconComponent, JsonEditorComponent, RelativeTimePipe, FichaRemitenteComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="page">
@@ -324,22 +325,40 @@ interface FormCuenta {
             } @else if (!mensajes().length) {
               <p class="muted">Aún no hay mensajes en esta cuenta.</p>
             } @else {
-              <div class="table-wrap">
-                <table class="table">
-                  <caption class="sr-only">Mensajes de la cuenta</caption>
-                  <thead><tr><th scope="col">Estado</th><th scope="col">Destino</th><th scope="col">Asunto</th><th scope="col">Enviado</th></tr></thead>
-                  <tbody>
-                    @for (m of mensajes(); track m.id) {
-                      <tr>
-                        <td><span class="badge {{ estadoMensajeMeta(m.estado).badge }}">{{ estadoMensajeMeta(m.estado).label }}</span>
-                          @if (m.error) { <span class="muted small block">{{ m.error }}</span> }</td>
-                        <td class="small">{{ m.destino }}</td>
-                        <td class="small">{{ m.asunto || '—' }}</td>
-                        <td class="muted small nowrap" [title]="m.createdAt | date: 'medium'">{{ m.createdAt | ago }}</td>
-                      </tr>
-                    }
-                  </tbody>
-                </table>
+              <div class="hist-layout">
+                <div class="table-wrap">
+                  <table class="table">
+                    <caption class="sr-only">Mensajes de la cuenta</caption>
+                    <thead><tr><th scope="col">Estado</th><th scope="col">Dirección</th><th scope="col">Contraparte</th><th scope="col">Asunto</th><th scope="col">Fecha</th><th scope="col"><span class="sr-only">Acciones</span></th></tr></thead>
+                    <tbody>
+                      @for (m of mensajes(); track m.id) {
+                        <tr [class.sel]="fichaCorreo() === m.destino">
+                          <td><span class="badge {{ estadoMensajeMeta(m.estado).badge }}">{{ estadoMensajeMeta(m.estado).label }}</span>
+                            @if (m.error) { <span class="muted small block">{{ m.error }}</span> }</td>
+                          <td><span class="badge {{ m.direccion === 'ENTRANTE' ? 'info' : '' }}">{{ m.direccion === 'ENTRANTE' ? 'Entrante' : 'Saliente' }}</span></td>
+                          <td class="small">{{ m.destino }}</td>
+                          <td class="small">{{ m.asunto || '—' }}</td>
+                          <td class="muted small nowrap" [title]="m.createdAt | date: 'medium'">{{ m.createdAt | ago }}</td>
+                          <td class="nowrap">
+                            @if (puedeVerFicha(c, m)) {
+                              <button class="btn sm" (click)="verFicha(m.destino)" [attr.aria-label]="'Ver la ficha de contacto de ' + m.destino">
+                                <nx-icon name="user" [size]="14" />Ficha
+                              </button>
+                            }
+                          </td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+                @if (fichaCorreo(); as correo) {
+                  <div class="ficha-col">
+                    <div class="row wrap end">
+                      <button class="btn ghost icon" (click)="cerrarFicha()" aria-label="Cerrar la ficha" title="Cerrar"><nx-icon name="x" [size]="16" /></button>
+                    </div>
+                    <nx-ficha-remitente [correo]="correo" [canEdit]="canEdit()" />
+                  </div>
+                }
               </div>
             }
           </section>
@@ -360,7 +379,11 @@ interface FormCuenta {
     .wa legend { padding: 0 6px; font-size: 12px; color: var(--muted); }
     .wa .grid2 { margin-top: 8px; }
     .check { display: inline-flex; align-items: center; gap: 6px; }
+    .hist-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+    .ficha-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+    .ficha-col .row.end { justify-content: flex-end; }
     @media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }
+    @media (max-width: 860px) { .hist-layout { grid-template-columns: 1fr; } }
   `,
 })
 export class CanalesPage implements OnInit {
@@ -382,6 +405,9 @@ export class CanalesPage implements OnInit {
   readonly mensajes = signal<MensajeCanal[]>([]);
   readonly mensajesLoading = signal(false);
   readonly testResult = signal<ResultadoPruebaCanal | null>(null);
+
+  /** Correo del contacto cuya ficha (ADR 0018 Inc.4) se muestra junto al historial; `null` = sin ficha abierta. */
+  readonly fichaCorreo = signal<string | null>(null);
 
   readonly isAdmin = this.auth.isAdmin;
   readonly canEdit = this.auth.canEdit;
@@ -532,6 +558,7 @@ export class CanalesPage implements OnInit {
   seleccionar(c: CanalCuenta) {
     this.selectedId.set(c.id);
     this.testResult.set(null);
+    this.cerrarFicha();
     this.sDestino = '';
     this.sAsunto = '';
     this.sCuerpo = '';
@@ -553,6 +580,24 @@ export class CanalesPage implements OnInit {
   cerrarPanel() {
     this.selectedId.set(null);
     this.mensajes.set([]);
+    this.cerrarFicha();
+  }
+
+  /**
+   * ¿Se ofrece la ficha de contacto (ADR 0018 Inc.4) para este mensaje? Solo para canales de CORREO cuya contraparte
+   * es una dirección de correo resoluble. La contraparte es el REMITENTE en los mensajes entrantes y el destinatario
+   * en los salientes; en ambos casos la ficha resuelve su perfil por ese correo (y por su dominio).
+   */
+  puedeVerFicha(c: CanalCuenta, m: MensajeCanal): boolean {
+    return c.tipo === 'CORREO' && /.+@.+\..+/.test(m.destino);
+  }
+
+  verFicha(correo: string) {
+    this.fichaCorreo.set(correo.trim().toLowerCase());
+  }
+
+  cerrarFicha() {
+    this.fichaCorreo.set(null);
   }
 
   regenerarIdem() {
