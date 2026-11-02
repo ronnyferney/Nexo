@@ -1,6 +1,9 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import type { AuthContext } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
+import { AUDIT_ACTIONS } from '../audit/audit.types';
 import type { CreateContactoDto, UpdateContactoDto } from './dto/contacto.dto';
 import type { CreateMemoriaDto, UpdateMemoriaDto } from './dto/memoria.dto';
 import type { CreateOrganizacionDto, UpdateOrganizacionDto } from './dto/organizacion.dto';
@@ -37,7 +40,10 @@ function isUniqueViolation(err: unknown): boolean {
  */
 @Injectable()
 export class ProfilesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   // ───────────────────────────── Organizaciones ─────────────────────────────
 
@@ -256,8 +262,102 @@ export class ProfilesService {
     });
   }
 
-  async removeMemoria(workspaceId: string, id: string) {
-    await this.getMemoria(workspaceId, id);
+  /**
+   * Hechos VIGENTES de un proceso (ADR 0018 Inc.3): solo los CONFIRMADO y no caducados (`caducaEn` nulo o futuro). Es
+   * el único corte que el agente debe tratar como contexto operativo de confianza; la lista general sigue mostrando
+   * todos los hechos con su estado para la revisión humana. Filtra siempre por workspace (multi-tenant).
+   */
+  listMemoriasVigentes(workspaceId: string, procesoClave?: string) {
+    const ahora = new Date();
+    return this.prisma.memoriaOperativa.findMany({
+      where: {
+        workspaceId,
+        estado: 'CONFIRMADO',
+        ...(procesoClave ? { procesoClave } : {}),
+        OR: [{ caducaEn: null }, { caducaEn: { gt: ahora } }],
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+  }
+
+  /**
+   * Contexto compacto de hechos vigentes por proceso (ADR 0018 Inc.3, punto 5). Queda disponible para un refinamiento
+   * posterior que inyecte memoria al runtime del agente; NO se fuerza aquí. Es CONTEXTO: no concede permisos ni altera
+   * la versión del agente (ADR 0004). Devuelve solo el hecho y su fuente de los vigentes, en texto apto para prompt.
+   */
+  async getContextoVigente(
+    workspaceId: string,
+    procesoClave: string,
+  ): Promise<{ hecho: string; fuente: string | null }[]> {
+    const vigentes = await this.listMemoriasVigentes(workspaceId, procesoClave);
+    return vigentes.map((m) => ({ hecho: m.hecho, fuente: m.fuente }));
+  }
+
+  /**
+   * Confirmación gobernada (ADR 0018 Inc.3): pasa un hecho de PROPUESTO a CONFIRMADO tras revisión humana (EDITOR+) y lo
+   * registra en la auditoría inmutable. NO reescribe prompts ni crea versiones de agente (ADR 0004): es solo un cambio
+   * de estado de un dato de contexto. Falla si el hecho ya estaba confirmado (idempotencia explícita por conflicto).
+   */
+  async confirmarMemoria(workspaceId: string, id: string, actor: AuthContext) {
+    const memoria = await this.getMemoria(workspaceId, id);
+    if (memoria.estado === 'CONFIRMADO') throw new ConflictException('El hecho ya está confirmado');
+    const actualizado = await this.prisma.memoriaOperativa.update({
+      where: { id },
+      data: { estado: 'CONFIRMADO' },
+    });
+    await this.audit.append(workspaceId, {
+      actorType: actor.userId ? 'USER' : 'SYSTEM',
+      actorId: actor.userId ?? null,
+      action: AUDIT_ACTIONS.MEMORIA_CONFIRMADA,
+      targetType: 'MemoriaOperativa',
+      targetId: id,
+      resumen: `Hecho de memoria confirmado en el proceso «${memoria.procesoClave}»`,
+      metadata: { procesoClave: memoria.procesoClave, estadoAnterior: 'PROPUESTO', estadoNuevo: 'CONFIRMADO' },
+    });
+    return actualizado;
+  }
+
+  /** Descarte gobernado (ADR 0018 Inc.3): elimina un hecho y lo audita. No altera la versión del agente (ADR 0004). */
+  async removeMemoria(workspaceId: string, id: string, actor: AuthContext) {
+    const memoria = await this.getMemoria(workspaceId, id);
     await this.prisma.memoriaOperativa.delete({ where: { id } });
+    await this.audit.append(workspaceId, {
+      actorType: actor.userId ? 'USER' : 'SYSTEM',
+      actorId: actor.userId ?? null,
+      action: AUDIT_ACTIONS.MEMORIA_DESCARTADA,
+      targetType: 'MemoriaOperativa',
+      targetId: id,
+      resumen: `Hecho de memoria descartado del proceso «${memoria.procesoClave}»`,
+      metadata: { procesoClave: memoria.procesoClave, estado: memoria.estado },
+    });
+  }
+
+  /**
+   * Purga de caducados (ADR 0018 Inc.3): elimina los hechos cuya `caducaEn` ya venció y audita cada baja con
+   * MEMORIA_CADUCADA para dejar traza por hecho. El filtro-en-lectura de `listMemoriasVigentes` ya excluye los
+   * caducados; esta purga es la limpieza explícita e invocable (no un cron nuevo). No toca la versión del agente.
+   */
+  async purgarCaducados(workspaceId: string, actor: AuthContext) {
+    const ahora = new Date();
+    const caducados = await this.prisma.memoriaOperativa.findMany({
+      where: { workspaceId, caducaEn: { not: null, lte: ahora } },
+    });
+    for (const memoria of caducados) {
+      await this.prisma.memoriaOperativa.delete({ where: { id: memoria.id } });
+      await this.audit.append(workspaceId, {
+        actorType: actor.userId ? 'USER' : 'SYSTEM',
+        actorId: actor.userId ?? null,
+        action: AUDIT_ACTIONS.MEMORIA_CADUCADA,
+        targetType: 'MemoriaOperativa',
+        targetId: memoria.id,
+        resumen: `Hecho de memoria purgado por caducidad en el proceso «${memoria.procesoClave}»`,
+        metadata: {
+          procesoClave: memoria.procesoClave,
+          estado: memoria.estado,
+          caducaEn: memoria.caducaEn?.toISOString(),
+        },
+      });
+    }
+    return { purgados: caducados.length };
   }
 }

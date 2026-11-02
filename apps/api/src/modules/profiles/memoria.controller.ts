@@ -6,9 +6,10 @@ import { CreateMemoriaDto, UpdateMemoriaDto } from './dto/memoria.dto';
 import { ProfilesService } from './profiles.service';
 
 /**
- * Memoria operativa por proceso (ADR 0018 Inc.1, esquema base). Lectura para cualquier miembro; las mutaciones
- * requieren EDITOR+. Es CONTEXTO gobernado: nace PROPUESTO y requiere revisión para CONFIRMADO. La lógica de
- * enriquecimiento y caducidad vive en Inc.3. Todo filtra por el workspace del contexto autenticado (multi-tenant).
+ * Memoria operativa por proceso (ADR 0018 Inc.1 + Inc.3). Lectura para cualquier miembro; las mutaciones y la
+ * confirmación/purga requieren EDITOR+. Es CONTEXTO gobernado: nace PROPUESTO y requiere revisión humana para
+ * CONFIRMADO; confirmar/descartar/caducar se auditan (auditoría inmutable). La memoria NO cambia la versión del agente
+ * ni dispara aprendizaje automático (ADR 0004): es solo dato de contexto. Todo filtra por el workspace autenticado.
  */
 @ApiTags('profiles-memoria')
 @ApiBearerAuth()
@@ -22,6 +23,13 @@ export class MemoriaController {
     return this.profiles.listMemorias(a.workspaceId, procesoClave);
   }
 
+  /** Hechos vigentes: solo CONFIRMADO y no caducados. Se declara antes de `:id` para no colisionar con la ruta. */
+  @Get('vigentes')
+  @ApiQuery({ name: 'procesoClave', required: false, description: 'Filtra los hechos vigentes por proceso' })
+  listVigentes(@CurrentAuth() a: AuthContext, @Query('procesoClave') procesoClave?: string) {
+    return this.profiles.listMemoriasVigentes(a.workspaceId, procesoClave);
+  }
+
   @Get(':id')
   get(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
     return this.profiles.getMemoria(a.workspaceId, id);
@@ -31,6 +39,20 @@ export class MemoriaController {
   @Post()
   create(@CurrentAuth() a: AuthContext, @Body() dto: CreateMemoriaDto) {
     return this.profiles.createMemoria(a.workspaceId, dto);
+  }
+
+  /** Purga de caducados: elimina los hechos vencidos y audita cada baja. Se declara antes de `:id`/`:id/...`. */
+  @MinRole('EDITOR')
+  @Post('purgar-caducados')
+  purgarCaducados(@CurrentAuth() a: AuthContext) {
+    return this.profiles.purgarCaducados(a.workspaceId, a);
+  }
+
+  /** Confirmación gobernada: PROPUESTO → CONFIRMADO con auditoría. No altera la versión del agente (ADR 0004). */
+  @MinRole('EDITOR')
+  @Post(':id/confirmar')
+  confirmar(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
+    return this.profiles.confirmarMemoria(a.workspaceId, id, a);
   }
 
   @MinRole('EDITOR')
@@ -43,6 +65,6 @@ export class MemoriaController {
   @Delete(':id')
   @HttpCode(204)
   remove(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
-    return this.profiles.removeMemoria(a.workspaceId, id);
+    return this.profiles.removeMemoria(a.workspaceId, id, a);
   }
 }

@@ -50,6 +50,13 @@ export const AUDIT_ACTIONS = {
   MISION_AUTORIZADA: 'MISION_AUTORIZADA',
   MISION_DETENIDA: 'MISION_DETENIDA',
   MISION_CANCELADA: 'MISION_CANCELADA',
+  /// Gobierno de la memoria operativa por proceso (ADR 0018 · Inc.3). La memoria es CONTEXTO, no concede permisos y no
+  /// altera la versión del agente (ADR 0004). Actor humano (EDITOR+), target la `MemoriaOperativa` y, en metadata, el
+  /// proceso y el estado previo/nuevo. CONFIRMADA: un hecho pasa de PROPUESTO a CONFIRMADO tras revisión. DESCARTADA: un
+  /// hecho se elimina (descarte gobernado). CADUCADA: un hecho vencido se purga por caducidad.
+  MEMORIA_CONFIRMADA: 'MEMORIA_CONFIRMADA',
+  MEMORIA_DESCARTADA: 'MEMORIA_DESCARTADA',
+  MEMORIA_CADUCADA: 'MEMORIA_CADUCADA',
 } as const;
 
 /** Código de acción auditable. Texto abierto (`string`): se recomienda usar las constantes de `AUDIT_ACTIONS`. */
