@@ -1,9 +1,17 @@
 # 0016. Superempleado digital: coordinación transversal de resultados
 
-- **Estado:** Propuesto · **Incremento 1 autorizado por el patrocinador (2026-10-27)**; aprobación integral del ADR
-  **pendiente** de su revisión de contenido.
-- **Fecha:** 2026-10-26 (actualizado 2026-10-27)
+- **Estado:** Propuesto · **Incremento 1 ratificado por el patrocinador (2026-11-02)**; **Incrementos 2–5 autorizados
+  para avanzar en diseño funcional, arquitectura y pruebas aisladas**, con **implementación operativa sujeta a revisión
+  por etapas**.
+- **Fecha:** 2026-10-26 (actualizado 2026-11-02)
 - **Responsables:** nexo-architect
+
+> **Decisión del patrocinador (2026-11-02).** Se **ratifica** la autorización del **Incremento 1**. Los **Incrementos
+> 2–5** pueden avanzar en **diseño funcional, arquitectura y pruebas aisladas**; su **implementación operativa** se
+> somete a **revisión por etapas**. El superempleado debe tener coordinación transversal, seguimiento de compromisos,
+> detección de bloqueos, escalamiento y **supervisión de otros agentes**, **respetando siempre la jerarquía y los
+> permisos**; las **acciones de alto impacto e irreversibles requieren autorización humana**. Sigue siendo autorización
+> de **construir/diseñar**: no implica gasto, contratación ni activación productiva.
 
 > **Autorización del patrocinador (2026-10-27).** Se autoriza **construir el Incremento 1 de coordinación transversal**,
 > **limitado a**: seguimiento de compromisos, detección de bloqueos, coordinación entre áreas y **escalamiento** a
