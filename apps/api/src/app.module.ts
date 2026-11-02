@@ -40,6 +40,7 @@ import { MessagingModule } from './modules/messaging/messaging.module';
 import { MissionsModule } from './modules/missions/missions.module';
 import { McpServerModule } from './modules/mcp-server/mcp-server.module';
 import { OAuthModule } from './modules/oauth/oauth.module';
+import { ProfilesModule } from './modules/profiles/profiles.module';
 import { ResultsModule } from './modules/results/results.module';
 import { RoutinesModule } from './modules/routines/routines.module';
 import { SkillsModule } from './modules/skills/skills.module';
@@ -116,6 +117,7 @@ import { WorkspacesModule } from './modules/workspaces/workspaces.module';
     McpServerModule,
     ChannelsModule,
     VoiceModule,
+    ProfilesModule,
     HealthModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

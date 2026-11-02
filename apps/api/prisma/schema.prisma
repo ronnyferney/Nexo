@@ -340,6 +340,9 @@ model Workspace {
   misiones                  MisionTransversal[]
   misionParticipantes       MisionParticipante[]
   misionVinculos            MisionVinculo[]
+  organizacionPerfiles      OrganizacionPerfil[]
+  contactoPerfiles          ContactoPerfil[]
+  memoriasOperativas        MemoriaOperativa[]
 }
 
 /// Catálogo de cargos (RF03): perfil reutilizable del empleado digital con propósito, funciones, entregables,
@@ -2880,4 +2883,95 @@ model GrabacionConfig {
 
   @@unique([workspaceId, empresaId])
   @@index([workspaceId])
+}
+
+/// Estado de un hecho de la memoria operativa (ADR 0018). Un hecho nace PROPUESTO y requiere revisión humana para
+/// pasar a CONFIRMADO; la memoria es contexto gobernado, nunca aprendizaje automático sin control (ADR 0004).
+enum EstadoMemoria {
+  PROPUESTO
+  CONFIRMADO
+}
+
+/// Perfil de organización (ADR 0018 Inc.1): dominio, tipo/sector e historial. Es CONTEXTO, no concede permisos.
+/// Multi-tenant: toda consulta filtra por `workspaceId`. Sin credenciales ni secretos.
+model OrganizacionPerfil {
+  id          String           @id @default(cuid())
+  workspaceId String
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// Nombre de la organización.
+  nombre      String
+  /// Dominio principal (p. ej. `acme.com`). Único por workspace cuando está presente; sirve para enriquecer por correo.
+  dominio     String?
+  /// Tipo o sector de la organización (texto libre; sin taxonomía impuesta en Inc.1).
+  tipoSector  String?
+  /// Notas libres sobre la organización.
+  notas       String?
+  /// Procedencia del dato (p. ej. correo, carga manual); base de la trazabilidad gobernada.
+  fuente      String?
+  contactos   ContactoPerfil[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@unique([workspaceId, dominio])
+  @@index([workspaceId])
+  @@index([workspaceId, dominio])
+}
+
+/// Perfil de contacto/persona (ADR 0018 Inc.1): identidad, idioma/tono y señales derivadas, con fuente. Es CONTEXTO,
+/// no concede permisos. Multi-tenant: toda consulta filtra por `workspaceId`. PII (`correos`/`telefonos`) en claro en
+/// Inc.1; el cifrado de campo y la purga por retención quedan para un incremento posterior (ADR 0008).
+model ContactoPerfil {
+  id              String              @id @default(cuid())
+  workspaceId     String
+  workspace       Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// Nombre de la persona.
+  nombre          String
+  /// Correo principal. Único por workspace cuando está presente; sirve para enriquecer de forma idempotente (Inc.2).
+  correoPrincipal String?
+  /// Lista de correos conocidos (incluye el principal). JSON: arreglo de cadenas.
+  correos         Json                @default("[]")
+  /// Teléfonos conocidos. JSON: arreglo de cadenas (nullable).
+  telefonos       Json?
+  /// Idioma preferido del contacto (p. ej. `es`, `en`).
+  idioma          String?
+  /// Tono preferido para dirigirse al contacto (texto libre).
+  tono            String?
+  /// Organización vinculada (opcional).
+  organizacionId  String?
+  organizacion    OrganizacionPerfil? @relation(fields: [organizacionId], references: [id], onDelete: SetNull)
+  /// Señales derivadas con fuente/evidencia (p. ej. puntualidad de pago). JSON (nullable).
+  senales         Json?
+  /// Procedencia del dato; base de la trazabilidad gobernada.
+  fuente          String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@unique([workspaceId, correoPrincipal])
+  @@index([workspaceId])
+  @@index([workspaceId, correoPrincipal])
+  @@index([organizacionId])
+}
+
+/// Memoria operativa por proceso (ADR 0018 Inc.1, esquema base): hechos reutilizables con fuente, caducidad y estado.
+/// La lógica de enriquecimiento/caducidad vive en Inc.3. Es CONTEXTO gobernado, no altera la versión del agente sin
+/// revisión humana (ADR 0004). Multi-tenant: toda consulta filtra por `workspaceId`.
+model MemoriaOperativa {
+  id           String        @id @default(cuid())
+  workspaceId  String
+  workspace    Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// Proceso al que pertenece el hecho (clave de agrupación).
+  procesoClave String
+  /// Hecho aprendido (texto libre).
+  hecho        String
+  /// Procedencia/evidencia del hecho.
+  fuente       String?
+  /// Estado de gobierno: nace PROPUESTO y requiere revisión para CONFIRMADO.
+  estado       EstadoMemoria @default(PROPUESTO)
+  /// Fecha de caducidad (null = sin caducidad declarada).
+  caducaEn     DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([workspaceId])
+  @@index([workspaceId, procesoClave])
 }
