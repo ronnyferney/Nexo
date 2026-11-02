@@ -1957,6 +1957,52 @@ model CuadrillaInstancia {
   @@index([workspaceId, plantillaId])
 }
 
+/// Plantilla de empleado digital publicada en el Agent Hub (ADR 0019 · Inc.1). Es CONFIGURACIÓN reutilizable y
+/// gobernada, nunca credenciales ni permisos: NUNCA contiene secretos, responsable ni accesos. Las referencias a
+/// workspace/usuario son blandas (se validan en servicio y NO conceden acceso). Una plantilla solo es visible e
+/// instalable DENTRO de su propio workspace (aislamiento multi-tenant estricto). Publicar/instalar lo opera SIEMPRE
+/// una persona (respeta `AGENTE_NO_CREA_AGENTES`, ADR 0016).
+model AgentTemplate {
+  id                 String                 @id @default(cuid())
+  workspaceId        String
+  nombre             String
+  descripcion        String?
+  /// Área/proceso de alcance, descriptivo para descubrir y filtrar (referencia blanda; no concede acceso).
+  area               String?
+  /// Nivel jerárquico de referencia del cargo base (reutiliza el enum de ADR 0011). null = sin nivel declarado.
+  nivel              NivelJerarquico?
+  /// Agente de origen a partir del cual se publicó (referencia blanda). Permite agregar una versión nueva al volver a
+  /// publicar desde el mismo agente. El agente puede cambiar o borrarse después sin romper la plantilla.
+  sourceAgentId      String?
+  /// Humano que publicó la plantilla (nunca un agente: respeta `AGENTE_NO_CREA_AGENTES`, ADR 0016).
+  publicadoPorUserId String
+  versiones          AgentTemplateVersion[]
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  @@index([workspaceId])
+  @@index([workspaceId, sourceAgentId])
+}
+
+/// Versión INMUTABLE y append-only de una plantilla de agente (como `AgentVersion`). El `payload` contiene SOLO datos
+/// declarativos y SANEADOS: cargo base/ref, perfil/prompt, referencias de skills (por slug), operaciones requeridas POR
+/// CAPACIDAD (tipo de conector + clave de operación, nunca el conector concreto) y parámetros de ejecución recomendados.
+/// NUNCA secretos, credenciales ni responsable. Publicar no reescribe: crea una versión nueva (correlativa por plantilla).
+model AgentTemplateVersion {
+  id                 String        @id @default(cuid())
+  workspaceId        String
+  templateId         String
+  template           AgentTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  version            Int
+  payload            Json          @default("{}")
+  notas              String?
+  publicadoPorUserId String
+  createdAt          DateTime      @default(now())
+
+  @@unique([templateId, version])
+  @@index([workspaceId, templateId])
+}
+
 /// Incumplimiento + plan de recuperación (RF31): alerta, responsable, plazo, y LÍMITES explícitos de reintentos,
 /// gasto y ciclos, con escalamiento al siguiente nivel digital. Al agotar el límite se declara (nunca queda activo
 /// indefinidamente ocultando un resultado no logrado). Lo detecta el cron de reconciliación existente.

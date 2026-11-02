@@ -20,6 +20,11 @@ export const AUDIT_ACTIONS = {
   ACCESO_SENSIBLE: 'ACCESO_SENSIBLE',
   /// Emisión de un pasaporte de resultado (ADR 0014 · E14): ancla el pasaporte a la cadena de hash de E13.
   PASAPORTE_EMITIDO: 'PASAPORTE_EMITIDO',
+  /// Agent Hub (ADR 0019 · Inc.1): publicar e instalar plantillas gobernadas de empleado digital. Lo opera SIEMPRE un
+  /// humano (nunca un agente: respeta `AGENTE_NO_CREA_AGENTES`). Actor humano, plantilla y versión; al instalar, además
+  /// el agente BORRADOR creado. La plantilla no contiene secretos ni responsable; instalar no concede accesos.
+  AGENTE_PLANTILLA_PUBLICADA: 'AGENTE_PLANTILLA_PUBLICADA',
+  AGENTE_PLANTILLA_INSTALADA: 'AGENTE_PLANTILLA_INSTALADA',
   /// Ciclo de vida de una Cuadrilla (plantilla de equipo gobernada, ADR 0014 · D1). Actor humano, plantilla y versión.
   CUADRILLA_CREADA: 'CUADRILLA_CREADA',
   CUADRILLA_PUBLICADA: 'CUADRILLA_PUBLICADA',

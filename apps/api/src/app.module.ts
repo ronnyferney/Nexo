@@ -15,6 +15,7 @@ import { RedisThrottlerStorage } from './infrastructure/throttler/redis-throttle
 import { ThrottlerStorageModule } from './infrastructure/throttler/throttler-storage.module';
 import { AgentAccessModule } from './modules/agent-access/agent-access.module';
 import { AgentsModule } from './modules/agents/agents.module';
+import { AgentTemplatesModule } from './modules/agent-templates/agent-templates.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { CargosModule } from './modules/cargos/cargos.module';
 import { ChannelsModule } from './modules/channels/channels.module';
@@ -98,6 +99,7 @@ import { WorkspacesModule } from './modules/workspaces/workspaces.module';
     EdgeModule,
     AgentAccessModule,
     AgentsModule,
+    AgentTemplatesModule,
     CargosModule,
     HierarchyModule,
     ExecutionParamsModule,
