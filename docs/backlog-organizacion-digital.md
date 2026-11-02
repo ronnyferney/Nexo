@@ -259,3 +259,37 @@ gobernadas + Pasaporte de resultado verificable) quedan **construidos y validado
   SIP/STT/TTS, WhatsApp Business API, correo como canal formal del empleado digital).
 - **E11 (🟡):** comunidad interna — hoy cubierta en parte por el catálogo de cuadrillas; faltan muro, publicaciones
   tipificadas, moderación y aprendizajes validados hacia el conocimiento oficial.
+
+## Nota de cierre (2026-11-02)
+
+El programa P0 quedó **construido y validado al 100%** en la rama. Lo que la nota del 26-oct marcaba como pendiente ya
+está cerrado, y se agregaron tres capacidades nuevas autorizadas por el patrocinador.
+
+- **E8-2 (✅):** el candado de salida a internet se aplica en el **runtime** (candado segmentado `navegacionWeb` +
+  `sistemasAutorizados`, con cierre de elusión con y sin estación), más la web del parámetro de ejecución.
+- **E14 (✅, sandbox):** canales externos construidos en **modo prueba** — correo (M365 + Gmail), WhatsApp (Meta +
+  Twilio), voz (contrato `VoiceProvider` + adaptador simulado + stubs Connect/Google). **Activación productiva y gasto
+  quedan pendientes de autorización específica del patrocinador** (no es trabajo de construcción pendiente).
+- **E11 (✅):** comunidad interna con muro (backend + web). Moderación avanzada queda como refinamiento menor.
+- **Superempleado digital (ADR 0016) Inc.1 (✅):** coordinación transversal (seguimiento, bloqueos, escalamiento),
+  autorizada; aprobación integral del ADR (incrementos 2–5) **pendiente de revisión del patrocinador**.
+- **Experiencia/UI (✅):** rediseño del menú (lista con nombres + submenú al pulsar), toolbar superior, espacio de Ajustes.
+
+### Capacidades nuevas (priorización del patrocinador, 2026-11-02) — construidas al 100%
+- **ADR 0017 — Rendimiento / reutilización de contexto:** Inc.1 **prompt caching** del prefijo estable · Inc.2 **memoria
+  compacta** (resumen incremental del hilo, gate por defecto apagado, historial auditable intacto) · Inc.3 **scheduler**
+  (prioridad por urgencia/costo, concurrencia por workspace opt-in, latencia en `UsageRecord`).
+- **ADR 0018 — Memoria y perfiles:** Inc.1 **esquema + API** (`ContactoPerfil`/`OrganizacionPerfil`/`MemoriaOperativa`,
+  multi-tenant) · Inc.2 **enriquecimiento desde el correo** + consulta por remitente · Inc.3 **memoria operativa
+  gobernada** (confirmación, vigencia, caducidad, auditada) · Inc.4 **ficha de contacto/organización en el buzón**.
+- **ADR 0019 — Agent Hub:** Inc.1 **publicar/instalar plantillas de agente** · Inc.2 **galería web** · Inc.3 **plantillas
+  de cuadrilla** (composición gobernada, validada). (Inc.4 distribución entre organizaciones — diferido.)
+
+### Pendiente (no es construcción; depende del patrocinador o es expansión)
+- **Decisiones del patrocinador:** umbrales de Finanzas · controles de Jurídica · matriz de Cumplimiento · presupuesto de
+  voz · aprobación integral del ADR 0016 · validación de la ficha del piloto de cobranza.
+- **Activación productiva de canales** (correo/WhatsApp/voz): requiere autorización específica + credenciales por bóveda.
+- **Expansión P1/P2:** objetivos/indicadores avanzados, diseñador visual, planificación dinámica, superempleado ejecutor,
+  Agent Hub Inc.4 (distribución entre organizaciones), cifrado de campo de PII y purga por retención en perfiles.
+- **Housekeeping:** recrear la BD de **desarrollo** para eliminar una migración fantasma (no afecta la rama ni el
+  despliegue; todas las migraciones del programa son aditivas y respetan el índice GIN de `KnowledgeChunk`).
