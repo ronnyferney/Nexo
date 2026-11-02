@@ -1,8 +1,8 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentAuth, type AuthContext } from '../../common/decorators/current-user.decorator';
 import { MinRole } from '../../common/decorators/roles.decorator';
-import { CreateOrganizacionDto, UpdateOrganizacionDto } from './dto/organizacion.dto';
+import { BuscarOrganizacionPorDominioDto, CreateOrganizacionDto, UpdateOrganizacionDto } from './dto/organizacion.dto';
 import { ProfilesService } from './profiles.service';
 
 /**
@@ -18,6 +18,13 @@ export class OrganizacionesController {
   @Get()
   list(@CurrentAuth() a: AuthContext) {
     return this.profiles.listOrganizaciones(a.workspaceId);
+  }
+
+  // Ruta estática ANTES de `:id`. La consume la ficha del buzón (Inc.4) para resolver la organización de un dominio.
+  @ApiOperation({ summary: 'Resuelve el perfil de organización por su dominio (ficha del buzón)' })
+  @Get('por-dominio')
+  porDominio(@CurrentAuth() a: AuthContext, @Query() query: BuscarOrganizacionPorDominioDto) {
+    return this.profiles.getOrganizacionPorDominio(a.workspaceId, query.dominio);
   }
 
   @Get(':id')

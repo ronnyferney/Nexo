@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ProfilesModule } from '../profiles/profiles.module';
 import { GmailMailChannelAdapter } from './adapters/gmail-mail.adapter';
 import { M365MailChannelAdapter } from './adapters/m365-mail.adapter';
 import { SimuladoChannelAdapter } from './adapters/simulado.adapter';
@@ -24,6 +25,7 @@ const ADAPTERS = [
 ];
 
 @Module({
+  imports: [ProfilesModule],
   controllers: [ChannelsController],
   providers: [
     ChannelsService,

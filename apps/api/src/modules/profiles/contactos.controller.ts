@@ -1,8 +1,8 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentAuth, type AuthContext } from '../../common/decorators/current-user.decorator';
 import { MinRole } from '../../common/decorators/roles.decorator';
-import { CreateContactoDto, UpdateContactoDto } from './dto/contacto.dto';
+import { BuscarContactoPorCorreoDto, CreateContactoDto, UpdateContactoDto } from './dto/contacto.dto';
 import { ProfilesService } from './profiles.service';
 
 /**
@@ -18,6 +18,14 @@ export class ContactosController {
   @Get()
   list(@CurrentAuth() a: AuthContext) {
     return this.profiles.listContactos(a.workspaceId);
+  }
+
+  // Ruta estática ANTES de `:id` para que `por-correo` no se interprete como un id. La consume la ficha del buzón
+  // (Inc.4) para resolver a quién escribe un remitente. Lectura para cualquier miembro del workspace.
+  @ApiOperation({ summary: 'Resuelve el perfil de contacto por su correo (ficha del buzón)' })
+  @Get('por-correo')
+  porCorreo(@CurrentAuth() a: AuthContext, @Query() query: BuscarContactoPorCorreoDto) {
+    return this.profiles.getContactoPorCorreo(a.workspaceId, query.correo);
   }
 
   @Get(':id')

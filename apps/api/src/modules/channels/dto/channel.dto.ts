@@ -163,3 +163,28 @@ export class ListMensajesQueryDto {
   @IsString()
   estado?: string;
 }
+
+/**
+ * Registro de un mensaje ENTRANTE simulado (ADR 0015 sandbox + ADR 0018 Inc.2). SOLO para cuentas sandbox
+ * (`simulado`): no sale a la red. Reproduce lo que en producción llegaría por webhook, para ejercer el enganche de
+ * enriquecimiento de perfiles. El contenido es dato NO confiable: no habilita herramientas ni cambia políticas.
+ */
+export class SimularEntranteDto {
+  @ApiProperty({ description: 'Remitente externo (para CORREO, su dirección de correo)' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(320)
+  origen!: string;
+
+  @ApiProperty({ description: 'Id del proveedor (dedup/idempotencia del entrante)' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  proveedorMensajeId!: string;
+
+  @ApiPropertyOptional({ description: 'Cuerpo del mensaje recibido' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(50000)
+  cuerpo?: string;
+}

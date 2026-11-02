@@ -18,7 +18,13 @@ import { CurrentAuth, type AuthContext } from '../../common/decorators/current-u
 import { Public } from '../../common/decorators/public.decorator';
 import { MinRole } from '../../common/decorators/roles.decorator';
 import { ChannelsService } from './channels.service';
-import { CreateCanalCuentaDto, EnviarMensajeDto, ListMensajesQueryDto, UpdateCanalCuentaDto } from './dto/channel.dto';
+import {
+  CreateCanalCuentaDto,
+  EnviarMensajeDto,
+  ListMensajesQueryDto,
+  SimularEntranteDto,
+  UpdateCanalCuentaDto,
+} from './dto/channel.dto';
 
 /**
  * Canales externos (E14 · ADR 0015). CRUD de cuentas de canal por empresa y envío idempotente de mensajes. Crear y
@@ -80,6 +86,18 @@ export class ChannelsController {
   @Get(':cuentaId/mensajes')
   mensajes(@CurrentAuth() a: AuthContext, @Param('cuentaId') cuentaId: string, @Query() query: ListMensajesQueryDto) {
     return this.channels.listMensajes(a.workspaceId, cuentaId, query.estado);
+  }
+
+  /**
+   * Registra un entrante SIMULADO (sandbox) y dispara el enganche de enriquecimiento de perfiles (ADR 0018 Inc.2).
+   * Solo para cuentas `simulado`; no sale a la red. Exige EDITOR (escribe estado del workspace). El `workspaceId`
+   * sale de `@CurrentAuth()`. En producción, el mismo enganche lo dispara la recepción por webhook del proveedor.
+   */
+  @MinRole('EDITOR')
+  @HttpCode(200)
+  @Post(':cuentaId/simular-entrante')
+  simularEntrante(@CurrentAuth() a: AuthContext, @Param('cuentaId') cuentaId: string, @Body() dto: SimularEntranteDto) {
+    return this.channels.simularEntrante(a, cuentaId, dto);
   }
 
   /**

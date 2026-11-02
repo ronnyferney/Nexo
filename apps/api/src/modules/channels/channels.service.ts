@@ -1,13 +1,26 @@
-import { BadRequestException, Inject, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import type { CanalCuenta, EstadoMensajeCanal, Prisma } from '@prisma/client';
 import type { AuthContext } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { ActionGatewayService } from '../governance/actions/action-gateway.service';
+import { ProfilesEnrichmentService } from '../profiles/profiles-enrichment.service';
 import { SecretsService } from '../workspaces/secrets.service';
 import { CHANNEL_ADAPTERS, type ChannelAdapter } from './domain/channel-adapter';
 import type { CanalRuntime, WebhookSolicitud } from './domain/channel.types';
-import type { CreateCanalCuentaDto, EnviarMensajeDto, UpdateCanalCuentaDto } from './dto/channel.dto';
+import type {
+  CreateCanalCuentaDto,
+  EnviarMensajeDto,
+  SimularEntranteDto,
+  UpdateCanalCuentaDto,
+} from './dto/channel.dto';
 
 const json = (v: unknown) => (v ?? {}) as Prisma.InputJsonValue;
 /** Tipo de acción de gobierno (E6) para el envío de correo; abierto y extensible por canal. */
@@ -30,12 +43,14 @@ const TIPO_ACCION_POR_CANAL: Record<string, string> = {
 @Injectable()
 export class ChannelsService {
   private readonly adapters: Map<string, ChannelAdapter>;
+  private readonly logger = new Logger(ChannelsService.name);
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly secrets: SecretsService,
     private readonly gateway: ActionGatewayService,
     private readonly audit: AuditService,
+    private readonly enrichment: ProfilesEnrichmentService,
     @Inject(CHANNEL_ADAPTERS) adapters: ChannelAdapter[],
   ) {
     // Registro por `proveedor` y por `alias` (p. ej. `meta` → `whatsapp_meta`), sin ramas `if (proveedor === ...)`.
@@ -232,6 +247,21 @@ export class ChannelsService {
     return { estado: res.estado, proveedorMensajeId: res.proveedorMensajeId ?? null, error: res.error ?? null };
   }
 
+  /**
+   * Registra un mensaje ENTRANTE simulado (sandbox) y dispara el enganche de enriquecimiento de perfiles (ADR 0018
+   * Inc.2). Punto de integración explícito mientras el sandbox no tiene recepción real por webhook: solo para cuentas
+   * `simulado` (no sale a la red). Idempotente por `proveedorMensajeId` (reenviar el mismo no duplica ni el mensaje ni
+   * el contacto). El `workspaceId` lo fija la cuenta del canal, nunca el cuerpo. Requiere EDITOR (lo exige el control).
+   */
+  async simularEntrante(a: AuthContext, cuentaId: string, dto: SimularEntranteDto) {
+    const cuenta = await this.get(a.workspaceId, cuentaId);
+    if (cuenta.proveedor !== 'simulado') {
+      throw new BadRequestException('Solo las cuentas sandbox (simulado) aceptan entrantes simulados');
+    }
+    const registrado = await this.registrarEntrante(cuenta, dto.proveedorMensajeId, dto.origen, dto.cuerpo ?? '');
+    return { ok: true, registrado };
+  }
+
   // ---------- Webhooks entrantes ----------
   /**
    * Recepción de webhook (ADR 0015 D1/D6). Endpoint PÚBLICO: la "autenticación" es la VERIFICACIÓN DE FIRMA del
@@ -308,10 +338,27 @@ export class ChannelsService {
           proveedorMensajeId,
         },
       });
-      return true;
     } catch (err) {
       if ((err as { code?: string }).code === 'P2002') return false; // redelivery idempotente
       throw err;
+    }
+    // ADR 0018 Inc.2: enriquecer el perfil del remitente SOLO para canales de CORREO (el `origen` es una dirección de
+    // correo). El `workspaceId` lo fija la cuenta del canal, nunca el cuerpo del webhook. El enriquecimiento es
+    // contexto, no concede permisos; si falla, NO se revierte el registro del entrante (se traza y se sigue).
+    await this.enriquecerDesdeCorreo(cuenta, origen);
+    return true;
+  }
+
+  /**
+   * Enganche de enriquecimiento de perfiles desde un correo entrante (ADR 0018 Inc.2). Punto único por el que pasa
+   * TODO entrante persistido. Aislado del flujo del canal: un fallo del enriquecimiento no tumba la recepción.
+   */
+  private async enriquecerDesdeCorreo(cuenta: CanalCuenta, origen: string): Promise<void> {
+    if (cuenta.tipo !== 'CORREO') return;
+    try {
+      await this.enrichment.enrichFromEmail({ workspaceId: cuenta.workspaceId, email: origen, fuente: 'correo' });
+    } catch (err) {
+      this.logger.warn(`Enriquecimiento de perfil desde correo falló (cuenta=${cuenta.id}): ${(err as Error).message}`);
     }
   }
 

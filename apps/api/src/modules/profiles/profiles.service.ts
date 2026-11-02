@@ -124,6 +124,35 @@ export class ProfilesService {
     return contacto;
   }
 
+  /**
+   * Resuelve el perfil de un contacto por su correo (Inc.2): lo consume la ficha del buzón para mostrar a quién escribe.
+   * Busca por `correoPrincipal`; si no hay, cae a la lista `correos`. Normaliza el correo y filtra por workspace.
+   */
+  async getContactoPorCorreo(workspaceId: string, correo: string) {
+    const correoNorm = correo.trim().toLowerCase();
+    const porPrincipal = await this.prisma.contactoPerfil.findFirst({
+      where: { workspaceId, correoPrincipal: correoNorm },
+      include: { organizacion: true },
+    });
+    if (porPrincipal) return porPrincipal;
+    const porLista = await this.prisma.contactoPerfil.findFirst({
+      where: { workspaceId, correos: { array_contains: correoNorm } },
+      include: { organizacion: true },
+    });
+    if (!porLista) throw new NotFoundException('No hay contacto con ese correo');
+    return porLista;
+  }
+
+  /** Resuelve el perfil de la organización por su dominio (Inc.2): lo consume la ficha del buzón. Filtra por workspace. */
+  async getOrganizacionPorDominio(workspaceId: string, dominio: string) {
+    const org = await this.prisma.organizacionPerfil.findFirst({
+      where: { workspaceId, dominio: dominio.trim().toLowerCase() },
+      include: { contactos: { orderBy: { nombre: 'asc' } } },
+    });
+    if (!org) throw new NotFoundException('No hay organización con ese dominio');
+    return org;
+  }
+
   async createContacto(workspaceId: string, dto: CreateContactoDto) {
     if (dto.organizacionId) await this.assertOrganizacion(workspaceId, dto.organizacionId);
     const correoPrincipal = trimOrNull(dto.correoPrincipal)?.toLowerCase() ?? null;

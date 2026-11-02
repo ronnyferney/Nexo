@@ -70,3 +70,11 @@ export class CreateContactoDto {
 
 /** Edición parcial del perfil de contacto; todos los campos opcionales en PATCH. */
 export class UpdateContactoDto extends PartialType(CreateContactoDto) {}
+
+/** Consulta de contacto por correo (ADR 0018 Inc.2): la ficha del buzón resuelve a quién escribe el remitente. */
+export class BuscarContactoPorCorreoDto {
+  @ApiProperty({ description: 'Correo del remitente a resolver' })
+  @IsEmail()
+  @MaxLength(320)
+  correo!: string;
+}

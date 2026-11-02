@@ -2994,6 +2994,10 @@ model ContactoPerfil {
   senales         Json?
   /// Procedencia del dato; base de la trazabilidad gobernada.
   fuente          String?
+  /// Última interacción observada con el contacto (p. ej. correo entrante); la fija el enriquecimiento (Inc.2).
+  ultimaInteraccionEn DateTime?
+  /// Nº de interacciones acumuladas; lo incrementa el enriquecimiento idempotente desde el correo (Inc.2).
+  interaccionesCount  Int                 @default(0)
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
 
