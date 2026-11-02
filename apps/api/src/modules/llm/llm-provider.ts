@@ -43,6 +43,12 @@ export interface LlmRunRequest {
   system: string;
   effort: Effort;
   history: unknown[];
+  /**
+   * Memoria de corto plazo compacta (ADR 0017 Inc.2): resumen del tramo antiguo del hilo que no viaja en `history`.
+   * Es **contexto adicional** —se coloca después del system y antes de la cola de mensajes—, nunca reemplaza el
+   * historial nativo. Vacío/ausente ⇒ el hilo viaja completo en `history` (comportamiento actual).
+   */
+  contextSummary?: string;
   userMessage: string;
   tools: ToolSpec[];
   maxTurns: number;

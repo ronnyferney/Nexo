@@ -634,6 +634,11 @@ model Conversation {
   agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
   /// Historial completo en formato del proveedor (append-only).
   messages  Json     @default("[]")
+  /// Memoria de corto plazo compacta (ADR 0017 Inc.2): resumen incremental del tramo antiguo del hilo. Es contexto
+  /// adicional; NO reemplaza ni reescribe `messages` (que sigue siendo el historial auditable append-only).
+  resumen         String?
+  /// Nº de mensajes nativos iniciales de `messages` cubiertos por `resumen` (marca de cobertura incremental).
+  resumenMensajes Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

@@ -36,6 +36,13 @@ import type {
 import { costUsd } from '../llm/pricing';
 import { AgentVerificationService, type VerificationOutcome } from './agent-verification.service';
 import { composeSystemPrompt, LOAD_SKILL_TOOL, SAVE_KNOWLEDGE_TOOL, SEARCH_KNOWLEDGE_TOOL } from './prompt-composer';
+import {
+  buildSummaryPrompt,
+  planThreadSplit,
+  renderForSummary,
+  SUMMARY_SYSTEM,
+  threadMemoryConfigFrom,
+} from './thread-memory';
 
 const MAX_TOOL_OUTPUT = 50_000;
 /**
@@ -51,6 +58,12 @@ const VERIFICATION_REASON: RoutingReasonCode = 'VERIFICACION_CRUZADA';
 const VERIFY_MAX_TURNS = 1;
 /** Separador estable entre varios códigos de motivo de enrutamiento al persistirlos en `UsageRecord.routingReason`. */
 const ROUTING_REASON_SEP = ',';
+/** Motivo auditable del consumo del turno de resumen de memoria compacta (ADR 0017 Inc.2). */
+const MEMORY_REASON = 'MEMORIA_RESUMEN';
+/** Rol imputado al turno que genera el resumen incremental del hilo (ADR 0017 Inc.2). */
+const SUMMARY_ROLE = 'summary';
+/** El resumen se produce en un único turno barato, sin herramientas. */
+const SUMMARY_MAX_TURNS = 1;
 /** Fragmentos que devuelve `search_knowledge`. */
 const KNOWLEDGE_TOOL_RESULTS = 5;
 /** Límites del documento que el agente guarda con `save_knowledge`. */
@@ -99,6 +112,12 @@ export interface AgentRunOptions {
   context: RunContext;
   /** Proveedor con el que se generó `history`; si cambia, se descarta el historial. */
   historyProviderId?: string;
+  /**
+   * Memoria de corto plazo compacta (ADR 0017 Inc.2): resumen incremental del tramo antiguo ya calculado y hasta qué
+   * mensaje del historial cubre. Se usa para no re-resumir lo ya resumido; el runtime devuelve su versión actualizada
+   * en {@link AgentRunResult.threadSummary} para que quien persiste lo guarde. Ausente ⇒ sin memoria previa.
+   */
+  summary?: { text: string; coveredMessages: number };
 }
 
 export interface AgentRunResult extends LlmRunResult {
@@ -107,6 +126,24 @@ export interface AgentRunResult extends LlmRunResult {
   costUsd: number;
   /** Resultado de la verificación cruzada (ADR 0010 D4), presente solo si el agente la tiene activada y pudo correr. */
   verification?: VerificationOutcome;
+  /**
+   * Estado actualizado del resumen de memoria compacta (ADR 0017 Inc.2): el resumen del tramo antiguo y hasta qué
+   * mensaje del historial cubre. Presente solo cuando la compactación aplicó en el intento ganador. Quien persiste la
+   * conversación lo guarda de forma aditiva; NUNCA altera `history` (el historial nativo append-only se devuelve íntegro).
+   */
+  threadSummary?: { resumen: string; resumenMensajes: number };
+}
+
+/** Plan de memoria compacta resuelto para un turno (ADR 0017 Inc.2). */
+interface ThreadMemoryPlan {
+  /** Cola nativa (últimos K turnos completos) que viaja al modelo, intacta. */
+  queue: unknown[];
+  /** Tramo antiguo original (sin modificar) con el que se reconstruye el historial append-only persistido. */
+  oldSegment: unknown[];
+  /** Resumen del tramo antiguo que viaja como contexto adicional. */
+  contextSummary: string;
+  /** Estado del resumen a persistir (texto + cobertura en nº de mensajes). */
+  summaryState: { resumen: string; resumenMensajes: number };
 }
 
 /**
@@ -487,10 +524,29 @@ export class AgentRuntimeService {
       history = [];
     }
 
+    // Memoria de corto plazo compacta (ADR 0017 Inc.2): si el hilo supera el umbral, el tramo antiguo no viaja en crudo;
+    // se sustituye por un resumen incremental (contexto adicional) y solo se envía la cola de los últimos K turnos en
+    // formato nativo. Hilos cortos o gate apagado ⇒ `memory` es null y el hilo viaja completo, idéntico a hoy. Degrada
+    // con gracia: si no se puede resumir, también queda en null y se usa el historial completo.
+    const memory = await this.planThreadMemory(
+      agent,
+      opts,
+      primary,
+      start?.chainIds ?? planChainIds,
+      history,
+      orgUnitId,
+      totals,
+    );
+    const sentHistory = memory ? memory.queue : history;
+    const oldSegment = memory ? memory.oldSegment : [];
+    const contextSummary = memory?.contextSummary;
+
     let current = {
       resolved: primary,
       chainIds: start?.chainIds ?? planChainIds,
-      history,
+      history: sentHistory,
+      oldSegment,
+      contextSummary,
       ...this.routingTrace(routed, reasons, primary),
     };
     let failed = label(primary);
@@ -510,15 +566,24 @@ export class AgentRuntimeService {
         if (!next) throw err;
         i = next.index;
         opts.onEvent?.({ type: 'notice', message: `El modelo ${failed} falló; se usa ${label(next.resolved)}.` });
+        // El historial nativo (y con él la memoria compacta) solo se reutiliza si el respaldo es del mismo tipo de
+        // proveedor; si no, el intento arranca con historial vacío y sin resumen (comportamiento existente, D1).
+        const sameKind = next.resolved.kind === primary.kind;
         current = {
           resolved: next.resolved,
           chainIds: next.chainIds,
-          history: next.resolved.kind === primary.kind ? history : [],
+          history: sameKind ? sentHistory : [],
+          oldSegment: sameKind ? oldSegment : [],
+          contextSummary: sameKind ? contextSummary : undefined,
           ...this.routingTrace(routed, reasons, next.resolved),
         };
         failed = label(next.resolved);
       }
     }
+
+    // Traza del resumen a persistir: solo si el intento ganador usó la memoria compacta (no en un respaldo de otro
+    // tipo de proveedor, que arrancó sin resumen). `draft.history` ya viene reconstruido en formato append-only completo.
+    if (memory && current.contextSummary !== undefined) draft.threadSummary = memory.summaryState;
 
     // Verificación cruzada (ADR 0010 D4, fase 3): opt-in y premium, solo en modo enrutado. Es orquestación por encima
     // del gateway: otro modelo (preferiblemente de otro proveedor) critica al redactor; mide e imputa su propio consumo
@@ -846,6 +911,10 @@ export class AgentRuntimeService {
       resolved: ResolvedModel;
       chainIds: string[];
       history: unknown[];
+      /** Tramo antiguo (sin modificar) para reconstruir el historial append-only completo del resultado. */
+      oldSegment?: unknown[];
+      /** Resumen del tramo antiguo que viaja como contexto adicional (ADR 0017 Inc.2). */
+      contextSummary?: string;
       routingReason: string | null;
       role: string | null;
     },
@@ -860,6 +929,7 @@ export class AgentRuntimeService {
       system: prepared.system,
       effort: agent.effort as Effort,
       history: current.history,
+      contextSummary: current.contextSummary,
       userMessage: opts.message,
       tools: prepared.tools,
       maxTurns: agent.maxTurns,
@@ -895,7 +965,122 @@ export class AgentRuntimeService {
       },
       executeTool: (call) => this.executeTool(agent, prepared, approved, call, sensitivity),
     });
-    return { ...result, providerId: resolved.providerId, model: resolved.model, costUsd: totals.cost };
+    // Reconstrucción append-only (ADR 0017 Inc.2): el modelo solo recibió la cola, pero se persiste el historial nativo
+    // completo (tramo antiguo intacto + cola + turno nuevo). Sin memoria compacta, `oldSegment` está vacío (sin cambio).
+    const history = current.oldSegment?.length ? [...current.oldSegment, ...result.history] : result.history;
+    return { ...result, history, providerId: resolved.providerId, model: resolved.model, costUsd: totals.cost };
+  }
+
+  /**
+   * Planifica la memoria de corto plazo compacta del hilo (ADR 0017 Inc.2). Lee el gate del entorno (default
+   * conservador: deshabilitado). Si el hilo supera el umbral de turnos, parte el historial en un **límite de turno
+   * seguro** (antes de un mensaje de usuario genuino) dejando los últimos K turnos en la cola nativa. El tramo antiguo
+   * se resume de forma **incremental**: solo se re-resume el fragmento nuevo que todavía no estaba cubierto por el
+   * resumen guardado (`opts.summary`), combinándolo con él; si no hay fragmento nuevo, se reutiliza el resumen tal cual
+   * sin gastar una llamada. Devuelve `null` (sin compactar, hilo completo) cuando el gate está apagado, el hilo es
+   * corto, no hay nada que resumir, o el resumen falla (degradación con gracia).
+   */
+  private async planThreadMemory(
+    agent: AgentWithTools,
+    opts: AgentRunOptions,
+    resolved: ResolvedModel,
+    chainIds: string[],
+    history: unknown[],
+    orgUnitId: string,
+    totals: RunTotals,
+  ): Promise<ThreadMemoryPlan | null> {
+    const cfg = threadMemoryConfigFrom(process.env);
+    const split = planThreadSplit(history, cfg);
+    if (!split) return null;
+    const { cut } = split;
+    const oldSegment = history.slice(0, cut);
+    const queue = history.slice(cut);
+    const prior = opts.summary;
+    const covered = Math.min(Math.max(prior?.coveredMessages ?? 0, 0), cut);
+    const priorText = prior?.text?.trim() || undefined;
+    const newSlice = history.slice(covered, cut);
+
+    // Incremental: sin tramo nuevo desde la última cobertura, se reutiliza el resumen guardado (ninguna llamada extra).
+    if (!newSlice.length) {
+      if (!priorText) return null;
+      return {
+        queue,
+        oldSegment,
+        contextSummary: priorText,
+        summaryState: { resumen: priorText, resumenMensajes: cut },
+      };
+    }
+
+    let resumen: string;
+    try {
+      resumen = (
+        await this.summarizeThread(agent, opts, resolved, chainIds, orgUnitId, totals, priorText, newSlice)
+      ).trim();
+    } catch (err) {
+      this.logger.warn(`Resumen de hilo omitido (se usa el historial completo): ${(err as Error).message}`);
+      return null;
+    }
+    if (!resumen) return null;
+    return { queue, oldSegment, contextSummary: resumen, summaryState: { resumen, resumenMensajes: cut } };
+  }
+
+  /**
+   * Genera el resumen del tramo nuevo (opcionalmente integrando el resumen previo) con el propio proveedor resuelto,
+   * en un único turno barato (`effort: low`) sin herramientas ni historial. Mide e imputa su consumo con el gobierno de
+   * costos (`assertCanSpend`/`record`) y rol `summary`, motivo `MEMORIA_RESUMEN`. El prompt nunca incluye bloques de
+   * razonamiento preservado.
+   */
+  private async summarizeThread(
+    agent: AgentWithTools,
+    opts: AgentRunOptions,
+    resolved: ResolvedModel,
+    chainIds: string[],
+    orgUnitId: string,
+    totals: RunTotals,
+    priorSummary: string | undefined,
+    newSlice: unknown[],
+  ): Promise<string> {
+    const ws = agent.workspaceId;
+    const run = await resolved.client.run({
+      model: resolved.model,
+      system: SUMMARY_SYSTEM,
+      effort: 'low',
+      history: [],
+      userMessage: buildSummaryPrompt(priorSummary, renderForSummary(newSlice)),
+      tools: [],
+      maxTurns: SUMMARY_MAX_TURNS,
+      onEvent: undefined,
+      signal: opts.signal,
+      privacyScope: opts.context.conversationId
+        ? `conversation:${opts.context.conversationId}`
+        : opts.context.executionId
+          ? `execution:${opts.context.executionId}`
+          : undefined,
+      beforeTurn: () => this.budgets.assertCanSpend(ws, orgUnitId),
+      onUsage: async (usage) => {
+        const cost = costUsd(usage, resolved.pricing);
+        totals.cost += cost;
+        totals.inputTokens += usage.inputTokens;
+        totals.outputTokens += usage.outputTokens;
+        await this.budgets.record(
+          {
+            workspaceId: ws,
+            orgUnitId,
+            agentId: agent.id,
+            ...opts.context,
+            routingReason: MEMORY_REASON,
+            role: SUMMARY_ROLE,
+          },
+          chainIds,
+          resolved.providerId,
+          resolved.model,
+          usage,
+          cost,
+        );
+      },
+      executeTool: async () => ({ content: 'El resumen no dispone de herramientas.', isError: true }),
+    });
+    return run.text;
   }
 
   private async executeTool(

@@ -13,6 +13,13 @@ import type { RoutingCandidate } from '../llm/routing.types';
 import type { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AgentRuntimeService, isProviderFailure, parseModelRef, type AgentWithTools } from './agent-runtime.service';
 import { AgentVerificationService } from './agent-verification.service';
+import {
+  isGenuineUserMessage,
+  planThreadSplit,
+  SUMMARY_SYSTEM,
+  threadMemoryConfigFrom,
+  turnStartIndices,
+} from './thread-memory';
 
 type Behavior = (req: LlmRunRequest) => Promise<LlmRunResult>;
 
@@ -805,6 +812,214 @@ describe('AgentRuntimeService · candado de salida a internet (E8-2)', () => {
     expect(invoke).toHaveBeenCalledTimes(1);
     // El conector local ni siquiera consulta el gate de salida a internet.
     expect(executionParams.puedeConectarSistemasAutorizados).not.toHaveBeenCalled();
+  });
+});
+
+describe('thread-memory · particion en limites de turno seguros (ADR 0017 Inc.2)', () => {
+  it('distingue mensajes de usuario genuinos de los que solo transportan tool_result', () => {
+    expect(isGenuineUserMessage({ role: 'user', content: 'hola' })).toBe(true);
+    expect(isGenuineUserMessage({ role: 'user', content: [{ type: 'text', text: 'hola' }] })).toBe(true);
+    // Un mensaje de usuario con bloques tool_result es continuacion del ciclo de herramientas, no inicio de turno.
+    expect(isGenuineUserMessage({ role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1' }] })).toBe(false);
+    expect(isGenuineUserMessage({ role: 'assistant', content: 'hola' })).toBe(false);
+  });
+
+  it('planThreadSplit respeta el gate, el umbral y nunca corta dentro de un ciclo de herramienta', () => {
+    const history = [
+      { role: 'user', content: 'u1' },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'x', input: {} }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'r1' }] },
+      { role: 'assistant', content: 'a1' },
+      { role: 'user', content: 'u2' },
+      { role: 'assistant', content: 'a2' },
+      { role: 'user', content: 'u3' },
+      { role: 'assistant', content: 'a3' },
+    ];
+    expect(turnStartIndices(history)).toEqual([0, 4, 6]);
+    const cfg = { enabled: true, thresholdTurns: 2, recentTurns: 1 };
+    // Gate apagado: nunca compacta.
+    expect(planThreadSplit(history, { ...cfg, enabled: false })).toBeNull();
+    // Umbral no superado: hilo corto, sin cambios.
+    expect(planThreadSplit(history, { ...cfg, thresholdTurns: 10 })).toBeNull();
+    // Corte en el ultimo inicio de turno genuino (indice 6), dejando 1 turno en la cola.
+    expect(planThreadSplit(history, cfg)).toEqual({ cut: 6 });
+  });
+
+  it('threadMemoryConfigFrom tiene default conservador (deshabilitado) y lee el entorno', () => {
+    expect(threadMemoryConfigFrom({})).toEqual({ enabled: false, thresholdTurns: 12, recentTurns: 6 });
+    expect(
+      threadMemoryConfigFrom({
+        AGENT_THREAD_SUMMARY: 'true',
+        AGENT_THREAD_SUMMARY_RECENT_TURNS: '2',
+        AGENT_THREAD_SUMMARY_THRESHOLD_TURNS: '3',
+      }),
+    ).toEqual({ enabled: true, thresholdTurns: 3, recentTurns: 2 });
+  });
+});
+
+describe('AgentRuntimeService · memoria de corto plazo compacta (ADR 0017 Inc.2)', () => {
+  const ENV_KEYS = [
+    'AGENT_THREAD_SUMMARY',
+    'AGENT_THREAD_SUMMARY_RECENT_TURNS',
+    'AGENT_THREAD_SUMMARY_THRESHOLD_TURNS',
+  ] as const;
+  let saved: Record<string, string | undefined>;
+  beforeEach(() => {
+    saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+  });
+  afterEach(() => {
+    for (const k of ENV_KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+  const enable = (recent = 1, threshold = 2) => {
+    process.env.AGENT_THREAD_SUMMARY = 'true';
+    process.env.AGENT_THREAD_SUMMARY_RECENT_TURNS = String(recent);
+    process.env.AGENT_THREAD_SUMMARY_THRESHOLD_TURNS = String(threshold);
+  };
+
+  // Hilo largo con pares de herramienta; el ultimo turno (reciente) contiene un par tool_use/tool_result.
+  const longHistory = () => [
+    { role: 'user', content: 'u1' },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'x', input: {} }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'r1' }] },
+    { role: 'assistant', content: 'a1' },
+    { role: 'user', content: 'u2' },
+    { role: 'assistant', content: 'a2' },
+    { role: 'user', content: 'u3' },
+    { role: 'assistant', content: [{ type: 'tool_use', id: 't3', name: 'y', input: {} }] },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't3', content: 'r3' }] },
+    { role: 'assistant', content: 'a3' },
+  ];
+
+  // El modelo resuelto responde: como resumidor si ve el system de resumen; como redactor en otro caso.
+  const memoryAware: Behavior = async (req) => {
+    if (req.system === SUMMARY_SYSTEM) {
+      return {
+        history: [],
+        text: 'RESUMEN DEL TRAMO ANTIGUO',
+        stopReason: 'end_turn',
+        turns: 1,
+        usage: { inputTokens: 1, outputTokens: 1 },
+      };
+    }
+    return {
+      history: [...req.history, { role: 'user', content: req.userMessage }, { role: 'assistant', content: 'final' }],
+      text: 'final',
+      stopReason: 'end_turn',
+      turns: 1,
+      usage: { inputTokens: 1, outputTokens: 1 },
+    };
+  };
+  const draftCall = (calls: { key: string; req: LlmRunRequest }[]) =>
+    calls.find((c) => c.req.system !== SUMMARY_SYSTEM)!;
+  const summaryCalls = (calls: { key: string; req: LlmRunRequest }[]) =>
+    calls.filter((c) => c.req.system === SUMMARY_SYSTEM);
+
+  it('hilo corto (bajo umbral): request identico, sin resumen ni llamada de resumen', async () => {
+    enable(1, 10); // umbral alto: 3 turnos no bastan
+    const { runtime, calls } = setup({ 'p1:m1': { kind: 'MOCK', behavior: memoryAware } });
+    const history = longHistory();
+    const r = await runtime.run(agent([]), {
+      message: 'hola',
+      history,
+      historyProviderId: 'p1',
+      context: { source: 'CHAT' },
+    });
+    expect(summaryCalls(calls)).toHaveLength(0);
+    const draft = draftCall(calls);
+    expect(draft.req.history).toEqual(history); // historial completo, sin recortar
+    expect(draft.req.contextSummary).toBeUndefined();
+    expect(r.threadSummary).toBeUndefined();
+  });
+
+  it('gate apagado (default): aunque el hilo sea largo, no compacta', async () => {
+    const { runtime, calls } = setup({ 'p1:m1': { kind: 'MOCK', behavior: memoryAware } });
+    const history = longHistory();
+    await runtime.run(agent([]), { message: 'hola', history, historyProviderId: 'p1', context: { source: 'CHAT' } });
+    expect(summaryCalls(calls)).toHaveLength(0);
+    expect(draftCall(calls).req.history).toEqual(history);
+  });
+
+  it('hilo largo: envia resumen + cola de K turnos, con el par tool_use/tool_result de la cola intacto', async () => {
+    enable(1, 2);
+    const { runtime, calls } = setup({ 'p1:m1': { kind: 'MOCK', behavior: memoryAware } });
+    const history = longHistory();
+    const r = await runtime.run(agent([]), {
+      message: 'hola',
+      history,
+      historyProviderId: 'p1',
+      context: { source: 'CHAT' },
+    });
+
+    // Se genero el resumen en un turno barato, sin herramientas ni historial.
+    const summaries = summaryCalls(calls);
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0].req.tools).toEqual([]);
+    expect(summaries[0].req.history).toEqual([]);
+    expect(summaries[0].req.userMessage).toContain('u1');
+    expect(summaries[0].req.userMessage).toContain('u2');
+
+    // El redactor recibe solo la cola (ultimo turno) + el resumen como contexto adicional.
+    const draft = draftCall(calls);
+    expect(draft.req.contextSummary).toBe('RESUMEN DEL TRAMO ANTIGUO');
+    expect(draft.req.history).toEqual(history.slice(6)); // cola: [u3, tool_use t3, tool_result t3, a3]
+    // El par tool_use/tool_result de la cola queda intacto y emparejado.
+    const queue = draft.req.history as { role: string; content: unknown }[];
+    const toolUse = (queue[1].content as { type: string; id: string }[])[0];
+    const toolResult = (queue[2].content as { type: string; tool_use_id: string }[])[0];
+    expect(toolUse).toMatchObject({ type: 'tool_use', id: 't3' });
+    expect(toolResult).toMatchObject({ type: 'tool_result', tool_use_id: 't3' });
+
+    // Historial reconstruido append-only: el tramo antiguo original NO se altera.
+    expect(r.history.slice(0, history.length)).toEqual(history);
+    expect(r.threadSummary).toEqual({ resumen: 'RESUMEN DEL TRAMO ANTIGUO', resumenMensajes: 6 });
+  });
+
+  it('incremental: no re-resume lo ya cubierto (reutiliza el resumen guardado sin llamada extra)', async () => {
+    enable(1, 2);
+    const { runtime, calls } = setup({ 'p1:m1': { kind: 'MOCK', behavior: memoryAware } });
+    const history = longHistory();
+    // El resumen previo ya cubre los 6 primeros mensajes (hasta el corte): no hay tramo nuevo que resumir.
+    const r = await runtime.run(agent([]), {
+      message: 'hola',
+      history,
+      historyProviderId: 'p1',
+      context: { source: 'CHAT' },
+      summary: { text: 'RESUMEN PREVIO GUARDADO', coveredMessages: 6 },
+    });
+    expect(summaryCalls(calls)).toHaveLength(0); // ninguna llamada de resumen
+    const draft = draftCall(calls);
+    expect(draft.req.contextSummary).toBe('RESUMEN PREVIO GUARDADO');
+    expect(draft.req.history).toEqual(history.slice(6));
+    expect(r.threadSummary).toEqual({ resumen: 'RESUMEN PREVIO GUARDADO', resumenMensajes: 6 });
+  });
+
+  it('degrada con gracia: si el resumen falla, usa el historial completo (sin compactar)', async () => {
+    enable(1, 2);
+    const behavior: Behavior = async (req) => {
+      if (req.system === SUMMARY_SYSTEM) throw new Error('HTTP 503');
+      return {
+        history: [...req.history, { role: 'user', content: req.userMessage }],
+        text: 'final',
+        stopReason: 'end_turn',
+        turns: 1,
+        usage: { inputTokens: 1, outputTokens: 1 },
+      };
+    };
+    const { runtime, calls } = setup({ 'p1:m1': { kind: 'MOCK', behavior } });
+    const history = longHistory();
+    const r = await runtime.run(agent([]), {
+      message: 'hola',
+      history,
+      historyProviderId: 'p1',
+      context: { source: 'CHAT' },
+    });
+    const draft = draftCall(calls);
+    expect(draft.req.contextSummary).toBeUndefined();
+    expect(draft.req.history).toEqual(history); // completo
+    expect(r.threadSummary).toBeUndefined();
   });
 });
 

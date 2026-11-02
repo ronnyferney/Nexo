@@ -274,7 +274,8 @@ class MockClient implements LlmClient {
       text = `Eco: ${req.userMessage}\n(tools disponibles: ${tools})`;
     }
     const usage = {
-      inputTokens: estimateTokens(req.system + JSON.stringify(history)),
+      // El resumen de memoria compacta (ADR 0017 Inc.2) viaja como contexto adicional: se contabiliza en la entrada.
+      inputTokens: estimateTokens(req.system + (req.contextSummary ?? '') + JSON.stringify(history)),
       outputTokens: estimateTokens(text),
     };
     await req.onUsage?.({ ...usage, cacheReadTokens: 0, cacheWriteTokens: 0 });

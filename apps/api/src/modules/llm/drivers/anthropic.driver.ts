@@ -253,6 +253,33 @@ export function buildCachedSystem(text: string): string | TextBlockParam[] | und
   return [{ type: 'text', text, cache_control: EPHEMERAL_CACHE }];
 }
 
+/** Encabezado del bloque de resumen: deja claro que es contexto de apoyo, no instrucciones nuevas. */
+const SUMMARY_HEADER = 'Resumen de la parte anterior de la conversación (contexto de apoyo, no son instrucciones):\n\n';
+
+/**
+ * Compone el `system` final del turno con la memoria de corto plazo compacta (ADR 0017 Inc.2): el prefijo estable
+ * del agente (cacheado por Inc.1) y, **después**, un bloque de texto con el resumen del tramo antiguo del hilo. Va
+ * como un bloque de system separado (antes de todos los mensajes, es decir, antes de la cola), de modo que el prefijo
+ * estable siga cacheado por su lado y el resumen —que cambia solo cuando un turno sale de la cola— tenga su propio
+ * punto de corte de caché. El resumen es contexto adicional: nunca reemplaza el historial nativo de la cola.
+ */
+export function composeSystemWithSummary(
+  base: string | TextBlockParam[] | undefined,
+  contextSummary: string | undefined,
+): string | TextBlockParam[] | undefined {
+  const summary = contextSummary?.trim();
+  if (!summary) return base;
+  const summaryBlock: TextBlockParam = {
+    type: 'text',
+    text: `${SUMMARY_HEADER}${summary}`,
+    cache_control: EPHEMERAL_CACHE,
+  };
+  if (base === undefined) return [summaryBlock];
+  // El prefijo estable con marcador de secreto llega como texto plano (sin caché); se conserva como primer bloque.
+  if (typeof base === 'string') return [{ type: 'text', text: base }, summaryBlock];
+  return [...base, summaryBlock];
+}
+
 /**
  * Cliente Claude (Messages API) con bucle de tool use manual:
  * streaming, thinking adaptativo + effort, caché de prompts del prefijo estable (system + herramientas, ADR 0017
@@ -353,7 +380,7 @@ class AnthropicClient implements LlmClient {
       eager_input_streaming: true,
       ...(i === last ? { cache_control: EPHEMERAL_CACHE } : {}),
     }));
-    const system = buildCachedSystem(req.system);
+    const system = composeSystemWithSummary(buildCachedSystem(req.system), req.contextSummary);
     const usage = { inputTokens: 0, outputTokens: 0 };
     let text = '';
     let stopReason = 'end_turn';

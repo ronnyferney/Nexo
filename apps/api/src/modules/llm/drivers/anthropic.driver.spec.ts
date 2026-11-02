@@ -11,6 +11,7 @@ import {
   AnthropicDriver,
   buildCachedSystem,
   claudeSdkClient,
+  composeSystemWithSummary,
   isCustomAnthropicEndpoint,
   providerErrorMessage,
   stripHistoricalThinking,
@@ -134,6 +135,32 @@ describe('ADR 0017 Inc.1 · caché de prompts del prefijo estable', () => {
 
   it('un prompt vacío no produce bloque de system (nada que cachear)', () => {
     expect(buildCachedSystem('')).toBeUndefined();
+  });
+
+  it('ADR 0017 Inc.2: el resumen va como bloque de system aparte, tras el prefijo estable cacheado', () => {
+    const base = buildCachedSystem('Eres un asistente útil.');
+    const out = composeSystemWithSummary(base, 'El usuario pidió X y se acordó Y.') as Array<{
+      type: string;
+      text: string;
+      cache_control?: unknown;
+    }>;
+    const baseArr = base as Array<{ type: string; text: string; cache_control?: unknown }>;
+    expect(out).toHaveLength(2);
+    // El prefijo estable queda primero e intacto (sigue cacheado por su cuenta).
+    expect(out[0]).toEqual(baseArr[0]);
+    // El resumen es un bloque posterior, con su propio punto de corte de caché.
+    expect(out[1].type).toBe('text');
+    expect(out[1].text).toContain('El usuario pidió X y se acordó Y.');
+    expect(out[1].cache_control).toEqual({ type: 'ephemeral' });
+  });
+
+  it('ADR 0017 Inc.2: sin resumen, el system no cambia; con prompt vacío, el resumen es el único bloque', () => {
+    const base = buildCachedSystem('Base');
+    expect(composeSystemWithSummary(base, undefined)).toBe(base);
+    expect(composeSystemWithSummary(base, '   ')).toBe(base);
+    const onlySummary = composeSystemWithSummary(undefined, 'resumen') as Array<{ text: string }>;
+    expect(onlySummary).toHaveLength(1);
+    expect(onlySummary[0].text).toContain('resumen');
   });
 
   it('la petición a Anthropic lleva cache_control en el system y en la última herramienta', async () => {

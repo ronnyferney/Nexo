@@ -438,11 +438,23 @@ export class AgentsService {
       onEvent,
       signal,
       context: { source: 'CHAT', userId, conversationId },
+      // Memoria de corto plazo compacta (ADR 0017 Inc.2): resumen incremental ya calculado y su cobertura.
+      summary: conversation?.resumen
+        ? { text: conversation.resumen, coveredMessages: conversation.resumenMensajes }
+        : undefined,
     });
     const messages = result.history as Prisma.InputJsonValue;
     const provider = result.providerId;
+    // El resumen de memoria compacta se guarda de forma aditiva; `messages` sigue siendo el historial nativo completo
+    // append-only (el runtime lo devuelve reconstruido). Solo se actualiza el resumen si la compactación aplicó.
+    const summary = result.threadSummary
+      ? { resumen: result.threadSummary.resumen, resumenMensajes: result.threadSummary.resumenMensajes }
+      : {};
     conversation = conversation
-      ? await this.prisma.conversation.update({ where: { id: conversation.id }, data: { messages, provider } })
+      ? await this.prisma.conversation.update({
+          where: { id: conversation.id },
+          data: { messages, provider, ...summary },
+        })
       : await this.prisma.conversation.create({
           data: {
             id: conversationId,
@@ -451,6 +463,7 @@ export class AgentsService {
             messages,
             title: input.message.slice(0, 60),
             userId: userId ?? null,
+            ...summary,
           },
         });
 
