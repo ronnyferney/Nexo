@@ -400,3 +400,305 @@ Por incrementos disjuntos, ordenados por valor y riesgo. **Primer incremento mí
 | 3 | **Gobierno de la continuidad del coordinador (backend).** Suplencia al suspender (E6/E3), escalamiento a humano al agotar autoridad, resolución de contradicciones sin regla (detener + pedir decisión) | nexo-backend-platform (+ coord. `modules/hierarchy`, `governance/actions`) | Reusa suspensión E6 y suplencia E3. **Pruebas:** QA13 (no autoaprobación/no ampliar presupuesto/no otorgarse permisos/no borrar auditoría); QA14 (suspender y continuar sin perder estado); QA10 (contradicción → detiene y escala). Archivos: `modules/missions/**`, `modules/hierarchy/**`, `modules/governance/actions/**` |
 | 4 | **Consola de misión (seguimiento agregado).** Cumplimiento agregado, costo por resultado, excepciones/bloqueos por misión, reutilizando E10/E9/E12 | nexo-backend-platform + nexo-frontend-ui | `GET /v1/missions/:id/dashboard` como agregación de indicadores/imputación/excepciones existentes. **Pruebas:** agregación reproducible; aislamiento multi-tenant. Archivos: `modules/missions/**`, `modules/consolas/**`, `apps/web/src/app/features/**` |
 | 5 | **QA integral.** Integración (QA10/QA12/QA13/QA14, aislamiento, agente-no-crea-misiones) y e2e del recorrido HU20 (misión que cruza dos empresas y tres áreas, dependencia vencida, escalamiento, suspensión y continuidad) | nexo-qa-api + nexo-qa-e2e | Suites en verde contra Postgres/Redis reales; cada bug con prueba que lo reproduce. Archivos: `apps/api/**/*.spec.ts`, `apps/web/e2e/**` |
+
+---
+
+## Diseño Inc.2–5 (autorizado por el patrocinador 2026-11-02)
+
+> **Marco de autorización.** Esta sección desarrolla el **diseño funcional, la arquitectura y el plan de pruebas
+> aisladas** de los Incrementos 2 a 5, conforme a la decisión del patrocinador del 2026-11-02 (§1.5 y §3 P1 ítem 5a de
+> `docs/decisiones-patrocinador-2026-11-02-plan-ejecucion.md`). Es autorización de **construir/diseñar**: **no** implica
+> gasto, contratación, acceso a cuentas/datos reales ni **activación productiva**. La **implementación operativa** de
+> cada incremento queda sujeta a **revisión por etapas** (compuertas más abajo). El Incremento 1 (MVP backend:
+> `MisionTransversal` + participantes + vínculos + asignación/seguimiento básico) está **ratificado y construido**; estos
+> incrementos lo **extienden**, de forma **aditiva y opt-in**, sin tocar el motor de flujos (`engine/*`).
+
+### Principios transversales que gobiernan Inc.2–5
+
+Todos los incrementos preservan los invariantes del cuerpo del ADR (D4/D5) y añaden estas reglas de diseño comunes:
+
+- **El coordinador propone y observa; el humano decide lo irreversible.** Seguimiento de compromisos, detección de
+  bloqueos, escalamiento y **supervisión de otros agentes** son capacidades de **lectura, correlación y notificación**.
+  Toda **acción de alto impacto o irreversible** (suspender/reasignar un agente o una tarea ya autorizada, mover
+  presupuesto entre áreas, lanzar una acción externa, marcar `LOGRADA`, detener/cancelar la misión) **exige autorización
+  humana** y pasa por el gobierno de acciones (E6: `Politica`/`DecisionPolitica`/`Aprobacion`/`Suspension` del ADR 0013).
+- **Supervisar no concede acceso (ADR 0007).** La supervisión del coordinador se limita al **alcance de la misión** y a
+  **metadatos de estado** (compromisos, vencimientos, excepciones, indicadores), nunca al contenido/datos de otras
+  empresas. Observar a un agente **no** abre sus datos ni sus credenciales.
+- **No se sobrescribe la jerarquía local.** La supervisión transversal **no** reemplaza la autoridad
+  `FUNCIONAL_PRINCIPAL` (ADR 0011): el coordinador señala y escala; el **dueño local humano** o el superior funcional
+  autoriza la corrección. Contradicción sin regla inequívoca → **detener y pedir decisión humana** (QA10,
+  `hierarchy.rules.ts`).
+- **Continuidad sin punto único de fallo.** El estado vive en Postgres (no en el coordinador). La suplencia/reemplazo de
+  E3 (`modules/hierarchy`) y la suspensión de E6 garantizan que suspender al coordinador **no detiene** el trabajo ya
+  autorizado (RF40/QA14).
+- **Trazabilidad total.** Crear/autorizar/detener/cancelar misiones, cada escalamiento, cada observación de supervisión
+  y cada solicitud de decisión humana escriben al `AuditLog` inmutable (E13), encadenados por hash.
+- **Sin infraestructura nueva.** Se reutilizan Postgres, BullMQ, el `schedule-reconciler`, `results/`, `messaging/`,
+  `governance/`, `audit/`, `consolas/`, `hierarchy/`. La detección periódica de bloqueos reusa el reconciliador
+  existente; no se crea cola ni servicio nuevo. La API permanece sin estado.
+- **Aislamiento de pruebas (US$ 0, sin producción).** Todo el plan de pruebas de esta sección corre en entornos
+  controlados: proveedores LLM/externos **mock**, datos **sintéticos**, sin canales reales ni gasto. Las pruebas de
+  motor/transiciones son TypeScript puro, sin Nest ni base; las de integración usan Postgres/Redis locales.
+
+---
+
+### Incremento 2 — Vista de coordinación transversal (frontend)
+
+**Objetivo.** Dar a los humanos (dueño de misión, dueños locales, dirección) una pantalla para **ver y gobernar** las
+misiones transversales ya soportadas por el backend del Inc.1, dejando explícito **quién es responsable humano** frente a
+**quién coordina digitalmente**, y canalizando toda acción sensible hacia los controles humanos existentes.
+
+**Alcance funcional.**
+- **Lista de misiones** del workspace/empresa (filtrada por `workspaceId`/empresa y visibilidad ADR 0007), con estado
+  (`EstadoMision`), dueño humano, coordinador digital, nº de participantes y semáforo de avance.
+- **Detalle de misión:** identidad/propósito/resultado esperado e indicador; **dueño humano vs. coordinador digital**
+  claramente diferenciados (etiqueta "humano" / "empleado digital"); empresas/áreas participantes con su dueño local;
+  objetivos/tareas vinculados con su estado; compromisos y vencimientos; bloqueos/excepciones; y el bloque **"pendiente
+  de decisión humana"**.
+- **Acciones humanas gatilladas desde la UI**, visibles solo según permiso/nivel del usuario: **Autorizar**, **Detener**,
+  **Cancelar**, **Escalar**, **Vincular/Desvincular** objetivo/tarea, **Añadir/Quitar participante**. Cada botón mapea a
+  un endpoint del Inc.1 que ya es humano-gated; la UI **no** permite que un agente dispare estas acciones.
+- **Aviso permanente en la UI:** coordinar/vincular/participar **no concede acceso** a datos (ADR 0007); si falta
+  conceder un permiso, se muestra el pendiente sin exponer el dato.
+
+**Entidades/contratos de datos (sin migrar).** Incremento **solo de frontend**: no añade entidades. Consume los contratos
+del Inc.1 vía `core/`:
+- `MissionSummaryDto` (lista): `id`, `nombre`, `estado`, `duenoUserId`, `coordinadorAgentId`, `participantesCount`,
+  `avance` (0–100 derivado del backend).
+- `MissionDetailDto`: identidad + `participantes[]` (`orgUnitId`, `duenoLocalUserId`, `agenteLiderId`, `alcance`,
+  `accesoPendiente: boolean`), `vinculos[]` (`objetivoId?`/`tareaId?` + estado resuelto), `accionesPermitidas[]`
+  (capacidades que el usuario actual puede ejecutar, resueltas en backend por rol/nivel; la UI nunca decide permisos).
+- Modelos Angular en `apps/web/src/app/core/**`; `ApiService` tipado; **ningún secreto ni `workspaceId` en el cliente**
+  (siempre de `@CurrentAuth()` en backend).
+
+**Interacción con jerarquía/permisos/gobierno.** La UI **refleja**, no decide: `accionesPermitidas` las calcula el
+backend según nivel (E3) y permisos (ADR 0007). Botones de alto impacto (Detener/Cancelar/Autorizar) solo aparecen para
+quien tiene autoridad; el resto los ve deshabilitados con el motivo. Escalar abre el flujo humano, no ejecuta efectos.
+
+**Puntos que exigen autorización humana.** Todos los botones mutadores de la vista **son acciones humanas**; no hay
+automatismo. El diseño exige que cada uno exista como endpoint humano-gated (ya del Inc.1) y que la UI falle de forma
+segura (oculta/deshabilita) si el usuario no tiene el permiso.
+
+**Criterios de aceptación.**
+- La lista y el detalle distinguen visualmente **responsable humano** de **coordinador digital** (prueba de etiqueta).
+- Los controles de alto impacto solo se renderizan/activan cuando `accionesPermitidas` los incluye; un `VIEWER` no ve
+  Autorizar/Detener/Cancelar.
+- La vista muestra el estado "no concede acceso / permiso pendiente" cuando aplica, sin filtrar datos ajenos.
+- Componentes **standalone + `OnPush` + signals + `inject()` + `@if/@for`**; clases del design system; llaves literales
+  con el pipe `tpl`; **build web sin warnings NG8113**.
+
+**Plan de pruebas aisladas.**
+- **Unitarias de componente (Karma, `CHROME_BIN`):** render condicional de acciones según `accionesPermitidas`;
+  diferenciación humano/digital; estado "permiso pendiente"; signals/`OnPush` sin fugas de cambio.
+- **De contrato (frontend↔API con backend mock):** el `ApiService` nunca envía `workspaceId` en el cuerpo; mapea los DTO
+  del Inc.1 sin pérdida.
+- **Validación:** `npm run build` (sin warnings) + `npm run test:ci`. Sin datos reales ni canales.
+
+---
+
+### Incremento 3 — Gobierno de la continuidad, supervisión y escalamiento (backend)
+
+**Objetivo.** Endurecer el gobierno del coordinador: **seguimiento de compromisos**, **detección de bloqueos**,
+**escalamiento al humano** al agotar autoridad, **supervisión de otros agentes** dentro de la misión y **continuidad**
+(suplencia/suspensión) sin perder estado — todo **respetando jerarquía y permisos** y enviando lo irreversible a
+autorización humana.
+
+**Alcance funcional.**
+- **Seguimiento de compromisos.** Un "compromiso" es la obligación de entregar un resultado vinculado a la misión en una
+  fecha (se deriva de `Tarea`/`ContratoResultado` vinculados, con su `plazo`). El coordinador consolida el estado de los
+  compromisos por misión y marca los **vencidos/en riesgo**.
+- **Detección de bloqueos.** Correlaciona `Incumplimiento`/`Excepcion` (E4/E7), dependencias vencidas y contradicciones de
+  autoridad; genera un **evento de bloqueo** por misión. La detección periódica reusa el `schedule-reconciler` (sin cola
+  nueva).
+- **Escalamiento.** Al agotarse la autoridad del coordinador (p. ej. una decisión fuera de su nivel/empresa) o ante un
+  bloqueo sin regla inequívoca, **crea una solicitud de decisión humana** dirigida al responsable según E3/E6 y **detiene
+  la parte afectada** (no fuerza). El escalamiento **no** ejecuta efectos.
+- **Supervisión de otros agentes (nuevo, acotado).** Dentro del alcance de la misión, el coordinador observa
+  **metadatos de desempeño** de los agentes participantes (compromisos cumplidos/vencidos, excepciones, latencia,
+  consumo imputado) y puede **recomendar** una corrección (reasignar, pausar, reentrenar). La **recomendación no es
+  ejecución**: aplicarla es una acción de alto impacto que **requiere autorización humana** (E6). Supervisar **no**
+  concede acceso a datos del agente (ADR 0007).
+- **Continuidad.** Al **suspender** al coordinador (E6, `Suspension` alcance `AGENTE`), su **suplente** (E3) asume la
+  coordinación; los `Objetivo`/`Tarea` autorizados **siguen**; el estado persiste; los humanos pueden reasignar en
+  cualquier nivel. La misión no es punto único de fallo (RF40/QA14).
+- **Resolución de contradicciones (QA10).** Órdenes contradictorias se resuelven por **autoridad vigente, prioridad y
+  versión** reusando `hierarchy.rules.ts`; sin regla inequívoca → **detiene + pide decisión humana**; nunca introduce
+  ciclos de supervisión.
+
+**Entidades/contratos de datos (sin migrar; migración aditiva diferida a la etapa operativa).**
+- **`MisionEvento`** (línea de tiempo auditable de la coordinación; entidad nueva **delgada y opcional**):
+  `id`, `workspaceId`, `misionId`, `tipo` (`SEGUIMIENTO | BLOQUEO_DETECTADO | ESCALAMIENTO | SUPERVISION |
+  DECISION_HUMANA_SOLICITADA | CONTINUIDAD`), `actorTipo` (`HUMANO | AGENTE`), `actorId`, `payload Json` (metadatos
+  saneados, **sin datos sensibles**; referencias a `Incumplimiento`/`Excepcion`/`Aprobacion` por id), `requiereDecision
+  Boolean`, `resueltoPor String?`, `resueltoAt DateTime?`, `createdAt`. Índice `@@index([workspaceId, misionId, tipo])`.
+  Es **append-only** y alimenta el `AuditLog` (E13). Reemplaza heurísticas por un hecho explícito y trazable.
+- **Compromisos y bloqueos como read-model derivado** (sin tabla nueva): `CompromisoMisionView`
+  (`vinculoId`, `responsableAgentId`, `duenoLocalUserId`, `plazo`, `estado: EN_CURSO|EN_RIESGO|VENCIDO|CUMPLIDO`) y
+  `BloqueoMisionView` (origen `Incumplimiento`/`Excepcion`/dependencia/contradicción + severidad), **calculados** sobre
+  los vínculos del Inc.1 y E4/E7. No se duplica el trabajo ni su presupuesto.
+- **Reutilización E6/E3 sin entidades nuevas:** escalamiento y supervisión-acción usan `Aprobacion`/`DecisionPolitica`;
+  continuidad usa `Suspension` (alcance `AGENTE`) + suplencia de `modules/hierarchy`.
+- Back-relation aditiva y opcional: `MisionTransversal.eventos MisionEvento[]`. Ninguna columna existente cambia.
+
+**Interacción con jerarquía/permisos/gobierno.**
+- **Jerarquía (E3/ADR 0011):** la autoridad del coordinador es la de su nivel, **acotada por empresa**; agotarla dispara
+  escalamiento, no una orden. La suplencia la resuelve `modules/hierarchy` (sin ciclos, una sola `FUNCIONAL_PRINCIPAL`).
+- **Permisos (ADR 0007/0014):** supervisar/escalar **no** concede acceso; cualquier reasignación solo transfiere
+  **subconjuntos** de permisos del delegante.
+- **Gobierno de acciones (E6/ADR 0013):** suspender/reasignar un agente o tarea, mover presupuesto o lanzar efectos pasa
+  por `PolicyEngine`→`ActionGateway`→`Aprobacion`; el coordinador **no se autoaprueba** (`allowSelfApproval=false` para
+  sus acciones; QA13) ni amplía presupuesto (ADR 0002).
+
+**Puntos que exigen autorización humana.**
+1. **Aplicar una recomendación de supervisión** (reasignar/pausar/reentrenar un agente) → `Aprobacion` humana (E6).
+2. **Suspender/reactivar** al coordinador o a un agente supervisado → acción humana (E6, `Suspension`).
+3. **Resolver un escalamiento o una contradicción sin regla** → **decisión humana** del responsable (E3); el sistema solo
+   detiene y solicita.
+4. **Mover presupuesto entre áreas** o lanzar cualquier efecto externo → `Aprobacion` humana; nunca automático.
+5. **Reasignar la coordinación** fuera de la suplencia definida → acción humana.
+
+**Criterios de aceptación.**
+- El coordinador **no puede** aprobar su propia excepción, ampliar su presupuesto, otorgarse permisos ni borrar auditoría:
+  cada intento queda **bloqueado y auditado** (QA13).
+- Suspender al coordinador activa al suplente; los objetivos/tareas autorizados **siguen**; el estado persiste y los
+  humanos pueden reasignar (QA14).
+- Contradicción sin regla inequívoca → se **detiene** la parte afectada y se registra `DECISION_HUMANA_SOLICITADA`; no se
+  crean ciclos de supervisión (QA10).
+- Toda recomendación de supervisión que implique efecto genera una `Aprobacion` **pendiente**; ninguna se ejecuta sin
+  decisión humana.
+- Supervisar/escalar sobre otra empresa **no** abre sus datos (QA12).
+- `MisionEvento` es append-only y cada hecho queda encadenado en el `AuditLog`.
+
+**Plan de pruebas aisladas.**
+- **Unitarias (TS puro, sin Nest/BD):** cálculo de `CompromisoMisionView` (EN_RIESGO/VENCIDO según `plazo`); clasificación
+  de bloqueos; resolución de contradicciones reusando `hierarchy.rules.ts` (autoridad vigente/prioridad/versión);
+  invariante "sin ciclos de supervisión".
+- **Integración API (Postgres/Redis locales, LLM mock):** QA13 (no autoaprobación / no ampliar presupuesto / no otorgarse
+  permisos / no borrar auditoría); QA14 (suspender → suplente asume, estado persiste); QA10 (contradicción → detiene +
+  escala); supervisión→recomendación produce `Aprobacion` pendiente, nunca efecto; multi-tenant/empresa en
+  `MisionEvento` y en las vistas derivadas; un **agente no** crea/autoriza misiones ni se dota (`AGENTE_NO_CREA_AGENTES`).
+- **Sin** canales reales, sin datos reales, sin gasto.
+
+---
+
+### Incremento 4 — Consola de misión: seguimiento agregado (backend + frontend)
+
+**Objetivo.** Responder, por **misión transversal**, "¿cómo va el resultado que cruza varias áreas, cuánto cuesta y quién
+lo está frenando?", **componiendo indicadores ya existentes** (E10), imputación (E9/ADR 0002) y excepciones (E4/E7), sin
+cómputo paralelo ni sistema de métricas nuevo.
+
+**Alcance funcional.**
+- **Cumplimiento agregado:** % de resultados de negocio vinculados `ACEPTADO` (verificador ≠ ejecutor) y avance del
+  indicador de misión vs. meta/línea base/plazo.
+- **Costo por resultado transversal:** suma de `UsageRecord`/imputación (E9) de las tareas vinculadas, atribuida a la
+  misión **por referencia** (no mueve presupuesto entre áreas).
+- **Bloqueos y excepciones** por misión (desde el read-model del Inc.3), con quién frena y qué espera decisión humana.
+- **Supervisión consolidada:** tablero del desempeño de los agentes participantes (compromisos, vencidos, excepciones,
+  consumo), en **modo lectura**; las acciones siguen gatilladas por humanos (Inc.3).
+- Expuesto como **consola de misión** en `modules/consolas` (que ya consolida por negocio/área/sede) + su pantalla web.
+
+**Entidades/contratos de datos (sin migrar).** **No añade entidades**: es **proyección/agrupación por `misionId`** de lo
+existente.
+- `MissionDashboardDto`: `cumplimiento` (`aceptados`, `total`, `indicadorActual`, `meta`, `enPlazo`), `costo`
+  (`imputadoPorArea[]`, `totalMision`, moneda), `bloqueos[]`, `excepciones[]`, `pendientesDecisionHumana[]`,
+  `supervisionAgentes[]`. Todo **derivado**; endpoint `GET /v1/missions/:id/dashboard` (ya previsto en D3).
+- Reusa `results/indicadores`, `governance/imputacion`, patrones de `consolas`.
+
+**Interacción con jerarquía/permisos/gobierno.** Lectura filtrada por `workspaceId`/empresa y visibilidad ADR 0007: cada
+usuario ve solo las métricas de las empresas/áreas a las que tiene alcance; la consola **no** abre datos ajenos por
+agregar. El costo se **atribuye** por referencia; **no** reasigna presupuesto (eso es E6/humano).
+
+**Puntos que exigen autorización humana.**
+- La consola es **de solo lectura**; no ejecuta efectos.
+- **Marcar la misión `LOGRADA`** (si la política lo propone automáticamente) requiere **confirmación del dueño humano**
+  (decisión de producto abierta nº 5; propuesta: el sistema **propone** `LOGRADA`, el humano confirma).
+- Cualquier acción originada desde la consola (reasignar costo, lanzar recuperación) redirige al gobierno humano (E6).
+
+**Criterios de aceptación.**
+- La agregación por `misionId` es **reproducible y determinista** a partir de los mismos datos; coincide con la suma de
+  los indicadores/imputación/excepciones de los vínculos.
+- Aislamiento multi-tenant/empresa: un usuario sin alcance a una empresa participante **no** ve su detalle de costo ni sus
+  datos.
+- La consola no ofrece acciones que ejecuten efectos; `LOGRADA` exige confirmación humana.
+- Pantalla web `OnPush` + signals; **build sin warnings NG8113**.
+
+**Plan de pruebas aisladas.**
+- **Unitarias:** funciones de agregación (cumplimiento, costo, excepciones) con fixtures deterministas; propuesta de
+  `LOGRADA` solo cuando contratos `ACEPTADO` + indicador cumplido.
+- **Integración API:** `GET /v1/missions/:id/dashboard` con datos sintéticos; aislamiento multi-tenant/empresa;
+  concordancia entre el dashboard y la suma de las fuentes.
+- **Frontend:** render de la consola, sin acciones de efecto; `npm run build` + `npm run test:ci`.
+- Sin datos reales, sin gasto.
+
+---
+
+### Incremento 5 — QA integral (API + e2e)
+
+**Objetivo.** Verificar de extremo a extremo que la capacidad transversal **no rompe ningún invariante** antes de
+proponer cualquier activación operativa, con el recorrido HU20 completo en entorno aislado.
+
+**Alcance funcional.** Suites de integración (QA10/QA12/QA13/QA14, aislamiento multi-tenant/empresa, agente-no-crea/
+autoriza-misiones) y **e2e** del recorrido: misión que cruza **dos empresas y tres áreas**, el coordinador detecta una
+**dependencia vencida**, **propone recuperación**, **escala fuera de su autoridad**; un dueño local autoriza su parte;
+los resultados de negocio se aceptan con **verificador ≠ ejecutor**; la consola de misión consolida cumplimiento/costo/
+excepciones; se **suspende** al coordinador y el **suplente** da continuidad sin perder estado.
+
+**Entidades/contratos de datos.** Ninguna nueva; solo fixtures/seed **sintéticos** y utilidades de prueba.
+
+**Interacción con jerarquía/permisos/gobierno.** Las pruebas ejercitan precisamente los puntos de gobierno: aprobaciones
+humanas, suspensión/suplencia, resolución de contradicciones y no-escalada de permisos.
+
+**Puntos que exigen autorización humana.** La corrida de QA **no** autoriza producción: es evidencia para el **informe de
+etapa**. La activación operativa la decide el patrocinador (ver "Pendiente de autorización operativa").
+
+**Criterios de aceptación.**
+- Suites en **verde** contra Postgres/Redis **locales**, con proveedores **mock** y datos **sintéticos** (US$ 0).
+- Cobertura explícita de QA10/QA12/QA13/QA14 y de `AGENTE_NO_CREA_AGENTES`.
+- Cada bug encontrado se acompaña de **la prueba que lo reproduce** (regla de `CLAUDE.md`).
+- El e2e HU20 pasa completo, incluida la **continuidad tras suspensión**.
+
+**Plan de pruebas aisladas.** Es, en sí, el incremento de pruebas: integración en `apps/api/**/*.spec.ts` y e2e en
+`apps/web/e2e/**`, todo en sandbox, sin canales reales, sin datos reales y sin gasto.
+
+---
+
+### Orden de construcción por etapas y compuertas de revisión
+
+Cada etapa produce evidencia y **se detiene en su compuerta** hasta que el patrocinador/arquitecto la revise; ninguna
+habilita activación productiva por sí misma.
+
+| Etapa | Incremento(s) | Entregable de la etapa | Compuerta de revisión (qué se verifica para avanzar) |
+|---|---|---|---|
+| E-A | Inc.2 (frontend) | Vista de coordinación sobre el backend del Inc.1 | Build web sin warnings NG8113; diferenciación humano/digital; acciones solo humano-gated; "no concede acceso" visible. Revisión UX del patrocinador. |
+| E-B | Inc.3 (gobierno/continuidad/supervisión) | Seguimiento de compromisos, detección de bloqueos, escalamiento, supervisión acotada, suplencia | QA13/QA14/QA10 en verde en aislado; `MisionEvento` append-only auditado; recomendación de supervisión nunca ejecuta efecto. **Requiere migración aditiva de `MisionEvento` revisada.** |
+| E-C | Inc.4 (consola) | `GET /v1/missions/:id/dashboard` + pantalla, como agregación pura | Agregación reproducible; aislamiento multi-tenant/empresa; consola de solo lectura; `LOGRADA` propuesta, no automática. |
+| E-D | Inc.5 (QA integral) | Suites de integración + e2e HU20 en sandbox | Todo en verde con mocks/datos sintéticos; evidencia para el informe de etapa. |
+
+**Dependencias:** E-A depende del Inc.1 (ya construido). E-C depende del read-model del Inc.3 (E-B) para bloqueos/
+supervisión. E-D cierra sobre A–C. Dentro de cada etapa se respeta el orden del repo: **contrato de API → backend →
+frontend → QA**.
+
+**Dueños (matriz `docs/AGENTS-TEAM.md`):** Inc.2 → `nexo-frontend-ui` + `nexo-frontend-core`; Inc.3 →
+`nexo-backend-platform` (+ coordinación con `modules/hierarchy` y `governance/actions`, dueño `nexo-backend-platform`);
+Inc.4 → `nexo-backend-platform` + `nexo-frontend-ui`; Inc.5 → `nexo-qa-api` + `nexo-qa-e2e`. Diseño y revisión
+transversal: `nexo-architect`.
+
+### Pendiente de autorización operativa (no se ejecuta sin decisión del patrocinador)
+
+- **Migración de `MisionEvento`** y de las back-relations aditivas: diseñada aquí; su **aplicación** (`prisma migrate
+  dev`) es parte de la implementación operativa del Inc.3, sujeta a la compuerta E-B.
+- **Activación productiva** de cualquier incremento: fuera de alcance; esta autorización es de construir/diseñar/probar en
+  aislado (§P2 del plan del patrocinador, "ADR 0016 Inc.2–5 operativo → revisión por etapas").
+- **Decisiones de producto abiertas** (sección correspondiente del ADR), con impacto en el diseño operativo y que
+  requieren decisión del negocio:
+  1. Ubicación del módulo (`modules/missions` propio vs. dentro de `results/`).
+  2. Rol/nivel mínimo para crear/autorizar misiones y para coordinar (¿`GERENTE` para misiones de menor alcance?).
+  3. Alcance inter-empresa del coordinador sin asignación directa (afecta ADR 0011/0007).
+  4. Presupuesto de misión: bolsa propia vs. solo agregación (propuesta: solo agrega; mover presupuesto → E6).
+  5. `LOGRADA` automática vs. confirmación humana (propuesta: propone el sistema, confirma el dueño).
+  6. Pasaporte de misión además del pasaporte por resultado (ADR 0014), según sector regulado.
+  7. Versionado de la forma JSON de `MisionParticipante.alcance` y de `MisionEvento.payload` (misma disciplina que las
+     definiciones de flujo).
+- **Guardarraíl multisectorial:** todo lo anterior es **transversal, configurable por workspace y tipado por
+  catálogo/política**; nada atado a una empresa, sector o proceso concreto (§4 del plan del patrocinador).
