@@ -12,6 +12,7 @@ import {
 import { Prisma, type TriggerType } from '@prisma/client';
 import { Queue, QueueEvents } from 'bullmq';
 import type { AuthContext } from '../../common/decorators/current-user.decorator';
+import { priorityFor, workKindForTrigger } from '../../common/queue/scheduling.policy';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AgentAccessService } from '../agent-access/agent-access.service';
 import { checkInput, inputErrorMessage, inputWarnings } from './engine/workflow-input';
@@ -235,8 +236,11 @@ export class WorkflowsService implements OnModuleInit, OnModuleDestroy {
     const execution = await this.prisma.execution.create({
       data: { workflowId, workspaceId, trigger, input: json(input) },
     });
-    const job = await this.queue.add(JOB_RUN, { executionId: execution.id } satisfies RunJobData, {
+    const job = await this.queue.add(JOB_RUN, { executionId: execution.id, workspaceId } satisfies RunJobData, {
       jobId: execution.id,
+      // Prioridad por urgencia (ADR 0017 Inc.3): lo interactivo (manual/webhook/MCP) antes que lo programado. Solo
+      // afecta el orden cuando hay cola; sin backlog el trabajo arranca igual.
+      priority: priorityFor(workKindForTrigger(trigger)),
       removeOnComplete: 1000,
       removeOnFail: 5000,
     });
@@ -335,7 +339,16 @@ export class WorkflowsService implements OnModuleInit, OnModuleDestroy {
   private async syncSchedule(workflowId: string, active: boolean, schedule: string | null): Promise<void> {
     const id = schedulerId(workflowId);
     if (active && schedule) {
-      await this.queue.upsertJobScheduler(id, { pattern: schedule }, { name: JOB_SCHEDULED, data: { workflowId } });
+      await this.queue.upsertJobScheduler(
+        id,
+        { pattern: schedule },
+        {
+          name: JOB_SCHEDULED,
+          data: { workflowId },
+          // Las ejecuciones programadas ceden el paso a las interactivas (ADR 0017 Inc.3).
+          opts: { priority: priorityFor('scheduled') },
+        },
+      );
     } else {
       await this.queue.removeJobScheduler(id);
     }

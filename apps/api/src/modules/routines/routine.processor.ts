@@ -1,6 +1,7 @@
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
-import type { Job, Queue } from 'bullmq';
+import { DelayedError, type Job, type Queue } from 'bullmq';
+import { ConcurrencyGate, schedulingConfigFrom } from '../../common/queue/scheduling.policy';
 import { RoutineRunnerService } from './routine-runner.service';
 import {
   JOB_ROUTINE_RUN,
@@ -15,6 +16,9 @@ import {
 @Processor(ROUTINE_QUEUE, { concurrency: Number(process.env.WORKER_CONCURRENCY ?? 10) })
 export class RoutineProcessor extends WorkerHost {
   private readonly logger = new Logger(RoutineProcessor.name);
+  private readonly config = schedulingConfigFrom(process.env);
+  /** Límite de concurrencia por workspace (ADR 0017 Inc.3). */
+  private readonly gate = new ConcurrencyGate(() => this.config.perWorkspaceConcurrency);
 
   constructor(
     private readonly runner: RoutineRunnerService,
@@ -23,9 +27,18 @@ export class RoutineProcessor extends WorkerHost {
     super();
   }
 
-  async process(job: Job<RoutineRunJobData | RoutineScheduledJobData>): Promise<void> {
+  async process(job: Job<RoutineRunJobData | RoutineScheduledJobData>, token?: string): Promise<void> {
     if (job.name === JOB_ROUTINE_RUN) {
-      await this.runner.execute((job.data as RoutineRunJobData).runId);
+      const { runId, workspaceId } = job.data as RoutineRunJobData;
+      if (workspaceId && !this.gate.tryAcquire(workspaceId)) {
+        await job.moveToDelayed(Date.now() + this.config.deferMs, token);
+        throw new DelayedError();
+      }
+      try {
+        await this.runner.execute(runId);
+      } finally {
+        if (workspaceId) this.gate.release(workspaceId);
+      }
       return;
     }
     if (job.name === JOB_ROUTINE_SCHEDULED) {

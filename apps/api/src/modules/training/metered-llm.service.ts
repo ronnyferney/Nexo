@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { TurnClock } from '../../common/metrics/turn-clock';
 import { BudgetsService } from '../governance/budgets.service';
 import { LlmGatewayService } from '../llm/llm-gateway.service';
 import { costUsd } from '../llm/pricing';
@@ -35,6 +36,7 @@ export class MeteredLlmService {
     const plan = await this.budgets.plan(ws, call.orgUnitId, call.providerId, call.model);
     const resolved = await this.gateway.resolve(ws, plan.providerId, plan.model);
     let total = 0;
+    const clock = new TurnClock();
     const result = await resolved.client.run({
       model: resolved.model,
       system: call.system,
@@ -43,13 +45,24 @@ export class MeteredLlmService {
       history: [],
       tools: [],
       maxTurns: 1,
-      beforeTurn: () => this.budgets.assertCanSpend(ws, call.orgUnitId),
+      beforeTurn: async () => {
+        await this.budgets.assertCanSpend(ws, call.orgUnitId);
+        clock.mark();
+      },
       onUsage: async (usage) => {
+        const latenciaMs = clock.elapsedMs();
         const cost = costUsd(usage, resolved.pricing);
         total += cost;
         call.onCost?.(cost);
         await this.budgets.record(
-          { workspaceId: ws, orgUnitId: call.orgUnitId, source: 'EVAL', agentId: call.agentId, userId: call.userId },
+          {
+            workspaceId: ws,
+            orgUnitId: call.orgUnitId,
+            source: 'EVAL',
+            agentId: call.agentId,
+            userId: call.userId,
+            latenciaMs,
+          },
           plan.chainIds,
           resolved.providerId,
           resolved.model,

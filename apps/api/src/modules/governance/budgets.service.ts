@@ -22,6 +22,12 @@ export interface UsageContext {
   /** Rol del tramo (ADR 0010 D5): `draft`/`verify`/nombre de rol; `null` sin enrutamiento. */
   role?: string | null;
   /**
+   * Latencia del turno del modelo en milisegundos (ADR 0017 Inc.3): se mide junto al costo y se persiste en
+   * `UsageRecord.latenciaMs`. Opcional y aditiva: NO altera el cálculo del costo ni el resultado funcional. Si no se
+   * informa, la columna queda en `null`.
+   */
+  latenciaMs?: number | null;
+  /**
    * Dimensiones de imputación integradas (ADR 0011 D5/RF45), capturadas como snapshot del hecho económico. Opcionales y
    * aditivas: NO cambian el cálculo del costo (ADR 0002 intacto) ni crean una segunda reserva; son etiquetas de reporte.
    * Si no se informan: `areaEjecutoraId` toma por defecto `orgUnitId` (el área que ejecuta) y `empresaId` se resuelve de

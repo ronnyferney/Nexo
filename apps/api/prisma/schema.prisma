@@ -890,6 +890,10 @@ model UsageRecord {
   cacheReadTokens     Int         @default(0)
   cacheWriteTokens    Int         @default(0)
   costUsd             Decimal     @db.Decimal(18, 8)
+  /// Latencia del turno del modelo en milisegundos (ADR 0017 Inc.3): tiempo de la llamada al proveedor, medido junto
+  /// al costo. Aditivo y opcional: NO altera el cálculo del costo (ADR 0002 intacto) ni el resultado funcional; es solo
+  /// una métrica de rendimiento. Los registros previos quedan `null`.
+  latenciaMs          Int?
   /// Trazabilidad de enrutamiento (ADR 0010 D5): motivo de selección como código(s) auditable(s), nunca el
   /// razonamiento interno del modelo. Varios motivos se separan por coma. `null` = sin política de enrutamiento.
   routingReason       String?

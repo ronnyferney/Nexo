@@ -1,4 +1,5 @@
 import { parseKeyring, type EncryptionKeyring } from '../common/crypto/keyring';
+import { schedulingConfigFrom, type SchedulingConfig } from '../common/queue/scheduling.policy';
 import { parseTrustProxy, type TrustProxy } from './trust-proxy';
 
 export interface AppConfig {
@@ -91,6 +92,12 @@ export interface AppConfig {
   bootstrapAdmin: { email: string | null; password: string | null; name: string; workspaceName: string };
   /** Administradores de la plataforma Nexo (no son roles de workspace, ADR 0006 D6). */
   platform: { adminEmails: string[] };
+  /**
+   * Programación de colas BullMQ (ADR 0017 Inc.3): concurrencia del worker, tope de concurrencia por workspace
+   * (opt-in, 0 = sin límite) y retraso de reencolado al diferir. Los workers la leen de `process.env`; aquí queda
+   * expuesta para diagnóstico y para documentar las variables.
+   */
+  queue: SchedulingConfig;
 }
 
 /**
@@ -313,4 +320,5 @@ export default (): AppConfig => ({
       .map((e) => e.trim().toLowerCase())
       .filter(Boolean),
   },
+  queue: schedulingConfigFrom(process.env),
 });

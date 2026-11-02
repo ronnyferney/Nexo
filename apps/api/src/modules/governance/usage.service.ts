@@ -128,6 +128,7 @@ export class UsageService {
         inputTokens: r.inputTokens,
         outputTokens: r.outputTokens,
         costUsd: Number(r.costUsd),
+        latenciaMs: r.latenciaMs,
         routingReason: r.routingReason,
         role: r.role,
       })),

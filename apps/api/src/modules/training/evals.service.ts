@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import type { EvalResult, EvalRun } from '@prisma/client';
 import type { Queue } from 'bullmq';
+import { priorityFor } from '../../common/queue/scheduling.policy';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AgentsService, targetScoreOf } from '../agents/agents.service';
 import { LlmGatewayService } from '../llm/llm-gateway.service';
@@ -90,8 +91,10 @@ export class EvalsService {
       include: WITH_VERSION,
     });
     try {
-      await this.queue.add(JOB_EVAL_RUN, { runId: run.id } satisfies EvalRunJobData, {
+      await this.queue.add(JOB_EVAL_RUN, { runId: run.id, workspaceId } satisfies EvalRunJobData, {
         jobId: run.id,
+        // Trabajo masivo: cede el paso a lo interactivo y programado (ADR 0017 Inc.3).
+        priority: priorityFor('batch'),
         removeOnComplete: 1000,
         removeOnFail: 5000,
       });

@@ -2,6 +2,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Queue } from 'bullmq';
+import { priorityFor } from '../../common/queue/scheduling.policy';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import {
   ConversationRetentionService,
@@ -40,7 +41,12 @@ export class RetentionService implements OnModuleInit {
       await this.queue.upsertJobScheduler(
         RETENTION_SCHEDULER_ID,
         { pattern: RETENTION_PATTERN, tz: 'UTC' },
-        { name: JOB_RETENTION, data: {}, opts: { removeOnComplete: 10, removeOnFail: 50 } },
+        {
+          name: JOB_RETENTION,
+          data: {},
+          // Mantenimiento: la prioridad más baja, nunca por delante del trabajo de agentes (ADR 0017 Inc.3).
+          opts: { removeOnComplete: 10, removeOnFail: 50, priority: priorityFor('maintenance') },
+        },
       );
     } catch (err) {
       this.logger.warn(`No se pudo programar la limpieza de ejecuciones: ${(err as Error).message}`);

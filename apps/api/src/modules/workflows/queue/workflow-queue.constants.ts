@@ -32,6 +32,12 @@ export const DURABILITY_SWEEP_PATTERN = '53 * * * *';
 
 export interface RunJobData {
   executionId: string;
+  /**
+   * Workspace de la ejecución (ADR 0017 Inc.3): permite al worker aplicar el límite de concurrencia por inquilino sin
+   * una consulta extra. Opcional por compatibilidad: los trabajos encolados antes de este cambio no lo llevan y se
+   * procesan sin gate (comportamiento actual).
+   */
+  workspaceId?: string;
 }
 
 export interface ScheduledJobData {

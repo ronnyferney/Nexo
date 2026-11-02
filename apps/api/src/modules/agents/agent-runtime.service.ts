@@ -14,6 +14,7 @@ import type {
   UsageSource,
 } from '@prisma/client';
 import { ConnectorType } from '@prisma/client';
+import { TurnClock } from '../../common/metrics/turn-clock';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { ConnectorsService } from '../connectors/connectors.service';
 import { ExecutionParamsService } from '../execution-params/execution-params.service';
@@ -660,6 +661,7 @@ export class AgentRuntimeService {
       draftText: draft.text,
     });
     let verdictText: string;
+    const clock = new TurnClock();
     try {
       const run = await resolved.client.run({
         model: resolved.model,
@@ -676,8 +678,12 @@ export class AgentRuntimeService {
           : opts.context.executionId
             ? `execution:${opts.context.executionId}`
             : undefined,
-        beforeTurn: () => this.budgets.assertCanSpend(ws, orgUnitId),
+        beforeTurn: async () => {
+          await this.budgets.assertCanSpend(ws, orgUnitId);
+          clock.mark();
+        },
         onUsage: async (usage) => {
+          const latenciaMs = clock.elapsedMs();
           const cost = costUsd(usage, resolved.pricing);
           totals.cost += cost;
           totals.inputTokens += usage.inputTokens;
@@ -690,6 +696,7 @@ export class AgentRuntimeService {
               ...opts.context,
               routingReason: VERIFICATION_REASON,
               role: VERIFY_ROLE,
+              latenciaMs,
             },
             verifierChainIds,
             resolved.providerId,
@@ -924,6 +931,7 @@ export class AgentRuntimeService {
     const ws = agent.workspaceId;
     const { resolved, chainIds } = current;
     const approved = new Set(opts.approvedTools ?? []);
+    const clock = new TurnClock();
     const result = await resolved.client.run({
       model: resolved.model,
       system: prepared.system,
@@ -941,8 +949,12 @@ export class AgentRuntimeService {
         : opts.context.executionId
           ? `execution:${opts.context.executionId}`
           : undefined,
-      beforeTurn: () => this.budgets.assertCanSpend(ws, orgUnitId),
+      beforeTurn: async () => {
+        await this.budgets.assertCanSpend(ws, orgUnitId);
+        clock.mark();
+      },
       onUsage: async (usage) => {
+        const latenciaMs = clock.elapsedMs();
         const cost = costUsd(usage, resolved.pricing);
         totals.cost += cost;
         totals.inputTokens += usage.inputTokens;
@@ -955,6 +967,7 @@ export class AgentRuntimeService {
             ...opts.context,
             routingReason: current.routingReason,
             role: current.role,
+            latenciaMs,
           },
           chainIds,
           resolved.providerId,
@@ -1041,6 +1054,7 @@ export class AgentRuntimeService {
     newSlice: unknown[],
   ): Promise<string> {
     const ws = agent.workspaceId;
+    const clock = new TurnClock();
     const run = await resolved.client.run({
       model: resolved.model,
       system: SUMMARY_SYSTEM,
@@ -1056,8 +1070,12 @@ export class AgentRuntimeService {
         : opts.context.executionId
           ? `execution:${opts.context.executionId}`
           : undefined,
-      beforeTurn: () => this.budgets.assertCanSpend(ws, orgUnitId),
+      beforeTurn: async () => {
+        await this.budgets.assertCanSpend(ws, orgUnitId);
+        clock.mark();
+      },
       onUsage: async (usage) => {
+        const latenciaMs = clock.elapsedMs();
         const cost = costUsd(usage, resolved.pricing);
         totals.cost += cost;
         totals.inputTokens += usage.inputTokens;
@@ -1070,6 +1088,7 @@ export class AgentRuntimeService {
             ...opts.context,
             routingReason: MEMORY_REASON,
             role: SUMMARY_ROLE,
+            latenciaMs,
           },
           chainIds,
           resolved.providerId,

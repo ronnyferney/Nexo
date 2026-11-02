@@ -17,6 +17,14 @@ const schema = z.object({
   PORT: z.coerce.number().optional(),
   REDIS_HOST: z.string().optional(),
   REDIS_PORT: z.coerce.number().optional(),
+  // Programación de colas (ADR 0017 Inc.3): opcionales con defaults conservadores en `schedulingConfigFrom`.
+  WORKER_CONCURRENCY: z.coerce.number().int().min(1, 'WORKER_CONCURRENCY debe ser al menos 1').optional(),
+  WORKER_WORKSPACE_CONCURRENCY: z.coerce
+    .number()
+    .int()
+    .min(0, 'WORKER_WORKSPACE_CONCURRENCY debe ser 0 (sin límite) o mayor')
+    .optional(),
+  WORKER_WORKSPACE_DEFER_MS: z.coerce.number().int().min(1, 'WORKER_WORKSPACE_DEFER_MS debe ser al menos 1').optional(),
   EXECUTIONS_RETENTION_DAYS: z.coerce.number().int().min(1, 'EXECUTIONS_RETENTION_DAYS debe ser al menos 1').optional(),
   CONVERSATIONS_RETENTION_DAYS: z
     .string()

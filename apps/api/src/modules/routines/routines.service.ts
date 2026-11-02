@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import type { AgentRoutine, LaunchStatus, RoutineRun } from '@prisma/client';
 import { Queue, QueueEvents } from 'bullmq';
+import { priorityFor } from '../../common/queue/scheduling.policy';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { schedulerEntries, type ScheduleSource } from '../workflows/schedule-reconciler';
 import { CreateRoutineDto, UpdateRoutineDto } from './dto/routine.dto';
@@ -177,8 +178,10 @@ export class RoutinesService implements OnModuleInit, OnModuleDestroy {
     const blocked = routineBlockReason(agent);
     if (blocked) throw new ConflictException(blocked);
     const run = await this.prisma.routineRun.create({ data: { routineId: routine.id } });
-    const job = await this.queue.add(JOB_ROUTINE_RUN, { runId: run.id } satisfies RoutineRunJobData, {
+    const job = await this.queue.add(JOB_ROUTINE_RUN, { runId: run.id, workspaceId } satisfies RoutineRunJobData, {
       jobId: run.id,
+      // "Ejecutar ahora" es interactivo: alguien espera el resultado (ADR 0017 Inc.3).
+      priority: priorityFor('interactive'),
       removeOnComplete: 1000,
       removeOnFail: 5000,
     });
@@ -241,7 +244,8 @@ export class RoutinesService implements OnModuleInit, OnModuleDestroy {
         {
           name: JOB_ROUTINE_SCHEDULED,
           data: { routineId: routine.id } satisfies RoutineScheduledJobData,
-          opts: { removeOnComplete: 100, removeOnFail: 500 },
+          // Las corridas por calendario ceden el paso a lo interactivo (ADR 0017 Inc.3).
+          opts: { removeOnComplete: 100, removeOnFail: 500, priority: priorityFor('scheduled') },
         },
       );
     } else {

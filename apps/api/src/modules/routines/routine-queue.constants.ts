@@ -13,4 +13,9 @@ export interface RoutineScheduledJobData {
 
 export interface RoutineRunJobData {
   runId: string;
+  /**
+   * Workspace de la corrida (ADR 0017 Inc.3): para el límite de concurrencia por inquilino en el worker. Opcional por
+   * compatibilidad: las corridas encoladas antes de este cambio no lo llevan y se procesan sin gate.
+   */
+  workspaceId?: string;
 }
