@@ -70,6 +70,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     items: [
       { path: '/agents', label: 'Agentes', icon: 'bot', exact: true, scope: 'all' },
       { path: '/agents/explore', label: 'Explorar agentes', icon: 'search', exact: false, scope: 'all' },
+      { path: '/agent-templates', label: 'Hub de plantillas', icon: 'template', exact: false, scope: 'all' },
       { path: '/cargos', label: 'Cargos', icon: 'layers', exact: false, scope: 'all' },
       { path: '/organigrama', label: 'Organigrama', icon: 'orgchart', exact: false, scope: 'all' },
       { path: '/cuadrillas', label: 'Cuadrillas', icon: 'users', exact: false, scope: 'all' },

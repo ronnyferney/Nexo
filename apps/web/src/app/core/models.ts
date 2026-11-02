@@ -207,6 +207,66 @@ export interface CargoInput {
   activo?: boolean;
 }
 
+// ===== Agent Hub — plantillas gobernadas de empleado digital (ADR 0019) =====
+
+/** Campos comunes de una plantilla de empleado digital (`AgentTemplate`). */
+interface AgentTemplateBase {
+  id: string;
+  workspaceId: string;
+  nombre: string;
+  descripcion: string | null;
+  /** Área/proceso de alcance (referencia blanda, descriptiva para descubrir/filtrar). */
+  area: string | null;
+  /** Nivel jerárquico de referencia del cargo base; `null` si no se declaró. */
+  nivel: NivelJerarquico | null;
+  /** Agente de origen desde el que se publicó (referencia blanda). */
+  sourceAgentId: string | null;
+  publicadoPorUserId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** `GET /agent-templates` — fila del catálogo del workspace con el número de versiones. */
+export interface AgentTemplate extends AgentTemplateBase {
+  versionesCount: number;
+}
+
+/** Versión INMUTABLE (append-only) de una plantilla. `payload` es declarativo y saneado (sin secretos ni responsable). */
+export interface AgentTemplateVersion {
+  id: string;
+  workspaceId: string;
+  templateId: string;
+  version: number;
+  payload: Record<string, unknown>;
+  notas: string | null;
+  publicadoPorUserId: string;
+  createdAt: string;
+}
+
+/** `GET /agent-templates/:id` — detalle con sus versiones (orden ascendente). */
+export interface AgentTemplateDetail extends AgentTemplateBase {
+  versiones: AgentTemplateVersion[];
+}
+
+/** Cuerpo de `POST /agent-templates/publish`: publica desde un agente existente del workspace. */
+export interface AgentTemplatePublishInput {
+  agentId: string;
+  nombre?: string;
+  area?: string;
+  notas?: string;
+}
+
+/** Respuesta de `POST /agent-templates/:id/install`: agente BORRADOR creado y aviso de gobierno. */
+export interface AgentTemplateInstallResult {
+  agentId: string;
+  templateId: string;
+  version: number;
+  skillsVinculadas: number;
+  operacionesVinculadas: number;
+  /** Aviso obligatorio: borrador sin responsable, reconfigurar secretos por bóveda antes de lanzar. */
+  aviso: string;
+}
+
 // ===== Gobierno de IA (ADR 0002) =====
 
 export type LlmKind = 'ANTHROPIC' | 'OPENAI_COMPATIBLE' | 'MOCK';

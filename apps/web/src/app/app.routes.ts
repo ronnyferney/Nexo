@@ -22,6 +22,7 @@ export const routes: Routes = [
       { path: 'agents/explore', loadComponent: () => import('./features/agents/explore/explore-agents.page').then((m) => m.ExploreAgentsPage) },
       { path: 'agents/new', loadComponent: () => import('./features/agents/agent-new.page').then((m) => m.AgentNewPage) },
       { path: 'agents/:id', loadComponent: () => import('./features/agents/agent-detail.page').then((m) => m.AgentDetailPage) },
+      { path: 'agent-templates', loadComponent: () => import('./features/agent-templates/agent-templates.page').then((m) => m.AgentTemplatesPage) },
       { path: 'cargos', loadComponent: () => import('./features/cargos/cargos.page').then((m) => m.CargosPage) },
       { path: 'organigrama', loadComponent: () => import('./features/organigrama/organigrama.page').then((m) => m.OrganigramaPage) },
       { path: 'cuadrillas', loadComponent: () => import('./features/cuadrillas/cuadrillas.page').then((m) => m.CuadrillasPage) },

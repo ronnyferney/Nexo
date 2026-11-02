@@ -16,9 +16,10 @@ describe('sidebar.util', () => {
     it('no tiene rutas duplicadas y cubre los enlaces del menú (el resto vive en el hub /ajustes)', () => {
       const paths = NAV_GROUPS.flatMap((g) => g.items.map((i) => i.path));
       expect(new Set(paths).size).toBe(paths.length);
-      // Menú depurado: 38 enlaces (la configuración detallada se movió al hub /ajustes).
-      expect(paths.length).toBe(38);
+      // Menú depurado: 39 enlaces (la configuración detallada se movió al hub /ajustes).
+      expect(paths.length).toBe(39);
       expect(paths).toContain('/');
+      expect(paths).toContain('/agent-templates');
       expect(paths).toContain('/admin');
       expect(paths).toContain('/ajustes');
       // La configuración detallada y la plataforma ya no cuelgan del menú: viven en el hub.

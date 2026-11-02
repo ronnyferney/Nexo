@@ -7,6 +7,10 @@ import type { ConnectionUsage } from './llm-providers.models';
 import type {
   Agent,
   AgentRunsPage,
+  AgentTemplate,
+  AgentTemplateDetail,
+  AgentTemplateInstallResult,
+  AgentTemplatePublishInput,
   ApiKey,
   ApiKeyCreateInput,
   ApiKeyCreated,
@@ -160,6 +164,14 @@ export class ApiService {
   createCargo = (data: CargoInput) => this.post<Cargo>('/cargos', data);
   updateCargo = (id: string, data: CargoInput) => this.patch<Cargo>(`/cargos/${id}`, data);
   deleteCargo = (id: string) => this.delete<void>(`/cargos/${id}`);
+
+  // Agent Hub — plantillas gobernadas de empleado digital (ADR 0019). Descubrir: cualquier miembro. Publicar/instalar: EDITOR+.
+  agentTemplates = () => this.get<AgentTemplate[]>('/agent-templates');
+  agentTemplate = (id: string) => this.get<AgentTemplateDetail>(`/agent-templates/${id}`);
+  publishAgentTemplate = (data: AgentTemplatePublishInput) =>
+    this.post<AgentTemplateDetail>('/agent-templates/publish', data);
+  installAgentTemplate = (id: string, version?: number) =>
+    this.post<AgentTemplateInstallResult>(`/agent-templates/${id}/install`, version ? { version } : {});
 
   // Catálogo de IA, unidades y consumo propio (cualquier rol)
   llmCatalog = () => this.get<ProviderInfo[]>('/llm/catalog');
