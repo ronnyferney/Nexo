@@ -32,6 +32,9 @@ export class SimuladoChannelAdapter implements ChannelAdapter {
   readonly proveedor = 'simulado';
   readonly tipos: readonly CanalTipo[] = ['CORREO', 'WHATSAPP', 'VOZ'];
   readonly capabilities: readonly ChannelCapability[] = ['ENVIAR', 'ESTADO_ENTREGA', 'RECIBIR'];
+  /** Sandbox puro: no sale a la red y NO pasa por el gobierno E6 (recorrido determinista de QA/CI). */
+  readonly esSandbox = true;
+  readonly requiereGobierno = false;
 
   async enviar(runtime: CanalRuntime, mensaje: MensajeSaliente): Promise<ResultadoEnvio> {
     // Sin red: el id es una función pura de (cuenta, idempotencyKey).

@@ -232,6 +232,40 @@ Mientras cualquier casilla esté sin marcar, **la cuenta permanece en sandbox (`
 - Formulario operativo de solicitud: `docs/plantilla-solicitud-activacion-real.md`. Contexto de decisiones:
   `docs/decisiones-patrocinador-2026-11-02-plan-ejecucion.md` (lineamiento 7).
 
+## 10. Piloto interno controlado (implementado · SIN activación productiva)
+
+Autorización del patrocinador (2026-11-03): **preparar un piloto interno** del correo con lista blanca, límites de
+envío, trazabilidad y aprobación humana, **en ambiente controlado** (proveedor simulado). **No** activa envíos reales
+ni usa credenciales productivas; WhatsApp y voz siguen en sandbox. Se implementó como un **preset reutilizable y
+parametrizable por workspace/empresa**, sin duplicar los controles ya existentes:
+
+- **Proveedor del piloto `simulado_piloto`** (`adapters/simulado-piloto.adapter.ts`): adaptador **sandbox** (sin red,
+  sin credenciales) PERO **gobernado por E6** (`requiereGobierno = true`). A diferencia del `simulado` puro, cada envío
+  pasa por guardarraíles + `ActionGateway` (política, aprobación, suspensión). **Impide por construcción** las
+  credenciales reales: con un `secretValue` presente devuelve `FALLIDO` sin despachar. El canal del contrato
+  `ChannelAdapter` gana dos banderas ortogonales (`esSandbox`, `requiereGobierno`) y se elimina el `if (proveedor ===
+  'simulado')` del servicio.
+- **Preparación gobernada** `POST /canales-externos/piloto/preparar` (**ADMIN**, humano; un agente no puede):
+  idempotente y auditada (`CANAL_PILOTO_PREPARADO`). Fuerza proveedor simulado y `secretRef = null`; crea/actualiza la
+  `CanalCuenta` del piloto con la **lista blanca de internos** (`destinatariosPermitidos`), **tamaño máximo**
+  (`maxCuerpoBytes`), **tope de volumen por día** (`maxEnviosPorDia`) y **marca de ventana horaria**; y crea las
+  **políticas `EMAIL_SEND` `REQUIRE_APPROVAL`** (aprobación humana obligatoria de internos y, opcional, de externos
+  admitidos). La denegación por defecto de lo no listado la da la lista blanca del guardarraíl (no un `DENY` global que
+  denegaría también a los internos). Parámetros: `empresaId`, `dominiosInternos`, `remitente`, `maxCuerpoBytes`,
+  `maxEnviosPorDia`, `permitirExternosConAprobacion`, `ventanaHoraria`.
+- **Despacho tras aprobación** `POST /canales-externos/:cuentaId/mensajes/:mensajeId/despachar` (**EDITOR**): revalida
+  política, aprobadores y **kill-switch** justo antes del efecto (vía `ActionGateway.execute` + verificación de
+  suspensión con el contexto fiel de la cuenta) y solo entonces **simula** el despacho (sin red). Idempotente.
+- **Tope diario** como guardarraíl de cuenta: `channel-guardrails.ts` añade `maxEnviosPorDia` y `superaTopeDiario`; el
+  servicio cuenta los salientes no fallidos del día y bloquea el excedente (`TOPE_DIARIO_SUPERADO`) sin salir a la red.
+
+Recorrido probado extremo a extremo (`test/piloto-correo-interno-e14.e2e-spec.ts`): preparar piloto → envío a interno
+(queda en aprobación) → aprobación humana → **despacho simulado** → externo **bloqueado** por lista blanca → límites de
+tamaño y volumen → **kill-switch** (corta el envío nuevo y el despacho de una aprobada) → trazas en auditoría inmutable.
+**Prueba negativa:** con el piloto preparado NINGÚN envío real es posible (proveedor simulado, sin credenciales; aun
+cargando una credencial en bóveda y referenciándola, el adaptador la rechaza). El canal permanece **SIN activación
+productiva**.
+
 ---
 
 **Recordatorio final:** este diseño **no activa** el correo ni habilita gasto. Las reglas descritas rigen **solo**

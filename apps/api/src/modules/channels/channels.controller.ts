@@ -22,6 +22,7 @@ import {
   CreateCanalCuentaDto,
   EnviarMensajeDto,
   ListMensajesQueryDto,
+  PrepararPilotoCorreoDto,
   SimularEntranteDto,
   UpdateCanalCuentaDto,
 } from './dto/channel.dto';
@@ -43,6 +44,19 @@ export class ChannelsController {
   @Get()
   list(@CurrentAuth() a: AuthContext) {
     return this.channels.list(a.workspaceId);
+  }
+
+  /**
+   * Prepara (idempotente, auditado) el PILOTO INTERNO CONTROLADO de correo para una empresa. Lo opera un humano ADMIN.
+   * Deja el canal listo en ambiente controlado SIN activación productiva: proveedor SIMULADO (sin red, sin
+   * credenciales), lista blanca de internos, límites de envío, aprobación humana obligatoria y trazabilidad. NO activa
+   * envíos reales. El `workspaceId` sale de `@CurrentAuth()`, nunca del cuerpo.
+   */
+  @MinRole('ADMIN')
+  @HttpCode(200)
+  @Post('piloto/preparar')
+  prepararPiloto(@CurrentAuth() a: AuthContext, @Body() dto: PrepararPilotoCorreoDto) {
+    return this.channels.prepararPilotoInterno(a, dto);
   }
 
   @Get(':cuentaId')
@@ -86,6 +100,18 @@ export class ChannelsController {
   @Get(':cuentaId/mensajes')
   mensajes(@CurrentAuth() a: AuthContext, @Param('cuentaId') cuentaId: string, @Query() query: ListMensajesQueryDto) {
     return this.channels.listMensajes(a.workspaceId, cuentaId, query.estado);
+  }
+
+  /**
+   * Despacha (SIMULADO, sin red) un saliente del piloto que quedó PENDIENTE de aprobación, una vez concedida en la
+   * bandeja E6. Revalida política, aprobadores y kill-switch justo antes del efecto. Exige EDITOR. Idempotente: si el
+   * mensaje ya no está PENDIENTE se devuelve sin cambios.
+   */
+  @MinRole('EDITOR')
+  @HttpCode(200)
+  @Post(':cuentaId/mensajes/:mensajeId/despachar')
+  despachar(@CurrentAuth() a: AuthContext, @Param('cuentaId') cuentaId: string, @Param('mensajeId') mensajeId: string) {
+    return this.channels.despacharAprobado(a, cuentaId, mensajeId);
   }
 
   /**

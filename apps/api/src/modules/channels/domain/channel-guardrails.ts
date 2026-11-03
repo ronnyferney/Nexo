@@ -10,18 +10,20 @@
  * dato de la cuenta (multiempresa/multisectorial).
  */
 
-/** Guardarraíles leídos de `CanalCuenta.config` (ambos opcionales). */
+/** Guardarraíles leídos de `CanalCuenta.config` (todos opcionales). */
 export interface GuardarrailesCuenta {
   /** Lista blanca de destinatarios permitidos: direcciones exactas o patrones de sufijo `*@dominio` (p. ej. `*@empresa.test`). */
   destinatariosPermitidos?: string[];
   /** Tamaño máximo del cuerpo en bytes (UTF-8). Un cuerpo mayor se bloquea sin salir a la red. */
   maxCuerpoBytes?: number;
+  /** Tope de envíos salientes por día natural de la cuenta (límite de volumen del piloto). Superarlo bloquea el envío. */
+  maxEnviosPorDia?: number;
 }
 
 /** Resultado de evaluar los guardarraíles: `ok=false` lleva un `motivo` auditable (código, nunca texto libre). */
 export interface ResultadoGuardarrailes {
   ok: boolean;
-  motivo?: 'DESTINATARIO_FUERA_DE_LISTA_BLANCA' | 'CUERPO_EXCEDE_TAMANO_MAXIMO';
+  motivo?: 'DESTINATARIO_FUERA_DE_LISTA_BLANCA' | 'CUERPO_EXCEDE_TAMANO_MAXIMO' | 'TOPE_DIARIO_SUPERADO';
 }
 
 /**
@@ -40,7 +42,18 @@ export function leerGuardarrailes(config: Record<string, unknown> | null | undef
   }
   const max = config?.maxCuerpoBytes;
   if (typeof max === 'number' && Number.isFinite(max) && max > 0) out.maxCuerpoBytes = Math.floor(max);
+  const tope = config?.maxEnviosPorDia;
+  if (typeof tope === 'number' && Number.isFinite(tope) && tope > 0) out.maxEnviosPorDia = Math.floor(tope);
   return out;
+}
+
+/**
+ * ¿El envío supera el tope diario? `conteoHoy` es el número de salientes NO fallidos del día (incluido el actual si ya
+ * se reclamó la clave). Con `maxEnviosPorDia` sin configurar, el tope es inerte (`false`). Función PURA.
+ */
+export function superaTopeDiario(conteoHoy: number, maxEnviosPorDia: number | undefined): boolean {
+  if (maxEnviosPorDia == null) return false;
+  return conteoHoy > maxEnviosPorDia;
 }
 
 /**

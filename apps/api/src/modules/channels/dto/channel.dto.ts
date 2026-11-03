@@ -3,14 +3,18 @@ import { CanalCuentaEstado, CanalTipo } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayMinSize,
   IsArray,
   IsEnum,
   IsIn,
+  IsInt,
   IsObject,
   IsOptional,
   IsString,
   Matches,
+  Max,
   MaxLength,
+  Min,
   MinLength,
   ValidateNested,
 } from 'class-validator';
@@ -154,6 +158,85 @@ export class EnviarMensajeDto {
   @ValidateNested()
   @Type(() => AdjuntoMensajeDto)
   adjunto?: AdjuntoMensajeDto;
+}
+
+/**
+ * Preparación del PILOTO INTERNO CONTROLADO de correo (E14 · ADR 0015 · `docs/activacion-correo-controles.md`).
+ * Parametrizable por workspace/empresa; NO acepta `proveedor` ni `secretRef`: el servicio FUERZA proveedor simulado y
+ * cero credenciales (impide por construcción el uso de un proveedor productivo o credenciales reales). Idempotente.
+ */
+export class VentanaHorariaDto {
+  @ApiProperty({ description: 'Hora local de inicio (0-23)' })
+  @IsInt()
+  @Min(0)
+  @Max(23)
+  desde!: number;
+
+  @ApiProperty({ description: 'Hora local de fin, exclusiva (1-24)' })
+  @IsInt()
+  @Min(1)
+  @Max(24)
+  hasta!: number;
+}
+
+export class PrepararPilotoCorreoDto {
+  @ApiProperty({ description: 'Empresa (OrgUnit tipo EMPRESA) dueña del piloto' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(64)
+  empresaId!: string;
+
+  @ApiProperty({
+    type: [String],
+    description:
+      'Lista blanca de destinatarios internos (direcciones exactas o patrones `*@dominio`). Denegación por defecto: ' +
+      'todo lo no listado se bloquea. Toda saliente del piloto exige aprobación humana.',
+  })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(100)
+  @IsString({ each: true })
+  @MaxLength(320, { each: true })
+  dominiosInternos!: string[];
+
+  @ApiPropertyOptional({ description: 'Remitente del canal (identidad, SIN secretos)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(320)
+  remitente?: string;
+
+  @ApiPropertyOptional({ description: 'Tamaño máximo del cuerpo en bytes (UTF-8); un cuerpo mayor se bloquea' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(50_000_000)
+  maxCuerpoBytes?: number;
+
+  @ApiPropertyOptional({ description: 'Tope de envíos salientes por día del piloto (límite de volumen)' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100_000)
+  maxEnviosPorDia?: number;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      'Destinatarios EXTERNOS admitidos en el piloto con aprobación humana (direcciones o `*@dominio`). Se añaden a la ' +
+      'lista blanca y a una política REQUIRE_APPROVAL. Vacío por defecto (fase 1: solo internos).',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  @IsString({ each: true })
+  @MaxLength(320, { each: true })
+  permitirExternosConAprobacion?: string[];
+
+  @ApiPropertyOptional({ description: 'Marca de ventana horaria del piloto (informativa): hora local [desde, hasta)' })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => VentanaHorariaDto)
+  ventanaHoraria?: VentanaHorariaDto;
 }
 
 /** Filtro opcional de la bandeja de mensajes. */

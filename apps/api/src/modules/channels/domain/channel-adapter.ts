@@ -29,6 +29,18 @@ export interface ChannelAdapter {
   readonly tipos: readonly CanalTipo[];
   /** Capacidades declaradas; el servicio bloquea operaciones no declaradas. */
   readonly capabilities: readonly ChannelCapability[];
+  /**
+   * El adaptador es de tipo SANDBOX: no sale a la red y no requiere credenciales (base de QA/CI y del piloto
+   * controlado). Habilita el entrante simulado (`simular-entrante`). Por omisión `false` (adaptador productivo).
+   */
+  readonly esSandbox?: boolean;
+  /**
+   * El envío por este adaptador pasa SIEMPRE por el gobierno de acciones E6 (guardarraíles de cuenta + `ActionGateway`:
+   * política, aprobación, suspensión) antes del despacho. Por omisión `true`: solo el sandbox PURO (`simulado`) lo pone
+   * en `false` para el recorrido determinista de QA. El piloto controlado es sandbox (`esSandbox`) PERO gobernado
+   * (`requiereGobierno`): simula el despacho sin red, pero ejerce todos los controles reales de E6.
+   */
+  readonly requiereGobierno?: boolean;
 
   /** Envío saliente. Error de transporte → excepción; error de negocio del proveedor → `estado: FALLIDO`. */
   enviar(runtime: CanalRuntime, mensaje: MensajeSaliente): Promise<ResultadoEnvio>;

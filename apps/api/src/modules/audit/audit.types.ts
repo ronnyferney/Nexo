@@ -105,6 +105,12 @@ export const AUDIT_ACTIONS = {
   /// el envío no sale a la red. En metadata, el `motivo` (código), el destinatario y la empresa; nunca contenido ni
   /// secretos.
   CANAL_ENVIO_BLOQUEADO: 'CANAL_ENVIO_BLOQUEADO',
+  /// Preparación (idempotente) del PILOTO INTERNO CONTROLADO de correo (E14 · ADR 0015 · controles de correo). Lo opera
+  /// SIEMPRE un humano ADMIN/OWNER (nunca un agente). Deja el canal listo para un piloto en ambiente controlado:
+  /// proveedor SIMULADO (sin red, sin credenciales), lista blanca de internos, límites de envío, aprobación humana
+  /// obligatoria y trazabilidad. NO activa envío productivo. En metadata: empresa, cuenta, políticas y parámetros del
+  /// piloto (dominios internos, topes, tamaño); nunca contenido ni secretos.
+  CANAL_PILOTO_PREPARADO: 'CANAL_PILOTO_PREPARADO',
 } as const;
 
 /** Código de acción auditable. Texto abierto (`string`): se recomienda usar las constantes de `AUDIT_ACTIONS`. */
