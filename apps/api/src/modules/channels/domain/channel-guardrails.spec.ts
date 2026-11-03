@@ -2,6 +2,7 @@ import {
   destinatarioEnListaBlanca,
   evaluarGuardarrailes,
   leerGuardarrailes,
+  superaTopeDiario,
   tamanoCuerpoBytes,
 } from './channel-guardrails';
 
@@ -25,13 +26,35 @@ describe('channel-guardrails', () => {
       expect(leerGuardarrailes({ maxCuerpoBytes: 'mil' })).toEqual({});
     });
 
-    it('lee y normaliza lista blanca (recorta espacios) y tope (trunca a entero)', () => {
+    it('lee y normaliza lista blanca (recorta espacios), tope de tamaño y tope diario (truncan a entero)', () => {
       expect(
         leerGuardarrailes({
           destinatariosPermitidos: [' *@empresa.test ', 'jefe@empresa.test'],
           maxCuerpoBytes: 1024.9,
+          maxEnviosPorDia: 50.7,
         }),
-      ).toEqual({ destinatariosPermitidos: ['*@empresa.test', 'jefe@empresa.test'], maxCuerpoBytes: 1024 });
+      ).toEqual({
+        destinatariosPermitidos: ['*@empresa.test', 'jefe@empresa.test'],
+        maxCuerpoBytes: 1024,
+        maxEnviosPorDia: 50,
+      });
+    });
+
+    it('ignora un tope diario no positivo o no numérico', () => {
+      expect(leerGuardarrailes({ maxEnviosPorDia: 0 })).toEqual({});
+      expect(leerGuardarrailes({ maxEnviosPorDia: -1 })).toEqual({});
+      expect(leerGuardarrailes({ maxEnviosPorDia: 'muchos' })).toEqual({});
+    });
+  });
+
+  describe('superaTopeDiario', () => {
+    it('es inerte sin tope configurado', () => {
+      expect(superaTopeDiario(1000, undefined)).toBe(false);
+    });
+
+    it('permite hasta el tope y bloquea el excedente', () => {
+      expect(superaTopeDiario(2, 2)).toBe(false);
+      expect(superaTopeDiario(3, 2)).toBe(true);
     });
   });
 
