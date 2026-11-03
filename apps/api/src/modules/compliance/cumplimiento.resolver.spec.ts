@@ -73,6 +73,73 @@ describe('matriz de cumplimiento (resolución + evaluación asesora)', () => {
     });
   });
 
+  describe('vigencia por fecha (aditiva, opcional)', () => {
+    const DESDE = '2026-01-01T00:00:00.000Z';
+    const HASTA = '2026-12-31T23:59:59.999Z';
+
+    it('regla sin vigencia: siempre vigente (reglas ya sembradas no cambian)', () => {
+      const reglas = [base({ campoClave: 'siempre' })];
+      expect(resolverReglas(reglas, { fechaEvaluacion: '1999-05-01T00:00:00.000Z' })).toHaveLength(1);
+      expect(resolverReglas(reglas, { fechaEvaluacion: '2200-05-01T00:00:00.000Z' })).toHaveLength(1);
+    });
+
+    it('fecha ANTES del inicio de vigencia: la regla no aplica', () => {
+      const reglas = [base({ campoClave: 'futura', vigenciaDesde: DESDE })];
+      const r = resolverReglas(reglas, { fechaEvaluacion: '2025-06-01T00:00:00.000Z' });
+      expect(r).toEqual([]);
+    });
+
+    it('fecha DENTRO de la ventana [desde, hasta]: la regla aplica', () => {
+      const reglas = [base({ campoClave: 'vigente', vigenciaDesde: DESDE, vigenciaHasta: HASTA })];
+      const r = resolverReglas(reglas, { fechaEvaluacion: '2026-06-15T12:00:00.000Z' });
+      expect(r.map((x) => x.campoClave)).toEqual(['vigente']);
+    });
+
+    it('fecha DESPUÉS del fin de vigencia: la regla no aplica', () => {
+      const reglas = [base({ campoClave: 'expirada', vigenciaHasta: HASTA })];
+      const r = resolverReglas(reglas, { fechaEvaluacion: '2027-01-01T00:00:00.000Z' });
+      expect(r).toEqual([]);
+    });
+
+    it('límites inclusive: exactamente en `desde` y en `hasta` la regla aplica', () => {
+      const reglas = [base({ campoClave: 'limite', vigenciaDesde: DESDE, vigenciaHasta: HASTA })];
+      expect(resolverReglas(reglas, { fechaEvaluacion: DESDE })).toHaveLength(1);
+      expect(resolverReglas(reglas, { fechaEvaluacion: HASTA })).toHaveLength(1);
+    });
+
+    it('extremos nulos = sin límite por ese lado', () => {
+      const soloDesde = [base({ campoClave: 'abiertaFin', vigenciaDesde: DESDE, vigenciaHasta: null })];
+      expect(resolverReglas(soloDesde, { fechaEvaluacion: '2099-01-01T00:00:00.000Z' })).toHaveLength(1);
+      expect(resolverReglas(soloDesde, { fechaEvaluacion: '2025-01-01T00:00:00.000Z' })).toEqual([]);
+
+      const soloHasta = [base({ campoClave: 'abiertaInicio', vigenciaDesde: null, vigenciaHasta: HASTA })];
+      expect(resolverReglas(soloHasta, { fechaEvaluacion: '1900-01-01T00:00:00.000Z' })).toHaveLength(1);
+      expect(resolverReglas(soloHasta, { fechaEvaluacion: '2027-01-01T00:00:00.000Z' })).toEqual([]);
+    });
+
+    it('acepta objetos `Date` además de ISO como fecha de evaluación y vigencia', () => {
+      const reglas = [base({ campoClave: 'conDate', vigenciaDesde: new Date(DESDE), vigenciaHasta: new Date(HASTA) })];
+      expect(resolverReglas(reglas, { fechaEvaluacion: new Date('2026-06-15T12:00:00.000Z') })).toHaveLength(1);
+      expect(resolverReglas(reglas, { fechaEvaluacion: new Date('2027-06-15T12:00:00.000Z') })).toEqual([]);
+    });
+
+    it('«más específica suma» respeta la vigencia: una regla fuera de ventana cede a la vigente aplicable', () => {
+      const reglas = [
+        base({ campoClave: 'retencion', descripcion: 'general-vigente' }), // comodín, siempre vigente
+        base({
+          sector: 'financiero',
+          campoClave: 'retencion',
+          descripcion: 'financiero-expirada',
+          vigenciaHasta: HASTA,
+        }),
+      ];
+      // En 2027 la específica financiera expiró: gana la general (comodín) que sigue vigente.
+      const r = resolverReglas(reglas, { sector: 'financiero', fechaEvaluacion: '2027-02-01T00:00:00.000Z' });
+      expect(r).toHaveLength(1);
+      expect(r[0].descripcion).toBe('general-vigente');
+    });
+  });
+
   describe('evaluarCumplimiento (asesor, no bloqueante)', () => {
     it('conjunto vacío: cumple true, sin faltantes (reglas inactivas = no exige nada)', () => {
       const r = evaluarCumplimiento([], { cualquiera: 1 });

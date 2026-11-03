@@ -103,6 +103,91 @@ describe('Cumplimiento · matriz configurable P1.3 (e2e)', () => {
     });
   });
 
+  describe('Vigencia por fecha (extensión aditiva)', () => {
+    const DESDE = '2026-01-01T00:00:00.000Z';
+    const HASTA = '2026-12-31T23:59:59.999Z';
+    const sector = 'seguros'; // sector propio para aislar esta regla de las de otros tests
+
+    let reglaVigenciaId: string;
+
+    it('crea una regla ACTIVA con ventana de vigencia y la expone en la API', async () => {
+      const creada = (
+        await createRule(owner, {
+          sector,
+          campoClave: 'polizaVigente',
+          tipoDato: 'BOOLEANO',
+          activa: true,
+          vigenciaDesde: DESDE,
+          vigenciaHasta: HASTA,
+        }).expect(201)
+      ).body as { id: string; vigenciaDesde: string; vigenciaHasta: string };
+      reglaVigenciaId = creada.id;
+      expect(new Date(creada.vigenciaDesde).toISOString()).toBe(DESDE);
+      expect(new Date(creada.vigenciaHasta).toISOString()).toBe(HASTA);
+    });
+
+    const campos = (body: unknown) => (body as { campoClave: string }[]).map((x) => x.campoClave);
+
+    it('resolución respeta la fecha: fuera de ventana la regla NO aparece; dentro SÍ', async () => {
+      const antes = (await resolve(owner, `?sector=${sector}&fechaEvaluacion=2025-06-01T00:00:00.000Z`).expect(200)).body;
+      expect(campos(antes)).not.toContain('polizaVigente');
+
+      const durante = (await resolve(owner, `?sector=${sector}&fechaEvaluacion=2026-06-15T12:00:00.000Z`).expect(200))
+        .body;
+      expect(campos(durante)).toContain('polizaVigente');
+
+      const despues = (await resolve(owner, `?sector=${sector}&fechaEvaluacion=2027-01-01T00:00:00.000Z`).expect(200))
+        .body;
+      expect(campos(despues)).not.toContain('polizaVigente');
+    });
+
+    it('validación asesora respeta la vigencia: fuera de ventana no exige el campo', async () => {
+      const fuera = (
+        await validate(owner, {
+          contexto: { sector, fechaEvaluacion: '2027-01-01T00:00:00.000Z' },
+          valores: {},
+        }).expect(200)
+      ).body as { faltantes: { campoClave: string }[] };
+      expect(fuera.faltantes.map((f) => f.campoClave)).not.toContain('polizaVigente');
+
+      const dentro = (
+        await validate(owner, {
+          contexto: { sector, fechaEvaluacion: '2026-06-15T12:00:00.000Z' },
+          valores: {},
+        }).expect(200)
+      ).body as { cumple: boolean; faltantes: { campoClave: string }[] };
+      expect(dentro.cumple).toBe(false);
+      expect(dentro.faltantes.map((f) => f.campoClave)).toContain('polizaVigente');
+    });
+
+    it('editar la vigencia queda auditado como REGLA_CUMPLIMIENTO_MODIFICADA', async () => {
+      await owner.api
+        .patch(`/admin/compliance/rules/${reglaVigenciaId}`, { vigenciaHasta: '2028-01-01T00:00:00.000Z' })
+        .expect(200);
+      const audit = (
+        await owner.api
+          .get('/auditoria?action=REGLA_CUMPLIMIENTO_MODIFICADA&targetType=ReglaCumplimiento&take=50')
+          .expect(200)
+      ).body as { items: { targetId: string; metadata: { nuevo: { vigenciaHasta: string | null } } }[] };
+      const propia = audit.items.find((e) => e.targetId === reglaVigenciaId);
+      expect(propia?.metadata?.nuevo?.vigenciaHasta).toBeTruthy();
+    });
+
+    it('rechaza (400) una ventana incoherente (desde posterior a hasta) y una fecha no ISO', async () => {
+      await createRule(owner, {
+        campoClave: 'incoherente',
+        tipoDato: 'TEXTO',
+        vigenciaDesde: HASTA,
+        vigenciaHasta: DESDE,
+      }).expect(400);
+      await createRule(owner, {
+        campoClave: 'fechaMala',
+        tipoDato: 'TEXTO',
+        vigenciaDesde: 'no-es-fecha',
+      }).expect(400);
+    });
+  });
+
   describe('CRUD gobernado, auditoría y rol', () => {
     it('actualizar activa queda auditado (anterior/nuevo)', async () => {
       const creada = (await createRule(owner, {
