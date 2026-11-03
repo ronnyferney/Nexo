@@ -98,7 +98,7 @@ describe('Gobierno de IA · presupuestos jerárquicos y políticas (E2E)', () =>
         orgUnitId: directionId,
         orgUnitName: 'Dirección',
         parentId: rootId,
-        budget: { period: 'MONTHLY', limitUsd: 0.0001, policy: 'BLOCK', alertThresholds: [50, 80, 100] },
+        budget: { period: 'MONTHLY', limitUsd: 0.0001, policy: 'BLOCK', alertThresholds: [80, 90, 100] },
         periodKey: monthKey(),
         spentUsd: 0,
         pct: 0,
@@ -143,7 +143,7 @@ describe('Gobierno de IA · presupuestos jerárquicos y políticas (E2E)', () =>
 
     it('se generan alertas únicas por umbral para la unidad presupuestada', async () => {
       const alerts = await alertsOf(owner, directionId);
-      expect(alerts.map((a) => a.threshold).sort((a, b) => a - b)).toEqual([50, 80, 100]);
+      expect(alerts.map((a) => a.threshold).sort((a, b) => a - b)).toEqual([80, 90, 100]);
       for (const a of alerts) {
         expect(a).toMatchObject({ orgUnitName: 'Dirección', periodKey: monthKey(), limitUsd: 0.0001 });
         expect(a.spentUsd).toBeCloseTo(firstCost, 8);
@@ -270,6 +270,7 @@ describe('Gobierno de IA · presupuestos jerárquicos y políticas (E2E)', () =>
           outputUsdPerMTok: 1.5,
         })
         .expect(201);
+      // P1.1c: la degradación solo se habilita en procesos no críticos y con validación de impacto registrada.
       await owner.api
         .put(`/admin/budgets/${unitId}`, {
           period: 'MONTHLY',
@@ -277,8 +278,10 @@ describe('Gobierno de IA · presupuestos jerárquicos y políticas (E2E)', () =>
           policy: 'DOWNGRADE',
           downgradeProviderId: connectionId,
           downgradeModel: 'eco-mini',
+          critico: false,
         })
         .expect(200);
+      await owner.api.post(`/admin/budgets/${unitId}/impacto`, { nota: 'Validación de impacto del piloto' }).expect(201);
     });
 
     it('con saldo usa el modelo original', async () => {
@@ -344,7 +347,7 @@ describe('Gobierno de IA · presupuestos jerárquicos y políticas (E2E)', () =>
       const row = await budgetRow(owner, unit.id);
       expect(row.pct).toBeGreaterThan(100);
       const alerts = await alertsOf(owner, unit.id);
-      expect(alerts.map((a) => a.threshold).sort((a, b) => a - b)).toEqual([50, 80, 100]);
+      expect(alerts.map((a) => a.threshold).sort((a, b) => a - b)).toEqual([80, 90, 100]);
     });
 
     it('si el modelo de degradación no está permitido en la cadena se bloquea con 402', async () => {
@@ -358,8 +361,10 @@ describe('Gobierno de IA · presupuestos jerárquicos y políticas (E2E)', () =>
           policy: 'DOWNGRADE',
           downgradeProviderId: connectionId,
           downgradeModel: 'eco-mini',
+          critico: false,
         })
         .expect(200);
+      await owner.api.post(`/admin/budgets/${unit.id}/impacto`, {}).expect(201);
       await m.api.post(`/agents/${agentId}/chat`, { message: 'hola' }).expect(402);
     });
 

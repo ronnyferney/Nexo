@@ -1,7 +1,10 @@
 import {
   blockingUnit,
+  degradacionHabilitada,
   modelAllowed,
+  overrideVigente,
   periodKey,
+  pilotoPermiteProveedor,
   preflight,
   reachedThresholds,
   type UnitBudgetState,
@@ -25,6 +28,11 @@ const unit = (
         periodKey: '2026-10',
         downgradeProviderId: null,
         downgradeModel: null,
+        // Por defecto no crítico y con impacto validado: así una bolsa DOWNGRADE puede degradar (P1.1c). Los casos de
+        // criticidad y validación de impacto fijan explícitamente estos campos.
+        critico: false,
+        impactoValidado: true,
+        overrideActive: false,
         ...budget,
       }
     : null,
@@ -101,6 +109,79 @@ describe('preflight', () => {
       ]),
     ];
     expect(preflight(chain, 'anthropic', 'm').action).toBe('block');
+  });
+
+  // --- P1.1c: degradación solo en procesos no críticos y con validación de impacto ---
+  it('un proceso CRÍTICO con DOWNGRADE agotado BLOQUEA (no degrada)', () => {
+    const chain = [
+      unit('Cobranza', { policy: 'DOWNGRADE', limitUsd: 1, downgradeModel: 'eco', critico: true }, 5),
+      unit('Empresa'),
+    ];
+    expect(preflight(chain, 'anthropic', 'm')).toMatchObject({ action: 'block', unitName: 'Cobranza' });
+  });
+
+  it('un proceso no crítico SIN validación de impacto BLOQUEA (no degrada)', () => {
+    const chain = [
+      unit(
+        'Soporte',
+        { policy: 'DOWNGRADE', limitUsd: 1, downgradeModel: 'eco', critico: false, impactoValidado: false },
+        5,
+      ),
+    ];
+    expect(preflight(chain, 'anthropic', 'm').action).toBe('block');
+  });
+
+  it('un proceso no crítico CON validación de impacto SÍ degrada', () => {
+    const chain = [
+      unit(
+        'Soporte',
+        { policy: 'DOWNGRADE', limitUsd: 1, downgradeModel: 'eco', critico: false, impactoValidado: true },
+        5,
+      ),
+    ];
+    expect(preflight(chain, 'anthropic', 'm')).toMatchObject({ action: 'downgrade', model: 'eco' });
+  });
+
+  // --- P0.1: override gobernado del bloqueo al 100 % ---
+  it('un override vigente deja pasar un BLOCK agotado', () => {
+    const chain = [unit('Ventas', { limitUsd: 1, overrideActive: true }, 5), unit('Empresa')];
+    expect(preflight(chain, 'anthropic', 'm').action).toBe('allow');
+    expect(blockingUnit(chain)).toBeUndefined();
+  });
+
+  it('sin override, el BLOCK agotado bloquea', () => {
+    const chain = [unit('Ventas', { limitUsd: 1, overrideActive: false }, 5)];
+    expect(preflight(chain, 'anthropic', 'm').action).toBe('block');
+  });
+
+  // --- P0.1: bolsa por agente como nodo más cercano de la cadena ---
+  it('la bolsa del agente (nodo más cercano) bloquea aunque la unidad tenga saldo', () => {
+    const agente: UnitBudgetState = { ...unit('Agente Cobrador', { limitUsd: 1 }, 5), orgUnitId: 'agent:a1' };
+    const chain = [agente, unit('Ventas', { limitUsd: 100 }, 1), unit('Empresa')];
+    expect(preflight(chain, 'anthropic', 'm')).toMatchObject({ action: 'block', unitName: 'Agente Cobrador' });
+  });
+});
+
+describe('helpers puros de gobierno (P0.1/P1.1c)', () => {
+  it('degradacionHabilitada: solo no crítico + impacto validado', () => {
+    expect(degradacionHabilitada({ critico: false, impactoValidado: true })).toBe(true);
+    expect(degradacionHabilitada({ critico: true, impactoValidado: true })).toBe(false);
+    expect(degradacionHabilitada({ critico: false, impactoValidado: false })).toBe(false);
+  });
+
+  it('pilotoPermiteProveedor: solo el simulador mock', () => {
+    expect(pilotoPermiteProveedor('mock')).toBe(true);
+    expect(pilotoPermiteProveedor('anthropic')).toBe(false);
+    expect(pilotoPermiteProveedor('openai')).toBe(false);
+  });
+
+  it('overrideVigente: no revocado y sin expirar', () => {
+    const now = new Date('2026-11-02T00:00:00Z');
+    const future = new Date('2026-11-10T00:00:00Z');
+    const past = new Date('2026-11-01T00:00:00Z');
+    expect(overrideVigente({ expiresAt: future, revokedAt: null }, now)).toBe(true);
+    expect(overrideVigente({ expiresAt: past, revokedAt: null }, now)).toBe(false);
+    expect(overrideVigente({ expiresAt: future, revokedAt: now }, now)).toBe(false);
   });
 });
 

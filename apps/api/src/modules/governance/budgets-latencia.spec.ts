@@ -13,12 +13,13 @@ describe('BudgetsService.record — registro de latencia (ADR 0017 Inc.3)', () =
     const create = jest.fn((args: { data: Record<string, unknown> }) => args);
     const prisma = {
       budget: { findMany: jest.fn().mockResolvedValue([]) },
+      agentBudget: { findUnique: jest.fn().mockResolvedValue(null) },
       orgUnit: { findUnique: jest.fn().mockResolvedValue(null) },
       usageRecord: { create },
       $executeRaw: jest.fn(() => ({})),
       $transaction: jest.fn().mockResolvedValue([]),
     };
-    const service = new BudgetsService(prisma as never, {} as never, {} as never);
+    const service = new BudgetsService(prisma as never, {} as never, {} as never, {} as never);
     return { service, prisma, create };
   }
 

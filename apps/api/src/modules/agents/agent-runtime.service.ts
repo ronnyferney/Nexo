@@ -484,7 +484,7 @@ export class AgentRuntimeService {
     let planChainIds: string[] = [];
     if (routed) {
       list = chain;
-      const next = await this.nextFallback(ws, orgUnitId, list, 0, opts);
+      const next = await this.nextFallback(ws, orgUnitId, list, 0, opts, agent.id);
       if (!next) {
         throw new ConnectionUnavailableException(
           'El enrutamiento no dejó ningún modelo disponible dentro de los permisos y el presupuesto del agente.',
@@ -496,7 +496,7 @@ export class AgentRuntimeService {
     } else {
       const [head, ...rest] = chain;
       list = rest;
-      const plan = await this.budgets.plan(ws, orgUnitId, head.providerId, head.model);
+      const plan = await this.budgets.plan(ws, orgUnitId, head.providerId, head.model, agent.id);
       if (plan.notice) opts.onEvent?.({ type: 'notice', message: plan.notice });
       planChainIds = plan.chainIds;
       start = null;
@@ -505,7 +505,7 @@ export class AgentRuntimeService {
       } catch (err) {
         // Principal no disponible (sesión cerrada, deshabilitado, modelo eliminado): se arranca con el primer respaldo.
         if (!(err instanceof ConnectionUnavailableException)) throw err;
-        const next = await this.nextFallback(ws, orgUnitId, list, 0, opts);
+        const next = await this.nextFallback(ws, orgUnitId, list, 0, opts, agent.id);
         if (!next) throw err;
         opts.onEvent?.({
           type: 'notice',
@@ -563,7 +563,7 @@ export class AgentRuntimeService {
       } catch (err) {
         if (!isProviderFailure(err, opts.signal)) throw err;
         this.logger.warn(`Modelo ${failed} falló para el agente ${agent.id}: ${(err as Error).message}`);
-        const next = await this.nextFallback(ws, orgUnitId, list, i, opts);
+        const next = await this.nextFallback(ws, orgUnitId, list, i, opts, agent.id);
         if (!next) throw err;
         i = next.index;
         opts.onEvent?.({ type: 'notice', message: `El modelo ${failed} falló; se usa ${label(next.resolved)}.` });
@@ -640,7 +640,7 @@ export class AgentRuntimeService {
     const parsed = refs.map(parseModelRef).filter((r): r is { providerId: string; model: string } => r !== null);
     let verifier: { index: number; resolved: ResolvedModel; chainIds: string[] } | null;
     try {
-      verifier = await this.nextFallback(ws, orgUnitId, parsed, 0, opts);
+      verifier = await this.nextFallback(ws, orgUnitId, parsed, 0, opts, agent.id);
     } catch (err) {
       if (err instanceof BudgetExceededException) {
         notice(`Verificación cruzada (VERIFICACION_OMITIDA): sin presupuesto para verificar (${err.message}).`);
@@ -679,7 +679,7 @@ export class AgentRuntimeService {
             ? `execution:${opts.context.executionId}`
             : undefined,
         beforeTurn: async () => {
-          await this.budgets.assertCanSpend(ws, orgUnitId);
+          await this.budgets.assertCanSpend(ws, orgUnitId, agent.id);
           clock.mark();
         },
         onUsage: async (usage) => {
@@ -890,11 +890,12 @@ export class AgentRuntimeService {
     fallbacks: { providerId: string; model: string }[],
     from: number,
     opts: AgentRunOptions,
+    agentId?: string,
   ): Promise<{ index: number; resolved: ResolvedModel; chainIds: string[] } | null> {
     for (let j = from; j < fallbacks.length; j++) {
       const ref = fallbacks[j];
       try {
-        const plan = await this.budgets.plan(ws, orgUnitId, ref.providerId, ref.model);
+        const plan = await this.budgets.plan(ws, orgUnitId, ref.providerId, ref.model, agentId);
         if (plan.notice) opts.onEvent?.({ type: 'notice', message: plan.notice });
         const resolved = await this.gateway.resolve(ws, plan.providerId, plan.model);
         return { index: j, resolved, chainIds: plan.chainIds };
@@ -950,7 +951,7 @@ export class AgentRuntimeService {
           ? `execution:${opts.context.executionId}`
           : undefined,
       beforeTurn: async () => {
-        await this.budgets.assertCanSpend(ws, orgUnitId);
+        await this.budgets.assertCanSpend(ws, orgUnitId, agent.id);
         clock.mark();
       },
       onUsage: async (usage) => {
@@ -1071,7 +1072,7 @@ export class AgentRuntimeService {
           ? `execution:${opts.context.executionId}`
           : undefined,
       beforeTurn: async () => {
-        await this.budgets.assertCanSpend(ws, orgUnitId);
+        await this.budgets.assertCanSpend(ws, orgUnitId, agent.id);
         clock.mark();
       },
       onUsage: async (usage) => {

@@ -11,10 +11,14 @@ import {
   AcceptInvitationDto,
   AddMemberDto,
   CreateOrgUnitDto,
+  GrantBudgetOverrideDto,
+  SetPilotDto,
   UpdateMemberDto,
   UpdateOrgUnitDto,
+  UpsertAgentBudgetDto,
   UpsertBudgetDto,
   UsageQueryDto,
+  ValidarImpactoDto,
 } from './dto/governance.dto';
 import { InvitationsService } from './invitations.service';
 import { OrgService } from './org.service';
@@ -105,10 +109,39 @@ export class GovernanceAdminController {
     return this.invitations.revoke(a.workspaceId, id, a);
   }
 
-  // Presupuestos
+  // Presupuestos.
+  // Importante: las rutas estáticas (`budgets/overrides`, `budgets/pilot`) se declaran ANTES que la paramétrica
+  // `budgets/:orgUnitId` para que no las capture el comodín (orden de declaración en NestJS/Express).
   @Get('budgets')
   listBudgets(@CurrentAuth() a: AuthContext) {
     return this.budgets.list(a.workspaceId);
+  }
+
+  // Autorizaciones expresas de gasto (override gobernado, P0.1)
+  @Get('budgets/overrides')
+  listOverrides(@CurrentAuth() a: AuthContext, @Query('vigentes') vigentes?: string) {
+    return this.budgets.listOverrides(a.workspaceId, vigentes === 'true');
+  }
+
+  @Post('budgets/overrides')
+  grantOverride(@CurrentAuth() a: AuthContext, @Body() dto: GrantBudgetOverrideDto) {
+    return this.budgets.grantOverride(a.workspaceId, dto, a);
+  }
+
+  @Delete('budgets/overrides/:id')
+  revokeOverride(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
+    return this.budgets.revokeOverride(a.workspaceId, id, a);
+  }
+
+  // Preset de piloto US$ 0 (P0.1b)
+  @Get('budgets/pilot')
+  getPilot(@CurrentAuth() a: AuthContext) {
+    return this.budgets.getPilot(a.workspaceId);
+  }
+
+  @Put('budgets/pilot')
+  setPilot(@CurrentAuth() a: AuthContext, @Body() dto: SetPilotDto) {
+    return this.budgets.setPilot(a.workspaceId, dto, a);
   }
 
   @Put('budgets/:orgUnitId')
@@ -119,6 +152,28 @@ export class GovernanceAdminController {
   @Delete('budgets/:orgUnitId')
   removeBudget(@CurrentAuth() a: AuthContext, @Param('orgUnitId') id: string) {
     return this.budgets.remove(a.workspaceId, id);
+  }
+
+  /** Registra la validación de impacto de la degradación de una unidad (P1.1c). */
+  @Post('budgets/:orgUnitId/impacto')
+  validarImpacto(@CurrentAuth() a: AuthContext, @Param('orgUnitId') id: string, @Body() dto: ValidarImpactoDto) {
+    return this.budgets.validarImpacto(a.workspaceId, id, dto, a);
+  }
+
+  // Bolsas por agente (P0.1 nivel agente)
+  @Get('agent-budgets')
+  listAgentBudgets(@CurrentAuth() a: AuthContext) {
+    return this.budgets.listAgentBudgets(a.workspaceId);
+  }
+
+  @Put('agent-budgets/:agentId')
+  upsertAgentBudget(@CurrentAuth() a: AuthContext, @Param('agentId') id: string, @Body() dto: UpsertAgentBudgetDto) {
+    return this.budgets.upsertAgentBudget(a.workspaceId, id, dto);
+  }
+
+  @Delete('agent-budgets/:agentId')
+  removeAgentBudget(@CurrentAuth() a: AuthContext, @Param('agentId') id: string) {
+    return this.budgets.removeAgentBudget(a.workspaceId, id);
   }
 
   @Get('alerts')

@@ -33,7 +33,7 @@ export class MeteredLlmService {
 
   async complete(call: MeteredCall): Promise<{ text: string; costUsd: number; providerId: string; model: string }> {
     const ws = call.workspaceId;
-    const plan = await this.budgets.plan(ws, call.orgUnitId, call.providerId, call.model);
+    const plan = await this.budgets.plan(ws, call.orgUnitId, call.providerId, call.model, call.agentId);
     const resolved = await this.gateway.resolve(ws, plan.providerId, plan.model);
     let total = 0;
     const clock = new TurnClock();
@@ -46,7 +46,7 @@ export class MeteredLlmService {
       tools: [],
       maxTurns: 1,
       beforeTurn: async () => {
-        await this.budgets.assertCanSpend(ws, call.orgUnitId);
+        await this.budgets.assertCanSpend(ws, call.orgUnitId, call.agentId);
         clock.mark();
       },
       onUsage: async (usage) => {

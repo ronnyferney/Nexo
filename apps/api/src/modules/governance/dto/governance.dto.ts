@@ -3,6 +3,7 @@ import { BudgetPeriod, BudgetPolicy, EstadoEstructura, OrgUnitTipo, Role } from 
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsEmail,
   IsEnum,
   IsIn,
@@ -87,7 +88,7 @@ export class UpsertBudgetDto {
   @ApiProperty({ enum: BudgetPeriod }) @IsEnum(BudgetPeriod) period!: BudgetPeriod;
   @ApiProperty() @IsNumber({ maxDecimalPlaces: 8 }) @Min(0) @Max(100_000_000) limitUsd!: number;
   @ApiProperty({ enum: BudgetPolicy }) @IsEnum(BudgetPolicy) policy!: BudgetPolicy;
-  @ApiPropertyOptional({ type: [Number] })
+  @ApiPropertyOptional({ type: [Number], description: 'Umbrales de alerta en %, por defecto 80/90/100' })
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(10)
@@ -97,6 +98,55 @@ export class UpsertBudgetDto {
   alertThresholds?: number[];
   @ApiPropertyOptional() @IsOptional() @IsString() downgradeProviderId?: string | null;
   @ApiPropertyOptional() @IsOptional() @IsString() downgradeModel?: string | null;
+  /** Criticidad del proceso (P1.1c). Por defecto crítico: al tope BLOQUEA; la degradación solo se habilita si es no
+   * crítico (`false`) y además se registró la validación de impacto. */
+  @ApiPropertyOptional({ description: 'Proceso crítico (default true): un crítico bloquea al tope, no degrada' })
+  @IsOptional()
+  @IsBoolean()
+  critico?: boolean;
+}
+
+/** Bolsa por agente (P0.1 nivel agente): mismos campos que la de unidad; el agente se indica en la ruta. */
+export class UpsertAgentBudgetDto extends UpsertBudgetDto {}
+
+/** Registro de validación de impacto de la degradación (P1.1c). */
+export class ValidarImpactoDto {
+  @ApiPropertyOptional({ description: 'Nota de la validación de impacto (evidencia/alcance)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  nota?: string;
+}
+
+/** Autorización expresa para gastar por encima del tope (P0.1). Alcance: una unidad O un agente (no ambos). */
+export class GrantBudgetOverrideDto {
+  @ApiPropertyOptional({ description: 'Unidad a autorizar (exclusivo con agentId)' })
+  @IsOptional()
+  @IsString()
+  orgUnitId?: string;
+  @ApiPropertyOptional({ description: 'Agente a autorizar (exclusivo con orgUnitId)' })
+  @IsOptional()
+  @IsString()
+  agentId?: string;
+  @ApiProperty({ description: 'Motivo de la autorización (auditado)' })
+  @IsString()
+  @MinLength(3)
+  @MaxLength(500)
+  motivo!: string;
+  @ApiProperty({ description: 'Vigencia (ISO 8601); debe ser futura. Acota el alcance temporal de la autorización.' })
+  @IsISO8601()
+  expiresAt!: string;
+  @ApiPropertyOptional({ description: 'Tope adicional de gasto en USD sobre el límite (alcance de gasto acotado)' })
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 8 })
+  @Min(0)
+  @Max(100_000_000)
+  limitExtraUsd?: number;
+}
+
+/** Preset de piloto US$ 0 (P0.1b): con `modoPiloto` solo se permite el proveedor mock. */
+export class SetPilotDto {
+  @ApiProperty() @IsBoolean() modoPiloto!: boolean;
 }
 
 export const GROUP_BY = ['orgUnit', 'model', 'agent', 'user', 'day', 'role', 'routingReason'] as const;

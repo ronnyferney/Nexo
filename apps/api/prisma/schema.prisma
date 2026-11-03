@@ -285,6 +285,10 @@ model Workspace {
   conversationRetentionDays Int?
   /// Última vez que el workspace guardó sus ajustes de protección de datos (null = rige CONVERSATIONS_RETENTION_DAYS).
   privacySettingsUpdatedAt  DateTime?
+  /// Preset de piloto US$ 0 (P0.1b): con `modoPiloto = true` solo se permite el proveedor `mock`; se impide cualquier
+  /// gasto con un proveedor real (costo externo = 0). Solo lo cambia un humano ADMIN/OWNER (nunca un agente), auditado.
+  modoPiloto                Boolean                    @default(false)
+  modoPilotoDesde           DateTime?
   createdAt                 DateTime                   @default(now())
   updatedAt                 DateTime                   @updatedAt
   memberships               Membership[]
@@ -343,6 +347,8 @@ model Workspace {
   organizacionPerfiles      OrganizacionPerfil[]
   contactoPerfiles          ContactoPerfil[]
   memoriasOperativas        MemoriaOperativa[]
+  agentBudgets              AgentBudget[]
+  budgetOverrides           BudgetOverride[]
 }
 
 /// Catálogo de cargos (RF03): perfil reutilizable del empleado digital con propósito, funciones, entregables,
@@ -569,6 +575,10 @@ model Agent {
   /// Misiones transversales que este empleado digital coordina (ADR 0016). Coordinar es un ROL, no un poder: NO
   /// concede acceso a los datos de las empresas participantes (ADR 0007). Back-relation aditiva y opcional.
   misionesCoordinadas  MisionTransversal[]
+  budget               AgentBudget?
+  budgetLedger         AgentBudgetLedger[]
+  budgetAlerts         AgentBudgetAlert[]
+  budgetOverrides      BudgetOverride[]
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
 
@@ -624,23 +634,23 @@ model AgentTool {
 }
 
 model Conversation {
-  id        String   @id @default(cuid())
-  title     String   @default("Nueva conversación")
+  id              String   @id @default(cuid())
+  title           String   @default("Nueva conversación")
   /// Usuario dueño de la conversación (ADR 0007: las conversaciones son privadas).
-  userId    String?
+  userId          String?
   /// Proveedor que produjo el historial (los formatos no son intercambiables).
-  provider  String   @default("anthropic")
-  agentId   String
-  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  provider        String   @default("anthropic")
+  agentId         String
+  agent           Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
   /// Historial completo en formato del proveedor (append-only).
-  messages  Json     @default("[]")
+  messages        Json     @default("[]")
   /// Memoria de corto plazo compacta (ADR 0017 Inc.2): resumen incremental del tramo antiguo del hilo. Es contexto
   /// adicional; NO reemplaza ni reescribe `messages` (que sigue siendo el historial auditable append-only).
   resumen         String?
   /// Nº de mensajes nativos iniciales de `messages` cubiertos por `resumen` (marca de cobertura incremental).
   resumenMensajes Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@index([agentId, userId])
   @@index([updatedAt])
@@ -818,6 +828,7 @@ model OrgUnit {
   budget                Budget?
   ledger                BudgetLedger[]
   alerts                BudgetAlert[]
+  budgetOverrides       BudgetOverride[]
   usage                 UsageRecord[]
   invitations           Invitation[]
   /// Participaciones de esta unidad (empresa/línea/área/sede) en misiones transversales (ADR 0016). Declarar una
@@ -839,11 +850,99 @@ model Budget {
   period              BudgetPeriod @default(MONTHLY)
   limitUsd            Decimal      @db.Decimal(18, 8)
   policy              BudgetPolicy @default(BLOCK)
-  alertThresholds     Int[]        @default([50, 80, 100])
+  /// Umbrales de alerta en % (ADR 0002 D5; P0.1): por defecto 80/90/100. Se emite un `BudgetAlert` único por
+  /// (unidad, periodo, umbral) al cruzar cada uno.
+  alertThresholds     Int[]        @default([80, 90, 100])
   downgradeProviderId String?
   downgradeModel      String?
+  /// Criticidad del proceso/bolsa (P1.1c). Por defecto `true` (seguro): un proceso crítico que llega al tope se
+  /// BLOQUEA; la degradación automática a modelo más barato SOLO se habilita si `critico = false` y hay un registro de
+  /// validación de impacto (`impactoValidadoAt`). Las bolsas previas quedan críticas: al tope bloquean (conservador).
+  critico             Boolean      @default(true)
+  /// Registro de validación de impacto de la degradación (P1.1c). Sin fecha no se permite degradar (se bloquea).
+  impactoValidadoAt   DateTime?
+  impactoValidadoPor  String?
+  impactoNota         String?
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
+}
+
+/// Bolsa de presupuesto por AGENTE (P0.1 nivel agente). Aditiva y opcional: si un agente no tiene bolsa, su consumo se
+/// gobierna solo por la cadena organizacional (comportamiento previo). Participa como nodo adicional de la cadena de
+/// decisión (más cercano que la unidad): mismas políticas (BLOCK/DOWNGRADE/ALERT_ONLY), umbrales, override y criticidad.
+model AgentBudget {
+  id                  String       @id @default(cuid())
+  agentId             String       @unique
+  agent               Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  workspaceId         String
+  workspace           Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  period              BudgetPeriod @default(MONTHLY)
+  limitUsd            Decimal      @db.Decimal(18, 8)
+  policy              BudgetPolicy @default(BLOCK)
+  alertThresholds     Int[]        @default([80, 90, 100])
+  downgradeProviderId String?
+  downgradeModel      String?
+  critico             Boolean      @default(true)
+  impactoValidadoAt   DateTime?
+  impactoValidadoPor  String?
+  impactoNota         String?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  @@index([workspaceId])
+}
+
+/// Gasto acumulado por agente y periodo. Incrementos atómicos, análogo a `BudgetLedger`.
+model AgentBudgetLedger {
+  agentId   String
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  periodKey String
+  spentUsd  Decimal  @default(0) @db.Decimal(18, 8)
+  updatedAt DateTime @updatedAt
+
+  @@id([agentId, periodKey])
+}
+
+/// Alerta de umbral de una bolsa de agente (única por agente/periodo/umbral), análoga a `BudgetAlert`.
+model AgentBudgetAlert {
+  id        String   @id @default(cuid())
+  agentId   String
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  periodKey String
+  threshold Int
+  spentUsd  Decimal  @db.Decimal(18, 8)
+  limitUsd  Decimal  @db.Decimal(18, 8)
+  createdAt DateTime @default(now())
+
+  @@unique([agentId, periodKey, threshold])
+}
+
+/// Autorización expresa y gobernada para gastar por encima del tope (P0.1). NO es un bypass permanente: la concede un
+/// ADMIN/OWNER, se audita (E13) y tiene vigencia (`expiresAt`) y alcance acotado (una unidad O un agente, y un periodo).
+/// Mientras hay un override vigente, los consumos de ese alcance no se bloquean al 100 %; el gasto sigue midiéndose.
+model BudgetOverride {
+  id              String    @id @default(cuid())
+  workspaceId     String
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// Alcance: exactamente uno de unidad o agente (se valida en servicio).
+  orgUnitId       String?
+  orgUnit         OrgUnit?  @relation(fields: [orgUnitId], references: [id], onDelete: Cascade)
+  agentId         String?
+  agent           Agent?    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  /// Periodo al que aplica (clave UTC, p. ej. `2026-11`): acota el alcance temporal además de `expiresAt`.
+  periodKey       String
+  motivo          String
+  /// Tope adicional opcional en USD sobre el límite (alcance de gasto acotado); `null` = sin tope extra explícito.
+  limitExtraUsd   Decimal?  @db.Decimal(18, 8)
+  grantedByUserId String?
+  grantedByRole   Role
+  expiresAt       DateTime
+  revokedAt       DateTime?
+  revokedByUserId String?
+  createdAt       DateTime  @default(now())
+
+  @@index([workspaceId, orgUnitId, periodKey])
+  @@index([workspaceId, agentId, periodKey])
 }
 
 /// Gasto acumulado por unidad y periodo (incluye descendientes). Incrementos atómicos.
@@ -3018,34 +3117,34 @@ model OrganizacionPerfil {
 /// no concede permisos. Multi-tenant: toda consulta filtra por `workspaceId`. PII (`correos`/`telefonos`) en claro en
 /// Inc.1; el cifrado de campo y la purga por retención quedan para un incremento posterior (ADR 0008).
 model ContactoPerfil {
-  id              String              @id @default(cuid())
-  workspaceId     String
-  workspace       Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  id                  String              @id @default(cuid())
+  workspaceId         String
+  workspace           Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   /// Nombre de la persona.
-  nombre          String
+  nombre              String
   /// Correo principal. Único por workspace cuando está presente; sirve para enriquecer de forma idempotente (Inc.2).
-  correoPrincipal String?
+  correoPrincipal     String?
   /// Lista de correos conocidos (incluye el principal). JSON: arreglo de cadenas.
-  correos         Json                @default("[]")
+  correos             Json                @default("[]")
   /// Teléfonos conocidos. JSON: arreglo de cadenas (nullable).
-  telefonos       Json?
+  telefonos           Json?
   /// Idioma preferido del contacto (p. ej. `es`, `en`).
-  idioma          String?
+  idioma              String?
   /// Tono preferido para dirigirse al contacto (texto libre).
-  tono            String?
+  tono                String?
   /// Organización vinculada (opcional).
-  organizacionId  String?
-  organizacion    OrganizacionPerfil? @relation(fields: [organizacionId], references: [id], onDelete: SetNull)
+  organizacionId      String?
+  organizacion        OrganizacionPerfil? @relation(fields: [organizacionId], references: [id], onDelete: SetNull)
   /// Señales derivadas con fuente/evidencia (p. ej. puntualidad de pago). JSON (nullable).
-  senales         Json?
+  senales             Json?
   /// Procedencia del dato; base de la trazabilidad gobernada.
-  fuente          String?
+  fuente              String?
   /// Última interacción observada con el contacto (p. ej. correo entrante); la fija el enriquecimiento (Inc.2).
   ultimaInteraccionEn DateTime?
   /// Nº de interacciones acumuladas; lo incrementa el enriquecimiento idempotente desde el correo (Inc.2).
   interaccionesCount  Int                 @default(0)
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
 
   @@unique([workspaceId, correoPrincipal])
   @@index([workspaceId])

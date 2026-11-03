@@ -63,6 +63,15 @@ export const AUDIT_ACTIONS = {
   MEMORIA_CONFIRMADA: 'MEMORIA_CONFIRMADA',
   MEMORIA_DESCARTADA: 'MEMORIA_DESCARTADA',
   MEMORIA_CADUCADA: 'MEMORIA_CADUCADA',
+  /// Gobierno de presupuestos (P0.1/P1.1c · ADR 0002). Lo opera SIEMPRE un humano ADMIN/OWNER (nunca un agente).
+  /// OVERRIDE: autorización expresa, acotada y con vigencia, para gastar por encima del tope al 100 % (no es un bypass
+  /// permanente); se registra el alcance (unidad/agente), el periodo, el motivo, el rol y la vigencia. IMPACTO: registro
+  /// de validación de impacto que habilita la degradación de una bolsa no crítica. MODO_PILOTO: activar/desactivar el
+  /// preset de piloto US$ 0 (solo proveedor mock), que un agente no puede desactivar.
+  PRESUPUESTO_OVERRIDE_CONCEDIDO: 'PRESUPUESTO_OVERRIDE_CONCEDIDO',
+  PRESUPUESTO_OVERRIDE_REVOCADO: 'PRESUPUESTO_OVERRIDE_REVOCADO',
+  PRESUPUESTO_IMPACTO_VALIDADO: 'PRESUPUESTO_IMPACTO_VALIDADO',
+  MODO_PILOTO_MODIFICADO: 'MODO_PILOTO_MODIFICADO',
 } as const;
 
 /** Código de acción auditable. Texto abierto (`string`): se recomienda usar las constantes de `AUDIT_ACTIONS`. */

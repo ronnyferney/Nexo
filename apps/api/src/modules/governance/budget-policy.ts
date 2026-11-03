@@ -9,6 +9,9 @@ export function periodKey(period: BudgetPeriod, date = new Date()): string {
   return `${y}-${String(m + 1).padStart(2, '0')}`;
 }
 
+/** Proveedor del simulador: único permitido en el preset de piloto US$ 0 (P0.1b). */
+export const MOCK_PROVIDER_ID = 'mock';
+
 export interface UnitBudgetState {
   orgUnitId: string;
   name: string;
@@ -19,8 +22,32 @@ export interface UnitBudgetState {
     periodKey: string;
     downgradeProviderId: string | null;
     downgradeModel: string | null;
+    /** P1.1c: proceso crítico (no degrada; al tope bloquea). */
+    critico: boolean;
+    /** P1.1c: existe registro de validación de impacto que habilita la degradación. */
+    impactoValidado: boolean;
+    /** P0.1: hay una autorización expresa vigente que permite gastar por encima del tope de este nodo. */
+    overrideActive: boolean;
   };
   spentUsd: number;
+}
+
+/**
+ * ¿La degradación automática está habilitada para esta bolsa? (P1.1c) Solo cuando el proceso es NO crítico y existe un
+ * registro de validación de impacto. Pura: la usan `preflight` y la configuración para validar antes de guardar.
+ */
+export function degradacionHabilitada(b: { critico: boolean; impactoValidado: boolean }): boolean {
+  return !b.critico && b.impactoValidado;
+}
+
+/** ¿El proveedor está permitido bajo el preset de piloto US$ 0? Solo el simulador no genera gasto externo (P0.1b). */
+export function pilotoPermiteProveedor(providerId: string): boolean {
+  return providerId === MOCK_PROVIDER_ID;
+}
+
+/** ¿Hay un override vigente? No revocado y sin expirar (P0.1). */
+export function overrideVigente(o: { expiresAt: Date; revokedAt: Date | null }, now = new Date()): boolean {
+  return o.revokedAt === null && o.expiresAt.getTime() > now.getTime();
 }
 
 export type PreflightDecision =
@@ -29,7 +56,8 @@ export type PreflightDecision =
   | { action: 'block'; unitName: string; periodKey: string }
   | { action: 'forbidden-model'; unitName: string };
 
-const exhausted = (s: UnitBudgetState) => !!s.budget && s.spentUsd >= s.budget.limitUsd;
+/** Agotado = sin saldo Y sin override vigente (el override deja pasar el consumo pese a estar al tope). */
+const exhausted = (s: UnitBudgetState) => !!s.budget && s.spentUsd >= s.budget.limitUsd && !s.budget.overrideActive;
 
 /**
  * ¿El modelo está permitido? Toda unidad de la cadena (unidad → raíz) que restrinja modelos debe incluirlo:
@@ -40,23 +68,30 @@ export function modelAllowed(chain: UnitBudgetState[], ref: string): { ok: true 
   return denying ? { ok: false, unitName: denying.name } : { ok: true };
 }
 
+/** ¿Esta bolsa agotada debe bloquear? BLOCK siempre; DOWNGRADE si no puede degradar (sin modelo, o proceso crítico sin
+ * validación de impacto → P1.1c: en procesos críticos, al tope se bloquea, no se degrada). */
+const bloquea = (u: UnitBudgetState) =>
+  exhausted(u) &&
+  (u.budget!.policy === 'BLOCK' ||
+    (u.budget!.policy === 'DOWNGRADE' && (!u.budget!.downgradeModel || !degradacionHabilitada(u.budget!))));
+
 /**
- * Decide qué hacer antes de ejecutar (ADR 0002 D4/D6). `chain` va de la unidad imputada a la raíz.
- * - BLOCK agotado en cualquier nivel → bloquear.
- * - DOWNGRADE agotado → usar el modelo de degradación de la unidad más cercana; sin modelo configurado → bloquear.
+ * Decide qué hacer antes de ejecutar (ADR 0002 D4/D6; P0.1/P1.1c). `chain` va de la unidad/agente imputado a la raíz.
+ * - BLOCK agotado en cualquier nivel → bloquear (salvo override vigente, que lo deja pasar).
+ * - DOWNGRADE agotado → degrada SOLO si el proceso es no crítico y tiene validación de impacto (P1.1c) y hay modelo;
+ *   si es crítico, sin validación o sin modelo configurado → bloquear.
  * - ALERT_ONLY → permitir.
  */
 export function preflight(chain: UnitBudgetState[], providerId: string, model: string): PreflightDecision {
   const allowed = modelAllowed(chain, `${providerId}:${model}`);
   if (!allowed.ok) return { action: 'forbidden-model', unitName: allowed.unitName };
 
-  const blocking = chain.find(
-    (u) =>
-      exhausted(u) && (u.budget!.policy === 'BLOCK' || (u.budget!.policy === 'DOWNGRADE' && !u.budget!.downgradeModel)),
-  );
+  const blocking = chain.find(bloquea);
   if (blocking) return { action: 'block', unitName: blocking.name, periodKey: blocking.budget!.periodKey };
 
-  const downgrading = chain.find((u) => exhausted(u) && u.budget!.policy === 'DOWNGRADE');
+  const downgrading = chain.find(
+    (u) => exhausted(u) && u.budget!.policy === 'DOWNGRADE' && degradacionHabilitada(u.budget!),
+  );
   if (downgrading) {
     const b = downgrading.budget!;
     const target = { providerId: b.downgradeProviderId ?? providerId, model: b.downgradeModel! };
@@ -69,7 +104,8 @@ export function preflight(chain: UnitBudgetState[], providerId: string, model: s
   return { action: 'allow', providerId, model };
 }
 
-/** Durante la ejecución solo se corta por presupuestos BLOCK agotados (la degradación se decide al inicio). */
+/** Durante la ejecución solo se corta por presupuestos BLOCK agotados (la degradación se decide al inicio). Un override
+ * vigente deja pasar el turno (ya contemplado en `exhausted`). */
 export function blockingUnit(chain: UnitBudgetState[]): UnitBudgetState | undefined {
   return chain.find((u) => exhausted(u) && u.budget!.policy === 'BLOCK');
 }
