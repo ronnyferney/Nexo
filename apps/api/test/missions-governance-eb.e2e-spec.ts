@@ -3,7 +3,7 @@ import { ForbiddenException } from '@nestjs/common';
 import { AuditService } from '../src/modules/audit/audit.service';
 import { MissionCoordinatorGovernanceService } from '../src/modules/missions/mission-coordinator-governance.service';
 import { createTestApp, prismaOf } from './utils/app';
-import { createAgent, registerOwner, type Session } from './utils/fixtures';
+import { createAgent, registerOwner, rootUnit, type Session } from './utils/fixtures';
 
 interface Mision {
   id: string;
@@ -191,6 +191,105 @@ describe('Gobierno del coordinador de misiones · compuerta E-B (e2e)', () => {
       where: { workspaceId: owner.workspaceId, misionId: mision.id, tipo: 'SUPERVISION' },
     });
     expect(supervision).toBe(1);
+  });
+
+  it('informe ejecutivo GATED: con el flag apagado devuelve el motivo y no agrega nada', async () => {
+    await setFlag(false);
+    const { mision } = await crearMisionAutorizada('EB informe off');
+    const r = (await owner.api.get(`/missions/${mision.id}/executive-report`).expect(200)).body as {
+      disponible: boolean;
+      motivo?: string;
+    };
+    expect(r.disponible).toBe(false);
+    expect(r.motivo).toBe(MissionCoordinatorGovernanceService.MOTIVO_GATED);
+  });
+
+  it('informe ejecutivo con flag encendido agrega estado/avance/compromisos/bloqueos (solo lectura)', async () => {
+    await setFlag(true);
+    const { mision } = await crearMisionAutorizada('EB informe on');
+    const root = await rootUnit(owner);
+    // Trabajo vinculado: una tarea vencida → compromiso VENCIDO + bloqueo DEPENDENCIA_VENCIDA (derivados de E4).
+    const tarea = await prismaOf(app).tarea.create({
+      data: {
+        workspaceId: owner.workspaceId,
+        titulo: 'Entrega transversal',
+        orgUnitId: root.id,
+        fechaLimite: new Date(Date.now() - 86_400_000),
+      },
+    });
+    await owner.api.post(`/missions/${mision.id}/links`, { tareaId: tarea.id }).expect(201);
+    await owner.api.post(`/missions/${mision.id}/participants`, { orgUnitId: root.id }).expect(201);
+
+    const r = (await owner.api.get(`/missions/${mision.id}/executive-report`).expect(200)).body as {
+      disponible: boolean;
+      avance: { totalTareas: number };
+      compromisos: { estado: string }[];
+      vencimientos: unknown[];
+      bloqueos: { origen: string }[];
+    };
+    expect(r.disponible).toBe(true);
+    expect(r.avance.totalTareas).toBe(1);
+    expect(r.compromisos).toHaveLength(1);
+    expect(r.compromisos[0].estado).toBe('VENCIDO');
+    expect(r.vencimientos).toHaveLength(1);
+    expect(r.bloqueos.some((b) => b.origen === 'DEPENDENCIA_VENCIDA')).toBe(true);
+  });
+
+  it('asignación gobernada: admisible dentro de nivel y alcance → solo solicita decisión humana', async () => {
+    await setFlag(true);
+    const { mision, coordId } = await crearMisionAutorizada('EB asignacion');
+    const root = await rootUnit(owner);
+    const ejecutor = await createAgent(owner, { name: 'Ejecutor' });
+    const tarea = await prismaOf(app).tarea.create({
+      data: { workspaceId: owner.workspaceId, titulo: 'Tarea asignable', orgUnitId: root.id },
+    });
+    await owner.api.post(`/missions/${mision.id}/participants`, { orgUnitId: root.id }).expect(201);
+
+    const r = await gov.proponerAsignacion(owner.workspaceId, mision.id, coordId, {
+      tareaId: tarea.id,
+      asignadoAgentId: ejecutor.id,
+      permisosCoordinador: ['crm:read'],
+      permisosSolicitados: ['crm:read', 'crm:write'],
+    });
+    expect(r.aplicado).toBe(true);
+    if (r.aplicado) {
+      expect(r.propuesta.permisosConcedidos).toEqual(['crm:read']);
+      expect(r.propuesta.permisosNoConcedidos).toEqual(['crm:write']); // no concede lo que no posee
+      expect(r.propuesta.requiereAprobacionHumana).toBe(true);
+    }
+
+    const pendientes = await prismaOf(app).misionEvento.count({
+      where: { workspaceId: owner.workspaceId, misionId: mision.id, tipo: 'DECISION_HUMANA_SOLICITADA' },
+    });
+    expect(pendientes).toBeGreaterThanOrEqual(1);
+
+    // El informe ejecutivo refleja el pendiente de decisión humana.
+    const informe = (await owner.api.get(`/missions/${mision.id}/executive-report`).expect(200)).body as {
+      pendientesDecisionHumana: unknown[];
+    };
+    expect(informe.pendientesDecisionHumana.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('asignación gobernada: fuera del alcance autorizado → bloqueada y auditada (no ejecuta)', async () => {
+    await setFlag(true);
+    const { mision, coordId } = await crearMisionAutorizada('EB asignacion fuera');
+    const root = await rootUnit(owner);
+    const ejecutor = await createAgent(owner, { name: 'Ejecutor fuera' });
+    const tarea = await prismaOf(app).tarea.create({
+      data: { workspaceId: owner.workspaceId, titulo: 'Tarea fuera de alcance', orgUnitId: root.id },
+    });
+    // No se declara participante → la tarea queda FUERA del alcance autorizado de la misión.
+    await expect(
+      gov.proponerAsignacion(owner.workspaceId, mision.id, coordId, {
+        tareaId: tarea.id,
+        asignadoAgentId: ejecutor.id,
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    const bloqueo = (
+      await owner.api.get(`/auditoria?action=MISION_COORDINADOR_ASIGNACION_BLOQUEADA&targetId=${mision.id}`).expect(200)
+    ).body as { items: unknown[] };
+    expect(bloqueo.items).toHaveLength(1);
   });
 
   it('otro workspace no afecta: el flag y los eventos están aislados por tenant', async () => {

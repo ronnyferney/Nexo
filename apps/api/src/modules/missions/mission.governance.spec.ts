@@ -7,6 +7,7 @@ import {
   clasificarCompromiso,
   delegacionPermitida,
   evaluarCambioPresupuesto,
+  evaluarPropuestaAsignacion,
   type OrdenCoordinacion,
   proyectarSupervision,
   requiereAprobacionHumana,
@@ -320,6 +321,65 @@ describe('mission.governance · gobierno puro del coordinador (ADR 0016 Inc.3 ·
         orden({ id: 'nueva', nivelEmisor: 'LIDER', vigente: true }),
       ]);
       if (r.decision === 'ORDEN_GANADORA') expect(r.ganadoraId).toBe('nueva');
+    });
+  });
+
+  describe('evaluarPropuestaAsignacion · asignar/coordinar dentro de permisos (ADR 0016; no amplía, no concede)', () => {
+    const baseAlcance = {
+      dentroDelAlcance: true,
+      permisosCoordinador: ['crm:read', 'crm:write'] as string[],
+      permisosSolicitados: ['crm:read'] as string[],
+    };
+
+    it('asigna como ASIGNAR_TAREA → recomienda aprobación humana (aplicar es alto impacto)', () => {
+      expect(requiereAprobacionHumana('ASIGNAR_TAREA')).toBe(true);
+      expect(requiereAprobacionHumana('COORDINAR_TAREA')).toBe(true);
+    });
+
+    it('propuesta admisible cuando el asignado no supera el nivel del coordinador y está en alcance', () => {
+      const r = evaluarPropuestaAsignacion({
+        nivelCoordinador: 'SUPEREMPLEADO',
+        nivelAsignado: 'JEFE',
+        ...baseAlcance,
+      });
+      expect(r.admisible).toBe(true);
+      expect(r.motivo).toBe('ADMISIBLE');
+      expect(r.requiereAprobacionHumana).toBe(true);
+      expect(r.permisosConcedidos).toEqual(['crm:read']);
+    });
+
+    it('NO asigna por encima de su nivel (el asignado tiene más autoridad que el coordinador)', () => {
+      const r = evaluarPropuestaAsignacion({
+        nivelCoordinador: 'JEFE',
+        nivelAsignado: 'GERENTE',
+        ...baseAlcance,
+      });
+      expect(r.admisible).toBe(false);
+      expect(r.motivo).toBe('NIVEL_SUPERIOR_AL_COORDINADOR');
+    });
+
+    it('NO asigna fuera del alcance autorizado de la misión', () => {
+      const r = evaluarPropuestaAsignacion({
+        nivelCoordinador: 'SUPEREMPLEADO',
+        nivelAsignado: 'JEFE',
+        ...baseAlcance,
+        dentroDelAlcance: false,
+      });
+      expect(r.admisible).toBe(false);
+      expect(r.motivo).toBe('FUERA_DE_ALCANCE');
+    });
+
+    it('NO concede permisos que el coordinador no posee: solo transfiere el subconjunto (ADR 0007/0014)', () => {
+      const r = evaluarPropuestaAsignacion({
+        nivelCoordinador: 'SUPEREMPLEADO',
+        nivelAsignado: 'EMPLEADO',
+        dentroDelAlcance: true,
+        permisosCoordinador: ['crm:read'],
+        permisosSolicitados: ['crm:read', 'admin:all'],
+      });
+      expect(r.admisible).toBe(true);
+      expect(r.permisosConcedidos).toEqual(['crm:read']);
+      expect(r.permisosNoConcedidos).toEqual(['admin:all']);
     });
   });
 

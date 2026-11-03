@@ -11,6 +11,7 @@ import {
   CreateMisionDto,
   StopMisionDto,
 } from './dto/mission.dto';
+import { MissionExecutiveReportService } from './mission-executive-report.service';
 import { MissionsService } from './missions.service';
 
 /**
@@ -18,14 +19,18 @@ import { MissionsService } from './missions.service';
  * Lectura para cualquier miembro (VIEWER+, filtrada por `workspaceId`). Crear/autorizar/detener/cancelar:
  * `@MinRole('ADMIN')` —son actos de gobierno que SOLO hace una persona con nivel suficiente; además el servicio exige
  * `auth.userId` (ningún agente crea/autoriza misiones, `AGENTE_NO_CREA_AGENTES`). Participantes y vínculos:
- * `@MinRole('EDITOR')`; declararlos NO concede acceso (ADR 0007). `workspaceId` siempre de `@CurrentAuth`, nunca del
- * cuerpo. Mismo prefijo de ruta plano que el resto de controladores (sin versión), p. ej. `objetivos`, `crews`.
+ * `@MinRole('EDITOR')`; declararlos NO concede acceso (ADR 0007). El informe ejecutivo de gestión es `@MinRole('ADMIN')`
+ * de SOLO LECTURA y queda GATED por `Workspace.coordinadorGobiernoActivo`. `workspaceId` siempre de `@CurrentAuth`,
+ * nunca del cuerpo. Mismo prefijo de ruta plano que el resto de controladores (sin versión), p. ej. `objetivos`, `crews`.
  */
 @ApiTags('misiones')
 @ApiBearerAuth()
 @Controller('missions')
 export class MissionsController {
-  constructor(private readonly missions: MissionsService) {}
+  constructor(
+    private readonly missions: MissionsService,
+    private readonly report: MissionExecutiveReportService,
+  ) {}
 
   @Get()
   list(@CurrentAuth() a: AuthContext, @Query('estado') estado?: EstadoMision) {
@@ -35,6 +40,18 @@ export class MissionsController {
   @Get(':id')
   get(@CurrentAuth() a: AuthContext, @Param('id') id: string, @Query('confirmarLograda') confirmar?: string) {
     return this.missions.get(a.workspaceId, id, confirmar === 'true');
+  }
+
+  /**
+   * Informe ejecutivo de gestión de la misión (ADR 0016 · compuerta E-B). SOLO LECTURA, `@MinRole('ADMIN')`: agrega
+   * estado, avance, compromisos/vencimientos, bloqueos/excepciones, costo por área (por referencia; no mueve
+   * presupuesto) y lo pendiente de decisión humana. GATED: con `coordinadorGobiernoActivo` apagado devuelve el motivo
+   * `GOBIERNO_COORDINADOR_DESACTIVADO`. Solo metadatos: supervisar/coordinar no concede acceso a contenido (ADR 0007).
+   */
+  @MinRole('ADMIN')
+  @Get(':id/executive-report')
+  executiveReport(@CurrentAuth() a: AuthContext, @Param('id') id: string) {
+    return this.report.generar(a.workspaceId, id);
   }
 
   @MinRole('ADMIN')

@@ -206,4 +206,115 @@ describe('MissionCoordinatorGovernanceService (ADR 0016 Inc.3, gated)', () => {
       expect(ev?.requiereDecision).toBe(true);
     });
   });
+
+  // --- Asignación/coordinación de tareas DENTRO de permisos: el coordinador PROPONE (ADR 0016) ----------------------
+
+  describe('proponerAsignacion — el coordinador propone; aplicar exige aprobación humana', () => {
+    const TAREA = 'tarea-1';
+    const AREA = 'area-1';
+    const ASIGNADO = 'agente-ejecutor';
+
+    function buildAsignacion(opts: {
+      flagActivo: boolean;
+      nivelCoordinador?: string | null;
+      nivelAsignado?: string | null;
+      orgUnitTarea?: string | null;
+      participantes?: string[];
+    }) {
+      const eventos: Array<Record<string, unknown>> = [];
+      const auditorias: Array<Record<string, unknown>> = [];
+      const prisma = {
+        workspace: { findUnique: jest.fn().mockResolvedValue({ coordinadorGobiernoActivo: opts.flagActivo }) },
+        misionTransversal: { findFirst: jest.fn().mockResolvedValue({ id: MIS }) },
+        misionEvento: {
+          create: jest.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) => {
+            eventos.push(data);
+            return Promise.resolve({ id: `ev-${eventos.length}`, ...data });
+          }),
+        },
+        agent: {
+          findFirst: jest
+            .fn()
+            .mockResolvedValueOnce({ cargo: { nivel: opts.nivelCoordinador ?? 'SUPEREMPLEADO' } })
+            .mockResolvedValueOnce({ cargo: { nivel: opts.nivelAsignado ?? 'EMPLEADO' } }),
+        },
+        tarea: {
+          findFirst: jest
+            .fn()
+            .mockResolvedValue({ id: TAREA, orgUnitId: opts.orgUnitTarea ?? AREA, titulo: 'Tarea X' }),
+        },
+        misionParticipante: {
+          findMany: jest.fn().mockResolvedValue((opts.participantes ?? [AREA]).map((orgUnitId) => ({ orgUnitId }))),
+        },
+      };
+      const audit = {
+        append: jest.fn().mockImplementation((_ws: string, e: Record<string, unknown>) => {
+          auditorias.push(e);
+          return Promise.resolve({ id: `a-${auditorias.length}` });
+        }),
+      };
+      const service = new MissionCoordinatorGovernanceService(
+        prisma as unknown as PrismaService,
+        audit as unknown as AuditService,
+      );
+      return { service, eventos, auditorias };
+    }
+
+    it('con el flag APAGADO no produce efecto (sin eventos ni auditoría)', async () => {
+      const { service, eventos, auditorias } = buildAsignacion({ flagActivo: false });
+      const r = await service.proponerAsignacion(WS, MIS, COORD, {
+        tareaId: TAREA,
+        asignadoAgentId: ASIGNADO,
+        permisosCoordinador: ['crm:read'],
+        permisosSolicitados: ['crm:read'],
+      });
+      expect(r.aplicado).toBe(false);
+      expect(eventos).toHaveLength(0);
+      expect(auditorias).toHaveLength(0);
+    });
+
+    it('propuesta admisible solo SOLICITA decisión humana (no ejecuta) y audita la propuesta', async () => {
+      const { service, eventos, auditorias } = buildAsignacion({ flagActivo: true });
+      const r = await service.proponerAsignacion(WS, MIS, COORD, {
+        tareaId: TAREA,
+        asignadoAgentId: ASIGNADO,
+        permisosCoordinador: ['crm:read', 'crm:write'],
+        permisosSolicitados: ['crm:read', 'admin:all'],
+      });
+      expect(r).toMatchObject({ aplicado: true });
+      if (r.aplicado) {
+        expect(r.propuesta.admisible).toBe(true);
+        expect(r.propuesta.requiereAprobacionHumana).toBe(true);
+        expect(r.propuesta.permisosConcedidos).toEqual(['crm:read']);
+        expect(r.propuesta.permisosNoConcedidos).toEqual(['admin:all']);
+      }
+      expect(eventos.some((e) => e.tipo === 'DECISION_HUMANA_SOLICITADA' && e.requiereDecision === true)).toBe(true);
+      expect(auditorias.some((a) => a.action === AUDIT_ACTIONS.MISION_COORDINADOR_ASIGNACION)).toBe(true);
+    });
+
+    it('bloquea y audita asignar por ENCIMA del nivel del coordinador', async () => {
+      const { service, eventos, auditorias } = buildAsignacion({
+        flagActivo: true,
+        nivelCoordinador: 'JEFE',
+        nivelAsignado: 'GERENTE',
+      });
+      await expect(
+        service.proponerAsignacion(WS, MIS, COORD, { tareaId: TAREA, asignadoAgentId: ASIGNADO }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(auditorias.some((a) => a.action === AUDIT_ACTIONS.MISION_COORDINADOR_ASIGNACION_BLOQUEADA)).toBe(true);
+      expect(eventos.some((e) => e.tipo === 'DECISION_HUMANA_SOLICITADA')).toBe(false);
+    });
+
+    it('bloquea y audita asignar FUERA del alcance autorizado de la misión', async () => {
+      const { service, auditorias } = buildAsignacion({
+        flagActivo: true,
+        orgUnitTarea: 'area-ajena',
+        participantes: [AREA],
+      });
+      await expect(
+        service.proponerAsignacion(WS, MIS, COORD, { tareaId: TAREA, asignadoAgentId: ASIGNADO }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(auditorias.some((a) => a.action === AUDIT_ACTIONS.MISION_COORDINADOR_ASIGNACION_BLOQUEADA)).toBe(true);
+    });
+  });
 });

@@ -48,6 +48,8 @@ export type AccionCoordinador =
   | 'SUSPENDER_AGENTE'
   | 'REACTIVAR_AGENTE'
   | 'SUSPENDER_COORDINADOR'
+  | 'ASIGNAR_TAREA' // asignar por primera vez una tarea a un ejecutor (dentro de nivel/alcance; aplicar exige humano)
+  | 'COORDINAR_TAREA' // coordinar/priorizar una tarea ya asignada entre áreas (aplicar exige humano)
   | 'REASIGNAR_TAREA'
   | 'REASIGNAR_COORDINACION'
   | 'MOVER_PRESUPUESTO'
@@ -349,6 +351,72 @@ export function resolverContradiccion(ordenes: readonly OrdenCoordinacion[]): Re
     }
   }
   return { decision: 'ORDEN_GANADORA', ganadoraId: primera.id, detener: false, requiereDecisionHumana: false };
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// 9. Asignación/coordinación de tareas DENTRO de permisos (ADR 0016 · asignación gobernada): el coordinador PROPONE
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** Motivo auditable del resultado de evaluar una propuesta de asignación/coordinación de tarea. */
+export type MotivoAsignacion =
+  | 'ADMISIBLE'
+  | 'NIVEL_SUPERIOR_AL_COORDINADOR' // no asigna por encima de su nivel (decisión 2 del patrocinador)
+  | 'FUERA_DE_ALCANCE'; // no asigna fuera del alcance autorizado de la misión (empresas/áreas participantes)
+
+export interface EntradaAsignacion {
+  /** Nivel del coordinador (de su `Cargo`); null → nivel base conservador. */
+  nivelCoordinador: NivelJerarquico | null;
+  /** Nivel del agente al que se asignaría la tarea; null → nivel base conservador. */
+  nivelAsignado: NivelJerarquico | null;
+  /** ¿El área/empresa destino está dentro del alcance autorizado de la misión (es participante)? */
+  dentroDelAlcance: boolean;
+  /** Permisos que el coordinador posee (tope): la asignación NUNCA transfiere más que esto (ADR 0014/E5). */
+  permisosCoordinador: readonly string[];
+  /** Permisos que la asignación pretende acompañar al ejecutor. */
+  permisosSolicitados: readonly string[];
+}
+
+export interface ResultadoAsignacion {
+  /** ¿El coordinador puede PROPONER esta asignación (dentro de su nivel y del alcance autorizado)? */
+  admisible: boolean;
+  motivo: MotivoAsignacion;
+  /** Permisos que SÍ se transferirían: intersección con los del coordinador. Nunca amplía (subconjunto). */
+  permisosConcedidos: string[];
+  /** Permisos solicitados que el coordinador NO posee: NUNCA se conceden (asignar no concede acceso, ADR 0007). */
+  permisosNoConcedidos: string[];
+  /**
+   * Aun siendo admisible la PROPUESTA, APLICAR la asignación es de alto impacto y exige aprobación humana (E6): el
+   * coordinador propone y solicita; nunca ejecuta el efecto. Siempre `true`.
+   */
+  requiereAprobacionHumana: boolean;
+}
+
+/**
+ * Evalúa una propuesta de asignación/coordinación de tarea del coordinador, DENTRO de sus permisos (ADR 0016 Inc.1/2):
+ *  - **No por encima de su nivel:** si el agente destino tiene mayor autoridad que el coordinador → inadmisible
+ *    (`NIVEL_SUPERIOR_AL_COORDINADOR`); el coordinador no manda sobre quien tiene más autoridad (decisión 2).
+ *  - **No fuera del alcance autorizado:** si el área/empresa destino no participa en la misión → `FUERA_DE_ALCANCE`.
+ *  - **No concede permisos (ADR 0007/0014):** solo transfiere la intersección con los suyos (`permisosConcedidos`); los
+ *    `permisosSolicitados` que el coordinador no posee quedan en `permisosNoConcedidos` y NUNCA se conceden.
+ *  - **Nunca ejecuta:** aun admisible, aplicarla es alto impacto y exige aprobación humana (`requiereAprobacionHumana`).
+ * Determinista y pura; no persiste ni decide la ejecución.
+ */
+export function evaluarPropuestaAsignacion(e: EntradaAsignacion): ResultadoAsignacion {
+  const deleg = delegacionPermitida(e.permisosCoordinador, e.permisosSolicitados);
+  const base = {
+    permisosConcedidos: deleg.concedidos,
+    permisosNoConcedidos: deleg.excedentes,
+    requiereAprobacionHumana: true as const,
+  };
+  const rangoCoord = rangoNivel(resolverNivel(e.nivelCoordinador));
+  const rangoAsig = rangoNivel(resolverNivel(e.nivelAsignado));
+  if (rangoAsig > rangoCoord) {
+    return { admisible: false, motivo: 'NIVEL_SUPERIOR_AL_COORDINADOR', ...base };
+  }
+  if (!e.dentroDelAlcance) {
+    return { admisible: false, motivo: 'FUERA_DE_ALCANCE', ...base };
+  }
+  return { admisible: true, motivo: 'ADMISIBLE', ...base };
 }
 
 /**

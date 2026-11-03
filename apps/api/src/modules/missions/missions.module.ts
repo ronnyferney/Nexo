@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MissionCoordinatorGovernanceService } from './mission-coordinator-governance.service';
+import { MissionExecutiveReportService } from './mission-executive-report.service';
 import { MissionsController } from './missions.controller';
 import { MissionsService } from './missions.service';
 
@@ -12,7 +13,7 @@ import { MissionsService } from './missions.service';
  */
 @Module({
   controllers: [MissionsController],
-  providers: [MissionsService, MissionCoordinatorGovernanceService],
-  exports: [MissionsService, MissionCoordinatorGovernanceService],
+  providers: [MissionsService, MissionCoordinatorGovernanceService, MissionExecutiveReportService],
+  exports: [MissionsService, MissionCoordinatorGovernanceService, MissionExecutiveReportService],
 })
 export class MissionsModule {}

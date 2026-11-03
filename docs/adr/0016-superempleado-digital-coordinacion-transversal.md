@@ -787,3 +787,41 @@ transversal: `nexo-architect`.
   cableado operativo.
 - **Activación productiva** de los Incrementos 2–5 y el **pasaporte de misión encadenado** (decisión 6, solo opt-in
   para sectores regulados): fuera de alcance de esta compuerta.
+
+### Ampliación de la compuerta E-B (2026-11-03) — asignación/coordinación gobernada + informe ejecutivo (GATED)
+
+> **Autorización aplicada:** integración técnica del ADR 0016 Inc.2–5 **en ambiente controlado y por etapas**. Sigue
+> **GATED** por `Workspace.coordinadorGobiernoActivo` (**apagado por defecto**). **No hay activación productiva.** Toda
+> acción crítica exige **aprobación humana**; el coordinador **no autoaprueba, no modifica permisos, no compromete
+> presupuestos**.
+
+**Qué quedó INTEGRADO (gated, no operativo), sin migración nueva (todo derivado o sobre entidades ya existentes).**
+
+- **Asignación/coordinación de tareas DENTRO de permisos.** El coordinador **PROPONE** asignar/coordinar una tarea
+  (`MissionCoordinatorGovernanceService.proponerAsignacion`, lógica pura en `mission.governance.ts ·
+  evaluarPropuestaAsignacion`): verifica que **no asigna por encima de su nivel** (decisión 2) ni **fuera del alcance
+  autorizado** (empresas/áreas participantes) y que **no concede permisos** que no posee (solo transfiere el
+  **subconjunto**, ADR 0007/0014). Una propuesta admisible **solo** crea un `MisionEvento DECISION_HUMANA_SOLICITADA`
+  pendiente (bandeja E6) y se audita (`MISION_COORDINADOR_ASIGNACION`); **aplicar** la asignación es alto impacto y
+  exige **aprobación humana** (nunca se ejecuta aquí). Un intento fuera de nivel/alcance se **bloquea y audita**
+  (`MISION_COORDINADOR_ASIGNACION_BLOQUEADA`).
+- **Seguimiento de compromisos y resultados.** Señales, no efectos: compromisos (responsable/fecha/estado) derivados de
+  `Tarea`/`ContratoResultado` (E4) con `clasificarCompromiso` (EN_RIESGO/VENCIDO/…); bloqueos/incumplimientos derivados
+  de `Incumplimiento`/`Excepcion`/dependencia vencida (E4/E7). Sin persistencia nueva.
+- **Informe ejecutivo de gestión por misión** (`MissionExecutiveReportService` + `GET /missions/:id/executive-report`,
+  `@MinRole('ADMIN')`, **solo lectura**): AGREGA estado de la misión, objetivos/tareas y avance, compromisos y
+  vencimientos, bloqueos/excepciones, **costo agregado por área** (imputación de `UsageRecord` de las ejecuciones de las
+  tareas vinculadas, **por referencia; no mueve presupuesto**) y el bloque **"pendiente de decisión humana"**. Expone
+  **solo metadatos** (supervisar/coordinar no concede acceso a contenido ajeno, ADR 0007).
+- **Todo GATED.** Con `coordinadorGobiernoActivo` **apagado** (por defecto), estas capacidades **no producen efecto ni
+  persisten**: `proponerAsignacion` devuelve `{ aplicado: false, motivo: 'GOBIERNO_COORDINADOR_DESACTIVADO' }` y el
+  informe devuelve `{ disponible: false, motivo: 'GOBIERNO_COORDINADOR_DESACTIVADO' }` sin consultar datos.
+- **Pruebas (verde contra PG/Redis reales + unitarias):** `evaluarPropuestaAsignacion` y `proponerAsignacion`
+  (admisible → solo solicita; por encima de nivel / fuera de alcance → bloqueada y auditada; no concede permisos de
+  más); informe ejecutivo (gated apagado = sin datos; encendido = agregación de avance/compromisos/bloqueos/pendientes);
+  "flag apagado = sin efecto" sigue en verde, igual que QA10/QA13/QA14.
+
+**Qué queda PENDIENTE para la habilitación operativa por etapas.** Encender el flag (decisión del patrocinador, nunca
+un agente); conectar las solicitudes a la ejecución gobernada real (E6: `PolicyEngine`→`ActionGateway`→`Aprobacion`→
+`Suspension`) y a la suplencia de `hierarchy` (E3); detección periódica de bloqueos en el `schedule-reconciler`. **No
+hay activación productiva.**

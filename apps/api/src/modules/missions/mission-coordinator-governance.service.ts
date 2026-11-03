@@ -9,6 +9,7 @@ import {
   clasificarCompromiso,
   delegacionPermitida,
   evaluarCambioPresupuesto,
+  evaluarPropuestaAsignacion,
   proyectarSupervision,
   requiereAprobacionHumana,
   resolverContradiccion,
@@ -17,6 +18,7 @@ import {
   type EntradaCompromiso,
   type OrdenCoordinacion,
   type ResultadoAprobacion,
+  type ResultadoAsignacion,
   type ResultadoBloqueo,
   type ResultadoContradiccion,
   type ResultadoDelegacion,
@@ -250,6 +252,117 @@ export class MissionCoordinatorGovernanceService {
       });
     }
     return { aplicado: true, requiereAprobacionHumana: altoImpacto, validacion };
+  }
+
+  // --- Asignación/coordinación de tareas DENTRO de permisos: el coordinador PROPONE (ADR 0016) -----------------------
+
+  /**
+   * El coordinador PROPONE asignar/coordinar una tarea a un ejecutor, DENTRO de sus permisos:
+   *  - Verifica que no asigna **por encima de su nivel** (decisión 2) ni **fuera del alcance** autorizado de la misión
+   *    (empresas/áreas participantes). Un intento fuera de nivel/alcance se **bloquea y audita** (no amplía autoridad).
+   *  - **No concede permisos** (ADR 0007/0014): solo transfiere la intersección con los suyos; el resto queda pendiente
+   *    de conceder por la vía explícita (nunca lo concede el coordinador).
+   *  - **Nunca ejecuta**: una propuesta admisible crea una solicitud de decisión humana (`DECISION_HUMANA_SOLICITADA`,
+   *    bandeja E6) y queda pendiente de aprobación; aplicar la asignación es acción humana de alto impacto.
+   * Cada propuesta (admisible o bloqueada) se audita (E13).
+   */
+  async proponerAsignacion(
+    workspaceId: string,
+    misionId: string,
+    coordinadorAgentId: string,
+    input: {
+      tareaId: string;
+      asignadoAgentId: string;
+      /** `ASIGNAR_TAREA` (por defecto) o `COORDINAR_TAREA`; ambas son alto impacto al aplicarse. */
+      tipo?: 'ASIGNAR_TAREA' | 'COORDINAR_TAREA';
+      /** Permisos que el coordinador posee (tope). El servicio no resuelve la ACL (eso es E7): nunca amplía. */
+      permisosCoordinador?: readonly string[];
+      /** Permisos que la asignación pretende acompañar al ejecutor. */
+      permisosSolicitados?: readonly string[];
+    },
+  ): Promise<
+    { aplicado: false; motivo: string } | { aplicado: true; propuesta: ResultadoAsignacion; eventoId: string }
+  > {
+    if (!(await this.gobiernoActivo(workspaceId))) return this.gated({});
+    await this.assertMision(workspaceId, misionId);
+    const tipo = input.tipo ?? 'ASIGNAR_TAREA';
+
+    const [coordinador, asignado, tarea, participantes] = await Promise.all([
+      this.prisma.agent.findFirst({
+        where: { id: coordinadorAgentId, workspaceId },
+        select: { cargo: { select: { nivel: true } } },
+      }),
+      this.prisma.agent.findFirst({
+        where: { id: input.asignadoAgentId, workspaceId },
+        select: { cargo: { select: { nivel: true } } },
+      }),
+      this.prisma.tarea.findFirst({
+        where: { id: input.tareaId, workspaceId },
+        select: { id: true, orgUnitId: true, titulo: true },
+      }),
+      this.prisma.misionParticipante.findMany({ where: { workspaceId, misionId }, select: { orgUnitId: true } }),
+    ]);
+    if (!tarea) throw new NotFoundException('Tarea no encontrada en el workspace');
+    if (!asignado) throw new NotFoundException('Agente asignado no encontrado en el workspace');
+
+    const alcance = new Set(participantes.map((p) => p.orgUnitId));
+    const dentroDelAlcance = !!tarea.orgUnitId && alcance.has(tarea.orgUnitId);
+
+    const propuesta = evaluarPropuestaAsignacion({
+      nivelCoordinador: coordinador?.cargo?.nivel ?? null,
+      nivelAsignado: asignado?.cargo?.nivel ?? null,
+      dentroDelAlcance,
+      permisosCoordinador: input.permisosCoordinador ?? [],
+      permisosSolicitados: input.permisosSolicitados ?? [],
+    });
+
+    // Fuera de nivel o de alcance → BLOQUEO + auditoría (el coordinador no amplía autoridad ni concede permisos).
+    if (!propuesta.admisible) {
+      await this.auditar(
+        workspaceId,
+        AUDIT_ACTIONS.MISION_COORDINADOR_ASIGNACION_BLOQUEADA,
+        misionId,
+        'AGENTE',
+        coordinadorAgentId,
+        `Asignación bloqueada (${propuesta.motivo}) de la tarea ${input.tareaId}`,
+        { tareaId: input.tareaId, asignadoAgentId: input.asignadoAgentId, motivo: propuesta.motivo },
+      );
+      throw new ForbiddenException(
+        `El coordinador no asigna fuera de su nivel/alcance (${propuesta.motivo}); no concede permisos ni amplía autoridad`,
+      );
+    }
+
+    // Admisible: SOLO se propone. Aplicar la asignación es alto impacto → solicitud de decisión humana (E6). No ejecuta.
+    const evento = await this.registrarEvento(
+      workspaceId,
+      misionId,
+      'DECISION_HUMANA_SOLICITADA',
+      'AGENTE',
+      coordinadorAgentId,
+      {
+        motivo: tipo,
+        tareaId: input.tareaId,
+        asignadoAgentId: input.asignadoAgentId,
+        permisosConcedidos: propuesta.permisosConcedidos,
+        permisosNoConcedidos: propuesta.permisosNoConcedidos,
+      },
+      true,
+    );
+    await this.auditar(
+      workspaceId,
+      AUDIT_ACTIONS.MISION_COORDINADOR_ASIGNACION,
+      misionId,
+      'AGENTE',
+      coordinadorAgentId,
+      `Propuesta de ${tipo} de la tarea "${tarea.titulo}" (pendiente de aprobación humana)`,
+      {
+        tareaId: input.tareaId,
+        asignadoAgentId: input.asignadoAgentId,
+        permisosConcedidos: propuesta.permisosConcedidos,
+        permisosNoConcedidos: propuesta.permisosNoConcedidos,
+      },
+    );
+    return { aplicado: true, propuesta, eventoId: evento.id };
   }
 
   // --- Presupuesto: el coordinador no amplía ni mueve (RF40/QA13) ---------------------------------------------------

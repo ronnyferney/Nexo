@@ -77,6 +77,13 @@ export const AUDIT_ACTIONS = {
   MISION_COORDINADOR_CONTINUIDAD: 'MISION_COORDINADOR_CONTINUIDAD',
   MISION_COORDINADOR_CONTRADICCION: 'MISION_COORDINADOR_CONTRADICCION',
   MISION_COORDINADOR_AUTOAPROBACION_BLOQUEADA: 'MISION_COORDINADOR_AUTOAPROBACION_BLOQUEADA',
+  /// Asignación/coordinación de tareas GOBERNADA (ADR 0016 · compuerta E-B). El coordinador solo PROPONE: aplicar la
+  /// asignación es alto impacto y exige aprobación humana (E6); el servicio nunca la ejecuta. ASIGNACION = propuesta
+  /// admisible (dentro del nivel y alcance del coordinador, sin conceder permisos de más), registrada como
+  /// `DECISION_HUMANA_SOLICITADA` pendiente. ASIGNACION_BLOQUEADA = intento de asignar por encima de su nivel o fuera
+  /// del alcance autorizado, bloqueado y auditado (el coordinador no amplía autoridad ni concede permisos, ADR 0007/0014).
+  MISION_COORDINADOR_ASIGNACION: 'MISION_COORDINADOR_ASIGNACION',
+  MISION_COORDINADOR_ASIGNACION_BLOQUEADA: 'MISION_COORDINADOR_ASIGNACION_BLOQUEADA',
   /// Gobierno de la memoria operativa por proceso (ADR 0018 · Inc.3). La memoria es CONTEXTO, no concede permisos y no
   /// altera la versión del agente (ADR 0004). Actor humano (EDITOR+), target la `MemoriaOperativa` y, en metadata, el
   /// proceso y el estado previo/nuevo. CONFIRMADA: un hecho pasa de PROPUESTO a CONFIRMADO tras revisión. DESCARTADA: un
