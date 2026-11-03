@@ -10,10 +10,12 @@ import type { CanalCuenta, EstadoMensajeCanal, Prisma } from '@prisma/client';
 import type { AuthContext } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { AUDIT_ACTIONS } from '../audit/audit.types';
 import { ActionGatewayService } from '../governance/actions/action-gateway.service';
 import { ProfilesEnrichmentService } from '../profiles/profiles-enrichment.service';
 import { SecretsService } from '../workspaces/secrets.service';
 import { CHANNEL_ADAPTERS, type ChannelAdapter } from './domain/channel-adapter';
+import { evaluarGuardarrailes, leerGuardarrailes } from './domain/channel-guardrails';
 import type { CanalRuntime, WebhookSolicitud } from './domain/channel.types';
 import type {
   CreateCanalCuentaDto,
@@ -210,6 +212,26 @@ export class ChannelsService {
     const adapter = this.adapterFor(cuenta.proveedor);
 
     if (cuenta.proveedor !== 'simulado') {
+      // Guardarraíl de la cuenta (defensa en profundidad, §2/§3 del diseño de controles de correo): lista blanca de
+      // destinatarios y tamaño máximo del cuerpo, configurables por empresa en `CanalCuenta.config` (sin secretos).
+      // INERTE si no se configura; NUNCA aplica al sandbox. Se evalúa ANTES del ActionGateway: lo no listado o un
+      // cuerpo sobredimensionado se bloquea SIN salir a la red y sin consumir la pasarela. La lista blanca canónica y
+      // versionada sigue viviendo en `Politica` (E6); esto es un refuerzo local, no la sustituye.
+      const config = (cuenta.config as Record<string, unknown>) ?? {};
+      const guard = evaluarGuardarrailes(dto.destino, dto.cuerpo, leerGuardarrailes(config));
+      if (!guard.ok) {
+        await this.audit.append(a.workspaceId, {
+          actorType: a.userId ? 'USER' : 'SYSTEM',
+          actorId: a.userId ?? null,
+          action: AUDIT_ACTIONS.CANAL_ENVIO_BLOQUEADO,
+          targetType: 'CanalCuenta',
+          targetId: cuenta.id,
+          resumen: `Envío de canal bloqueado por guardarraíl de la cuenta (${guard.motivo})`,
+          metadata: { motivo: guard.motivo, destino: dto.destino, empresaId: cuenta.empresaId },
+        });
+        return { estado: 'FALLIDO', error: `Envío bloqueado por guardarraíl de la cuenta: ${guard.motivo}` };
+      }
+
       const outcome = await this.gateway.requestAction(
         a.workspaceId,
         {

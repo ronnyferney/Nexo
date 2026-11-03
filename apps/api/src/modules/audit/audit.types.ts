@@ -85,6 +85,11 @@ export const AUDIT_ACTIONS = {
   PRESUPUESTO_OVERRIDE_REVOCADO: 'PRESUPUESTO_OVERRIDE_REVOCADO',
   PRESUPUESTO_IMPACTO_VALIDADO: 'PRESUPUESTO_IMPACTO_VALIDADO',
   MODO_PILOTO_MODIFICADO: 'MODO_PILOTO_MODIFICADO',
+  /// Envío de un canal externo BLOQUEADO por un guardarraíl de la cuenta (lista blanca de destinatarios o tamaño
+  /// máximo del cuerpo, E14 · ADR 0015 · controles de correo §2/§3). Defensa en profundidad previa al ActionGateway:
+  /// el envío no sale a la red. En metadata, el `motivo` (código), el destinatario y la empresa; nunca contenido ni
+  /// secretos.
+  CANAL_ENVIO_BLOQUEADO: 'CANAL_ENVIO_BLOQUEADO',
 } as const;
 
 /** Código de acción auditable. Texto abierto (`string`): se recomienda usar las constantes de `AUDIT_ACTIONS`. */
