@@ -8,8 +8,8 @@ import { ComplianceSeedService, type ResumenSeedWorkspace } from './compliance-s
  * `npm run compliance:seed -- --workspace=<id>` (o `--all` para todos los workspaces; en la imagen de producción:
  * `node dist/modules/compliance/compliance-seed.cli.js`): siembra de forma IDEMPOTENTE la configuración inicial de la
  * matriz de cumplimiento aprobada por el patrocinador (doc `matriz-cumplimiento-campos.md` §6-bis · autorización
- * 2026-11-03): transversales CO y cobranza CO ACTIVAS (modo ASESOR, no bloqueante); salud, retail y transversales EC
- * PREPARADAS pero INACTIVAS hasta validación del patrocinador / revisión jurídica.
+ * 2026-11-03): transversales CO, cobranza CO, salud CO y retail CO ACTIVAS (modo ASESOR, no bloqueante); transversales
+ * EC PREPARADAS pero INACTIVAS (activación productiva condicionada a revisión jurídica).
  *
  * Es OPT-IN (no se ejecuta al arranque). Multi-tenant: `--workspace` solo toca ese workspace; `--all` recorre cada uno
  * por separado. Correrlo varias veces no duplica. No afirma conformidad con ninguna norma ni activa ningún gasto.

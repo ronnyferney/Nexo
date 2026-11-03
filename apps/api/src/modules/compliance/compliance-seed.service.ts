@@ -150,8 +150,9 @@ export const REGLAS_COBRANZA_CO: ReadonlyArray<DefinicionReglaCumplimiento> = [
 ];
 
 /**
- * Catálogo del SECTOR SALUD (doc §4.2), jurisdiccion='CO'. PREPARADO pero INACTIVO (`activa=false`) hasta validación del
- * patrocinador (autorización 2026-11-03). Se siembra para tenerlo listo; no exige nada mientras esté inactivo.
+ * Catálogo del SECTOR SALUD (doc §4.2), jurisdiccion='CO'. ACTIVO en modo ASESOR (no bloqueante) por autorización del
+ * patrocinador (2026-11-03): informa faltantes, no impide emitir ni aceptar resultados. No afirma conformidad normativa.
+ * El alcance sector/proceso/riesgo se declara por regla; «la más específica suma» lo resuelve el motor.
  */
 export const REGLAS_SALUD: ReadonlyArray<DefinicionReglaCumplimiento> = [
   {
@@ -164,7 +165,7 @@ export const REGLAS_SALUD: ReadonlyArray<DefinicionReglaCumplimiento> = [
     reglaValidacion: { requerido: true },
     controlProteccion: 'consentimiento',
     descripcion: 'Constancia de consentimiento del titular para el tratamiento de sus datos personales en salud.',
-    activa: false,
+    activa: true,
   },
   {
     jurisdiccion: JURISDICCION_INICIAL,
@@ -176,7 +177,7 @@ export const REGLAS_SALUD: ReadonlyArray<DefinicionReglaCumplimiento> = [
     reglaValidacion: { enum: ['salud', 'genetico', 'biometrico'] },
     controlProteccion: 'datos-sensibles',
     descripcion: 'Categoría del dato sensible tratado (salud, genético o biométrico).',
-    activa: false,
+    activa: true,
   },
   {
     jurisdiccion: JURISDICCION_INICIAL,
@@ -188,7 +189,7 @@ export const REGLAS_SALUD: ReadonlyArray<DefinicionReglaCumplimiento> = [
     reglaValidacion: { requerido: true },
     controlProteccion: 'base-legal',
     descripcion: 'Base legal invocada para el tratamiento de datos de salud durante el onboarding del titular.',
-    activa: false,
+    activa: true,
   },
   {
     jurisdiccion: JURISDICCION_INICIAL,
@@ -200,13 +201,14 @@ export const REGLAS_SALUD: ReadonlyArray<DefinicionReglaCumplimiento> = [
     reglaValidacion: { requerido: true },
     controlProteccion: 'evaluación-impacto',
     descripcion: 'Constancia de evaluación de impacto realizada en tratamientos de datos de salud de riesgo ALTO.',
-    activa: false,
+    activa: true,
   },
 ];
 
 /**
- * Catálogo del SECTOR RETAIL (doc §4.3), jurisdiccion='CO'. PREPARADO pero INACTIVO (`activa=false`) hasta validación
- * del patrocinador (autorización 2026-11-03). Se siembra para tenerlo listo; no exige nada mientras esté inactivo.
+ * Catálogo del SECTOR RETAIL (doc §4.3), jurisdiccion='CO'. ACTIVO en modo ASESOR (no bloqueante) por autorización del
+ * patrocinador (2026-11-03): informa faltantes, no impide emitir ni aceptar resultados. No afirma conformidad normativa.
+ * El alcance sector/proceso/riesgo se declara por regla; «la más específica suma» lo resuelve el motor.
  */
 export const REGLAS_RETAIL: ReadonlyArray<DefinicionReglaCumplimiento> = [
   {
@@ -219,7 +221,7 @@ export const REGLAS_RETAIL: ReadonlyArray<DefinicionReglaCumplimiento> = [
     reglaValidacion: { enum: ['publico', 'interno', 'confidencial'] },
     controlProteccion: 'minimización',
     descripcion: 'Clasificación de la sensibilidad del dato en retail (público, interno o confidencial).',
-    activa: false,
+    activa: true,
   },
   {
     jurisdiccion: JURISDICCION_INICIAL,
@@ -231,7 +233,7 @@ export const REGLAS_RETAIL: ReadonlyArray<DefinicionReglaCumplimiento> = [
     reglaValidacion: { requerido: true },
     controlProteccion: 'consentimiento',
     descripcion: 'Constancia de consentimiento del titular para recibir comunicaciones de marketing.',
-    activa: false,
+    activa: true,
   },
   {
     jurisdiccion: JURISDICCION_INICIAL,
@@ -243,7 +245,7 @@ export const REGLAS_RETAIL: ReadonlyArray<DefinicionReglaCumplimiento> = [
     reglaValidacion: { enum: ['correo', 'whatsapp', 'sms'] },
     controlProteccion: null,
     descripcion: 'Canal de contacto autorizado para el marketing (correo, whatsapp o sms).',
-    activa: false,
+    activa: true,
   },
   {
     jurisdiccion: JURISDICCION_INICIAL,
@@ -255,7 +257,7 @@ export const REGLAS_RETAIL: ReadonlyArray<DefinicionReglaCumplimiento> = [
     reglaValidacion: { requerido: true },
     controlProteccion: 'eliminación-segura',
     descripcion: 'Política de eliminación segura de los datos del titular aplicable en retail.',
-    activa: false,
+    activa: true,
   },
 ];
 
@@ -294,7 +296,7 @@ export const DEFINICIONES_TRANSVERSALES_CO: ReadonlyArray<DefinicionReglaCumplim
 
 /**
  * Conjunto COMPLETO que siembra el seed, en orden determinista: transversales CO (activas), cobranza CO (activas),
- * salud (inactivas), retail (inactivas) y transversales EC (inactivas). Cada fila lleva su propio `activa`, de modo que
+ * salud (activas), retail (activas) y transversales EC (inactivas). Cada fila lleva su propio `activa`, de modo que
  * una sola corrida deja activo lo aprobado e inactivo lo preparado. Añadir reglas o jurisdicciones es editar esta tabla.
  */
 export const DEFINICIONES_SEED: ReadonlyArray<DefinicionReglaCumplimiento> = [
@@ -316,8 +318,8 @@ export interface ResumenSeedWorkspace {
 /**
  * Siembra idempotente de la configuración inicial de la MATRIZ DE CUMPLIMIENTO aprobada por el patrocinador
  * (doc §6-bis · ADR 0020 · autorización 2026-11-03). Siembra en una sola corrida:
- *  - Transversales CO + cobranza CO → `activa=true` (modo ASESOR, no bloqueante).
- *  - Salud, retail y transversales EC → `activa=false` (preparados, pendientes de validación/revisión jurídica).
+ *  - Transversales CO + cobranza CO + salud CO + retail CO → `activa=true` (modo ASESOR, no bloqueante).
+ *  - Transversales EC → `activa=false` (preparadas, activación productiva condicionada a validación jurídica).
  * NO se ejecuta al arranque: es OPT-IN, vía `npm run compliance:seed` (CLI).
  *
  * Garantías:
