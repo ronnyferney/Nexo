@@ -18,7 +18,16 @@ import type { CreateReglaCumplimientoDto, UpdateReglaCumplimientoDto } from './d
 /** Banderas auditables de una regla (lo que Cumplimiento/el patrocinador comparan antes/después de un cambio). */
 type ReglaBanderas = Pick<
   ReglaCumplimiento,
-  'jurisdiccion' | 'sector' | 'proceso' | 'nivelRiesgo' | 'campoClave' | 'tipoDato' | 'controlProteccion' | 'activa'
+  | 'jurisdiccion'
+  | 'sector'
+  | 'proceso'
+  | 'nivelRiesgo'
+  | 'campoClave'
+  | 'tipoDato'
+  | 'controlProteccion'
+  | 'activa'
+  | 'vigenciaDesde'
+  | 'vigenciaHasta'
 >;
 
 /**
@@ -77,6 +86,8 @@ export class ReglasCumplimientoService {
         controlProteccion: dto.controlProteccion ?? null,
         descripcion: dto.descripcion ?? null,
         activa: dto.activa ?? false,
+        vigenciaDesde: this.toFecha(dto.vigenciaDesde),
+        vigenciaHasta: this.toFecha(dto.vigenciaHasta),
       },
     });
     await this.auditar(a, AUDIT_ACTIONS.REGLA_CUMPLIMIENTO_CREADA, creada, {
@@ -106,6 +117,8 @@ export class ReglasCumplimientoService {
           dto.controlProteccion === undefined ? previa.controlProteccion : (dto.controlProteccion ?? null),
         descripcion: dto.descripcion === undefined ? previa.descripcion : (dto.descripcion ?? null),
         activa: dto.activa ?? previa.activa,
+        vigenciaDesde: dto.vigenciaDesde === undefined ? previa.vigenciaDesde : this.toFecha(dto.vigenciaDesde),
+        vigenciaHasta: dto.vigenciaHasta === undefined ? previa.vigenciaHasta : this.toFecha(dto.vigenciaHasta),
       },
     });
     await this.auditar(a, AUDIT_ACTIONS.REGLA_CUMPLIMIENTO_MODIFICADA, actualizada, {
@@ -174,6 +187,8 @@ export class ReglasCumplimientoService {
       controlProteccion: r.controlProteccion,
       descripcion: r.descripcion,
       activa: r.activa,
+      vigenciaDesde: r.vigenciaDesde,
+      vigenciaHasta: r.vigenciaHasta,
     };
   }
 
@@ -187,6 +202,8 @@ export class ReglasCumplimientoService {
       tipoDato: r.tipoDato,
       controlProteccion: r.controlProteccion,
       activa: r.activa,
+      vigenciaDesde: r.vigenciaDesde,
+      vigenciaHasta: r.vigenciaHasta,
     };
   }
 
@@ -202,6 +219,11 @@ export class ReglasCumplimientoService {
 
   private toJson(regla: ReglaValidacionDeclarativa | undefined): Prisma.InputJsonValue | typeof Prisma.JsonNull {
     return regla === undefined ? Prisma.JsonNull : (regla as unknown as Prisma.InputJsonValue);
+  }
+
+  /** Convierte una fecha ISO (o null/undefined) a `Date` para Prisma; ausencia = null (sin límite de vigencia). */
+  private toFecha(fecha: string | null | undefined): Date | null {
+    return fecha ? new Date(fecha) : null;
   }
 
   private async auditar(

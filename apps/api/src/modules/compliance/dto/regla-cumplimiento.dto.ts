@@ -1,12 +1,45 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsIn, IsNotEmpty, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsISO8601,
+  IsIn,
+  IsNotEmpty,
+  IsObject,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Validate,
+  ValidatorConstraint,
+  type ValidationArguments,
+  type ValidatorConstraintInterface,
+} from 'class-validator';
 import type {
   ContextoCumplimiento,
   NivelRiesgo,
   ReglaValidacionDeclarativa,
   TipoDatoCumplimiento,
 } from '../cumplimiento.resolver';
+
+/**
+ * Coherencia de la ventana de vigencia: si se envían AMBOS extremos, `vigenciaDesde` debe ser anterior o igual a
+ * `vigenciaHasta`. Si falta cualquiera de los dos (extremo abierto), no hay nada que comparar y se considera válido.
+ */
+@ValidatorConstraint({ name: 'vigenciaCoherente', async: false })
+export class VigenciaCoherenteConstraint implements ValidatorConstraintInterface {
+  validate(_valor: unknown, args: ValidationArguments): boolean {
+    const obj = args.object as { vigenciaDesde?: string; vigenciaHasta?: string };
+    if (!obj.vigenciaDesde || !obj.vigenciaHasta) return true;
+    const desde = Date.parse(obj.vigenciaDesde);
+    const hasta = Date.parse(obj.vigenciaHasta);
+    if (Number.isNaN(desde) || Number.isNaN(hasta)) return true; // el formato lo valida @IsISO8601
+    return desde <= hasta;
+  }
+
+  defaultMessage(): string {
+    return 'vigenciaDesde debe ser anterior o igual a vigenciaHasta';
+  }
+}
 
 /** Niveles de riesgo del alcance (coincide con el enum `NivelRiesgo`). Genérico y multisectorial. */
 export const NIVELES_RIESGO = ['BAJO', 'MEDIO', 'ALTO', 'CRITICO', 'DESCONOCIDO'] as const;
@@ -81,6 +114,23 @@ export class CreateReglaCumplimientoDto {
   @IsOptional()
   @IsBoolean()
   activa?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Inicio de vigencia (fecha/hora ISO 8601, inclusive); omitir/null = sin límite inferior',
+    example: '2026-01-01T00:00:00.000Z',
+  })
+  @IsOptional()
+  @IsISO8601({ strict: true }, { message: 'vigenciaDesde debe ser una fecha ISO 8601' })
+  vigenciaDesde?: string;
+
+  @ApiPropertyOptional({
+    description: 'Fin de vigencia (fecha/hora ISO 8601, inclusive); omitir/null = sin límite superior',
+    example: '2026-12-31T23:59:59.999Z',
+  })
+  @IsOptional()
+  @IsISO8601({ strict: true }, { message: 'vigenciaHasta debe ser una fecha ISO 8601' })
+  @Validate(VigenciaCoherenteConstraint)
+  vigenciaHasta?: string;
 }
 
 /** Actualiza una regla de cumplimiento. Todos los campos son opcionales (PATCH parcial). Solo ADMIN+. */
@@ -107,6 +157,14 @@ export class ResolverCumplimientoDto {
   @IsOptional()
   @IsIn(NIVELES_RIESGO)
   nivelRiesgo?: NivelRiesgo;
+
+  @ApiPropertyOptional({
+    description: 'Fecha de evaluación de la vigencia (ISO 8601); por defecto «ahora»',
+    example: '2026-06-15T12:00:00.000Z',
+  })
+  @IsOptional()
+  @IsISO8601({ strict: true }, { message: 'fechaEvaluacion debe ser una fecha ISO 8601' })
+  fechaEvaluacion?: string;
 
   @ApiPropertyOptional({
     description: 'Incluir también reglas INACTIVAS (solo vista previa de configuración; no se usan para validar)',
@@ -139,6 +197,14 @@ export class ContextoCumplimientoDto implements ContextoCumplimiento {
   @IsOptional()
   @IsIn(NIVELES_RIESGO)
   nivelRiesgo?: NivelRiesgo;
+
+  @ApiPropertyOptional({
+    description: 'Fecha de evaluación de la vigencia (ISO 8601); por defecto «ahora»',
+    example: '2026-06-15T12:00:00.000Z',
+  })
+  @IsOptional()
+  @IsISO8601({ strict: true }, { message: 'fechaEvaluacion debe ser una fecha ISO 8601' })
+  fechaEvaluacion?: string;
 }
 
 /**

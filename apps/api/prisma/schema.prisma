@@ -3335,6 +3335,10 @@ model ReglaCumplimiento {
   descripcion       String?
   /// Las reglas NACEN INACTIVAS: no exigen nada hasta que un ADMIN las active y el patrocinador apruebe el conjunto.
   activa            Boolean              @default(false)
+  /// Inicio de la VIGENCIA de la regla (inclusive); null = sin límite inferior (vigente desde siempre).
+  vigenciaDesde     DateTime?
+  /// Fin de la VIGENCIA de la regla (inclusive); null = sin límite superior (vigente indefinidamente).
+  vigenciaHasta     DateTime?
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
 

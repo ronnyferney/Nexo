@@ -7,6 +7,9 @@
  *  - Una regla APLICA a un contexto si cada una de sus dimensiones (jurisdiccion/sector/proceso/nivelRiesgo) es null
  *    (comodín, aplica a todas) o coincide con la del contexto. Una dimensión no provista en el contexto solo admite
  *    reglas con comodín (null) en esa dimensión.
+ *  - VIGENCIA (aditiva, opcional): una regla solo aplica si la fecha de evaluación cae DENTRO de su ventana de
+ *    vigencia [vigenciaDesde, vigenciaHasta], ambos inclusive. Un extremo null = sin límite por ese lado; ambos null =
+ *    siempre vigente. Por defecto la fecha de evaluación es «ahora». Las reglas ya sembradas (sin vigencia) no cambian.
  *  - «La más específica SUMA»: el conjunto resuelto es la UNIÓN de las reglas aplicables por `campoClave`. Si varias
  *    reglas aplican al MISMO `campoClave`, gana la MÁS ESPECÍFICA (más dimensiones concretas); el empate se rompe de
  *    forma determinista por antigüedad (`createdAt`/orden de entrada).
@@ -54,6 +57,10 @@ export interface ReglaCumplimientoPlana {
   controlProteccion: string | null;
   descripcion: string | null;
   activa: boolean;
+  /** Inicio de vigencia (inclusive); null = sin límite inferior. Fecha ISO o `Date`. */
+  vigenciaDesde?: Date | string | null;
+  /** Fin de vigencia (inclusive); null = sin límite superior. Fecha ISO o `Date`. */
+  vigenciaHasta?: Date | string | null;
 }
 
 /** Contexto de resolución. Una dimensión `undefined` no se filtra: solo aplican reglas con comodín (null) en ella. */
@@ -62,6 +69,8 @@ export interface ContextoCumplimiento {
   sector?: string;
   proceso?: string;
   nivelRiesgo?: NivelRiesgo;
+  /** Fecha en la que se evalúa la vigencia de las reglas (ISO o `Date`); por defecto «ahora». */
+  fechaEvaluacion?: Date | string;
 }
 
 /** Regla ya resuelta para un `campoClave` (la más específica que ganó), con su puntuación de especificidad. */
@@ -113,6 +122,25 @@ function aplica(regla: ReglaCumplimientoPlana, ctx: ContextoCumplimiento): boole
   return true;
 }
 
+/** Convierte una fecha ISO/`Date` a epoch (ms). Devuelve null si es ausente o no parseable. */
+function aMilis(fecha: Date | string | null | undefined): number | null {
+  if (fecha === null || fecha === undefined) return null;
+  const ms = fecha instanceof Date ? fecha.getTime() : Date.parse(fecha);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+/**
+ * ¿La regla está VIGENTE en la fecha de evaluación? Ventana [vigenciaDesde, vigenciaHasta] inclusive; cada extremo null
+ * (o ausente/ no parseable) = sin límite por ese lado. Sin vigencia definida = siempre vigente (reglas ya sembradas).
+ */
+function vigente(regla: ReglaCumplimientoPlana, ahora: number): boolean {
+  const desde = aMilis(regla.vigenciaDesde);
+  const hasta = aMilis(regla.vigenciaHasta);
+  if (desde !== null && ahora < desde) return false;
+  if (hasta !== null && ahora > hasta) return false;
+  return true;
+}
+
 /** Puntuación de especificidad: jurisdicción > sector > proceso > nivel de riesgo (pesos disjuntos, desempate determinista). */
 function especificidad(regla: ReglaCumplimientoPlana): number {
   return (
@@ -127,11 +155,14 @@ function especificidad(regla: ReglaCumplimientoPlana): number {
  * Resuelve el conjunto de campos/reglas aplicables a un contexto. «La más específica suma»: unión por `campoClave`,
  * quedándose con la regla más específica de cada campo. El orden de entrada de `reglas` se respeta como desempate
  * (antigüedad), por lo que el resultado es determinista. Devuelve las reglas ordenadas por especificidad y campo.
+ * Solo entran las VIGENTES en `ctx.fechaEvaluacion` (por defecto «ahora»); las reglas sin vigencia son siempre vigentes.
  */
 export function resolverReglas(reglas: ReglaCumplimientoPlana[], ctx: ContextoCumplimiento): ReglaResuelta[] {
+  const ahora = aMilis(ctx.fechaEvaluacion) ?? Date.now();
   const ganadoraPorCampo = new Map<string, ReglaResuelta>();
   for (const regla of reglas) {
     if (!aplica(regla, ctx)) continue;
+    if (!vigente(regla, ahora)) continue;
     const candidata: ReglaResuelta = { ...regla, especificidad: especificidad(regla) };
     const actual = ganadoraPorCampo.get(regla.campoClave);
     // Más específica gana; a igual especificidad se conserva la primera vista (antigüedad = desempate determinista).
