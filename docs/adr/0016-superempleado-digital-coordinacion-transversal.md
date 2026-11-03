@@ -574,6 +574,19 @@ autorización humana.
 - **Unitarias (TS puro, sin Nest/BD):** cálculo de `CompromisoMisionView` (EN_RIESGO/VENCIDO según `plazo`); clasificación
   de bloqueos; resolución de contradicciones reusando `hierarchy.rules.ts` (autoridad vigente/prioridad/versión);
   invariante "sin ciclos de supervisión".
+  - **Ya construidas (diseño, no operativo):** la lógica de gobierno del coordinador está codificada como **módulo puro
+    de especificación viva** en `apps/api/src/modules/missions/mission.governance.ts` (NO cableado al runtime: no lo
+    importan el servicio, el controlador ni el `MissionsModule`) y cubierta por `mission.governance.spec.ts`. Codifica y
+    prueba de forma aislada: clasificación de acciones que **requieren aprobación humana** (`requiereAprobacionHumana`,
+    con conservadurismo "lo desconocido es alto impacto"); **no autoaprobación** y "solo un humano aprueba lo de alto
+    impacto" (`validarAprobacion`, QA13); **delegación por subconjunto** sin ampliar (`delegacionPermitida`, ADR 0014/E5);
+    **no ampliar/mover presupuesto** por el coordinador (`evaluarCambioPresupuesto`, RF40/QA13); **seguimiento de
+    compromisos** (`clasificarCompromiso` EN_RIESGO/VENCIDO/EN_CURSO/CUMPLIDO); **detección y severidad de bloqueos**
+    (`clasificarBloqueo`); **supervisar no concede acceso** (`proyectarSupervision` filtra a metadatos, ADR 0007);
+    **resolución de contradicciones** (`resolverContradiccion`: autoridad→prioridad→versión o DETENER+escalar, QA10) y
+    **sin ciclos de supervisión** (`supervisionTransversalValida`, reusa `creariaCiclo`). El **cableado operativo** de
+    estas reglas al `PolicyEngine`/`ActionGateway`/`Aprobacion`/`Suspension` (E6) y a la suplencia de `hierarchy` (E3)
+    queda **pendiente de la compuerta E-B** (ver "Pendiente de autorización operativa").
 - **Integración API (Postgres/Redis locales, LLM mock):** QA13 (no autoaprobación / no ampliar presupuesto / no otorgarse
   permisos / no borrar auditoría); QA14 (suspender → suplente asume, estado persiste); QA10 (contradicción → detiene +
   escala); supervisión→recomendación produce `Aprobacion` pendiente, nunca efecto; multi-tenant/empresa en
@@ -686,6 +699,11 @@ transversal: `nexo-architect`.
 
 ### Pendiente de autorización operativa (no se ejecuta sin decisión del patrocinador)
 
+- **Cableado operativo del gobierno del coordinador (Inc.3).** El módulo puro `mission.governance.ts` y sus pruebas
+  aisladas están construidos (diseño verificado), pero **no están conectados** al runtime: conectarlos al
+  `PolicyEngine`/`ActionGateway`/`Aprobacion`/`Suspension` (E6), a la suplencia de `hierarchy` (E3) y al
+  `schedule-reconciler` (detección periódica de bloqueos) es implementación operativa sujeta a la **compuerta E-B**. El
+  coordinador **no ejecuta ninguna acción con efecto** hasta esa etapa.
 - **Migración de `MisionEvento`** y de las back-relations aditivas: diseñada aquí; su **aplicación** (`prisma migrate
   dev`) es parte de la implementación operativa del Inc.3, sujeta a la compuerta E-B.
 - **Activación productiva** de cualquier incremento: fuera de alcance; esta autorización es de construir/diseñar/probar en
