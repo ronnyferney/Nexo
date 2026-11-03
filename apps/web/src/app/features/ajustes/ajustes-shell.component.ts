@@ -50,6 +50,7 @@ export const AJUSTES_GROUPS: readonly SettingGroup[] = [
       { icon: 'lock', label: 'Retención de datos', path: 'retencion', scope: 'admin' },
       { icon: 'headset', label: 'Grabación de voz', path: 'grabacion', scope: 'admin' },
       { icon: 'lock', label: 'Auditoría', path: 'auditoria', scope: 'admin' },
+      { icon: 'scale', label: 'Cumplimiento', path: 'cumplimiento', scope: 'admin' },
     ],
   },
   {

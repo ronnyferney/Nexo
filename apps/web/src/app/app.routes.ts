@@ -74,6 +74,7 @@ export const routes: Routes = [
           { path: 'generales', canActivate: [adminGuard], loadComponent: () => import('./features/admin/workspace-settings.page').then((m) => m.WorkspaceSettingsPage) },
           { path: 'seguridad', canActivate: [adminGuard], loadComponent: () => import('./features/admin/security.page').then((m) => m.SecurityPage) },
           { path: 'auditoria', canActivate: [adminGuard], loadComponent: () => import('./features/auditoria/auditoria.page').then((m) => m.AuditoriaPage) },
+          { path: 'cumplimiento', canActivate: [adminGuard], loadComponent: () => import('./features/cumplimiento/cumplimiento.page').then((m) => m.CumplimientoPage) },
           { path: 'presupuestos', canActivate: [adminGuard], loadComponent: () => import('./features/admin/budgets.page').then((m) => m.BudgetsPage) },
           { path: 'retencion', canActivate: [adminGuard], loadComponent: () => import('./features/admin/retention-policies.page').then((m) => m.RetentionPoliciesPage) },
           { path: 'grabacion', canActivate: [adminGuard], loadComponent: () => import('./features/admin/grabacion-gate.page').then((m) => m.GrabacionGatePage) },
@@ -107,6 +108,7 @@ export const routes: Routes = [
           { path: 'estaciones-virtuales', loadComponent: () => import('./features/estaciones-virtuales/estaciones-virtuales.page').then((m) => m.EstacionesVirtualesPage) },
           { path: 'security', loadComponent: () => import('./features/admin/security.page').then((m) => m.SecurityPage) },
           { path: 'settings', loadComponent: () => import('./features/admin/workspace-settings.page').then((m) => m.WorkspaceSettingsPage) },
+          { path: 'cumplimiento', loadComponent: () => import('./features/cumplimiento/cumplimiento.page').then((m) => m.CumplimientoPage) },
         ],
       },
 

@@ -32,6 +32,9 @@ export const ACTION_LABELS: Record<string, string> = {
   ESTACION_VIRTUAL_MODIFICADA: 'Estación virtual modificada',
   ESTACION_VIRTUAL_RETIRADA: 'Estación virtual retirada',
   PARAMETROS_EJECUCION_MODIFICADOS: 'Parámetros de ejecución modificados',
+  REGLA_CUMPLIMIENTO_CREADA: 'Regla de cumplimiento creada',
+  REGLA_CUMPLIMIENTO_MODIFICADA: 'Regla de cumplimiento modificada',
+  REGLA_CUMPLIMIENTO_ELIMINADA: 'Regla de cumplimiento eliminada',
 };
 
 /**
