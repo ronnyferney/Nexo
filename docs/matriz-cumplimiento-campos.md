@@ -7,7 +7,12 @@
 > **Estado:** **propuesta — pendiente de aprobación del patrocinador.** El **motor ya está construido** (reglas
 > configurables + resolución + validación **asesora, no bloqueante**), pero **todas las reglas nacen INACTIVAS**: no se
 > exige ningún campo hasta que un ADMIN las active **después** de que el patrocinador apruebe este conjunto. Este
-> documento **no** afirma conformidad con ninguna norma, **no** registra aprobación y **no** compromete plazos.
+> documento **no** afirma conformidad con ninguna norma y **no** compromete plazos.
+>
+> **Aprobación del patrocinador (2026-11-03):** el **conjunto de campos** de §3 (transversales) y §4 (ejemplos por
+> sector) queda **APROBADO** por el patrocinador (Ing. R. Garzón) como catálogo inicial. Esta aprobación es del
+> **catálogo de campos**; **no** activa reglas por sí misma. Las reglas siguen **inactivas** hasta definir (pendiente):
+> (2) cuáles nacen activas, (3) jurisdicciones a cubrir primero, (4) confirmación de modo **asesor (no bloqueante)**.
 
 ## 1. Qué cambió respecto de la v1
 
