@@ -385,6 +385,24 @@ enums ni campos a `Agent` para el superempleado: su nivel ya es `Cargo.nivel = S
 7. **Versionado de la forma JSON** de `MisionParticipante.alcance` y migración si cambia (misma disciplina que las
    definiciones de flujo y de `CuadrillaVersion`).
 
+### Resolución del patrocinador (2026-11-03)
+
+El patrocinador ratificó las siguientes decisiones (quedan cerradas para la integración de la compuerta E-B; la
+**habilitación operativa** sigue sujeta a autorización por etapas):
+
+1. **Ubicación:** módulo `missions` **nuevo** (aísla la coordinación transversal; modular para comercialización).
+2. **Rol/nivel:** crear/autorizar misión = **ADMIN / GERENTE+**; coordinador = **SUPEREMPLEADO**, **nunca por debajo** del
+   nivel de los agentes que supervisa. Configurable por workspace.
+3. **Inter-empresa:** **intra-empresa por defecto**; inter-empresa (grupo) **solo opt-in con autorización explícita**,
+   acotado por el aislamiento (ADR 0011/0007).
+4. **Presupuesto de misión:** **sin bolsa propia**; la misión **agrega** el presupuesto de objetivos/tareas por área. El
+   coordinador **no** mueve ni amplía presupuesto (QA13).
+5. **`LOGRADA`:** el sistema **propone**; **confirma el dueño humano**.
+6. **Pasaporte de misión:** Pasaporte por resultado (ADR 0014) como base; **pasaporte de misión encadenado solo opt-in
+   para sectores regulados**.
+7. **Versionado JSON:** campo **`schemaVersion`** desde el inicio + **migración aditiva con upcasting**; lectura tolerante
+   a versiones.
+
 ## Plan de implementación
 
 Por incrementos disjuntos, ordenados por valor y riesgo. **Primer incremento mínimo entregable: Incremento 1** —
