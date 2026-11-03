@@ -93,6 +93,23 @@ nada de financiero/salud: solo transversales + retail.
 4. Confirmar que, por ahora, la evaluación sigue siendo **asesora (no bloqueante)**; el **modo bloqueante** (ADR 0020
    Inc.3) requeriría una **autorización de activación productiva** aparte.
 
+## 6-bis. Decisiones del patrocinador (2026-11-03) — configuración inicial aprobada
+
+Sobre el catálogo ya aprobado (§3–§4), el patrocinador definió la **configuración inicial de activación**:
+
+1. **Reglas activas:** **solo los 4 campos transversales de §3** (`clasificacionDatos`, `jurisdiccionAplicable`,
+   `baseLegalTratamiento`, `supervisionHumanaRegistrada`). Los ejemplos por sector de §4 quedan **aprobados pero
+   inactivos** (en estudio), listos para activar cuando el patrocinador lo indique.
+2. **Jurisdicción inicial:** **Colombia (CO)**. La activación inicial se acota a contextos de Colombia; ampliar a otras
+   jurisdicciones (p. ej. EC) o volverlas comodín es **crear/editar filas**, sin tocar código.
+3. **Modo:** **asesor (no bloqueante)** confirmado. La matriz informa faltantes/incumplimientos pero **no impide**
+   emitir ni aceptar resultados. El **modo bloqueante** (ADR 0020 Inc.3) sigue **diferido**: requeriría una autorización
+   de activación productiva aparte.
+
+Materialización: estas 4 reglas se cargan como **configuración de datos por workspace** (idempotente, parametrizada por
+`workspaceId`; nada hardcodeado por empresa), con `activa = true` y modo asesor. No se registra conformidad con ninguna
+norma; son controles técnicos configurables.
+
 ## 7. Lo que esta propuesta NO hace
 
 - No activa ninguna regla: todas nacen **inactivas**; nada se exige hasta la aprobación del patrocinador + activación por
