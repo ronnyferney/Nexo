@@ -738,3 +738,52 @@ transversal: `nexo-architect`.
      definiciones de flujo).
 - **Guardarraíl multisectorial:** todo lo anterior es **transversal, configurable por workspace y tipado por
   catálogo/política**; nada atado a una empresa, sector o proceso concreto (§4 del plan del patrocinador).
+
+### Nota de cierre de la compuerta E-B (2026-11-03) — integración GATED, sin habilitación operativa
+
+> **Autorización aplicada:** compuerta **E-B** (INTEGRACIÓN + PRUEBAS CONTROLADAS de los Incrementos 2–5). La
+> **HABILITACIÓN OPERATIVA sigue DIFERIDA** (por etapas, previa validación del patrocinador). **No hay activación
+> productiva** de ninguna capacidad del coordinador. Las 7 decisiones de producto quedan RATIFICADAS (ver "Resolución
+> del patrocinador (2026-11-03)") y aplicadas en el diseño/integración.
+
+**Qué quedó INTEGRADO (gated, no operativo).**
+
+- **Migración ADITIVA aplicada** (`20261103162611_misiones_eventos_coordinador_gated`, con `prisma migrate deploy`,
+  sin `reset`): entidad nueva **`MisionEvento`** (línea de tiempo append-only: `SEGUIMIENTO`, `BLOQUEO_DETECTADO`,
+  `ESCALAMIENTO`, `SUPERVISION`, `DECISION_HUMANA_SOLICITADA`, `CONTINUIDAD`, `CONTRADICCION`) con `payload Json`
+  **saneado** + `schemaVersion`, `requiereDecision`, `resueltoPor/resueltoAt`; enums `TipoMisionEvento`/
+  `ActorMisionEvento`; back-relation `MisionTransversal.eventos`; y el flag de workspace `coordinadorGobiernoActivo`.
+  Ninguna columna existente cambió ni se volvió obligatoria. Se eliminaron del SQL los `DROP INDEX`/`ALTER COLUMN`
+  espurios sobre `KnowledgeChunk.search` (disciplina de `CLAUDE.md`); el índice GIN y `OrgUnit_root_per_workspace`
+  quedan intactos.
+- **Versionado JSON (decisión 7):** `apps/api/src/modules/missions/mission.payload.ts` (módulo puro) estampa
+  `schemaVersion` al escribir y hace **upcasting aditivo** tolerante al leer (datos del Inc.1 = `v0`), para
+  `MisionParticipante.alcance` y `MisionEvento.payload`.
+- **Cableado del gobierno de la continuidad del coordinador (Inc.3)** en
+  `apps/api/src/modules/missions/mission-coordinator-governance.service.ts`, que **reutiliza** la especificación viva
+  `mission.governance.ts`: seguimiento de compromisos, severidad de bloqueos, escalamiento a humano, supervisión
+  acotada (solo metadatos), resolución de contradicciones (QA10) y continuidad por suplencia (QA14). Cada decisión/
+  escalamiento persiste un `MisionEvento` append-only y escribe al **`AuditLog` inmutable (E13)**.
+- **Flag opt-in por workspace `Workspace.coordinadorGobiernoActivo`, APAGADO por defecto.** Con el flag apagado, el
+  servicio **no produce ningún efecto** (no persiste eventos, no audita, no toca jerarquía/gobierno/reconciliador):
+  devuelve `{ aplicado: false, motivo: 'GOBIERNO_COORDINADOR_DESACTIVADO' }`. El cableado a E6/E3/reconciliador queda,
+  por tanto, **desactivado en producción** hasta la habilitación por etapas.
+- **Invariantes verificados con pruebas reales (PG/Redis):** QA13 (autoaprobación **bloqueada y auditada**; el
+  coordinador **no amplía ni mueve presupuesto**; delegación solo por **subconjunto**; auditoría **append-only**,
+  nunca se borra), QA14 (suspender al coordinador → **continuidad por suplente sin perder estado**), QA10
+  (contradicción sin regla → **detener + solicitar decisión humana**), "supervisar **no concede acceso**" (ADR 0007) y
+  **"flag apagado = sin efecto"**. Specs: `mission-coordinator-governance.service.spec.ts`, `mission.payload.spec.ts`
+  (unitarias) y `test/missions-governance-eb.e2e-spec.ts` (integración).
+
+**Qué queda PENDIENTE para la habilitación operativa por etapas (no se ejecuta sin decisión del patrocinador).**
+
+- **Encender el flag `coordinadorGobiernoActivo`** en un workspace es, por sí mismo, la decisión de habilitación
+  operativa por etapas; hoy permanece **apagado**. Ningún agente puede encenderlo.
+- **Ejecución real de efectos de alto impacto:** el servicio hoy solo **PROPONE** y **SOLICITA** decisión humana
+  (crea `DECISION_HUMANA_SOLICITADA`). Conectar esas solicitudes a la ejecución gobernada —`PolicyEngine`→
+  `ActionGateway`→`Aprobacion`→`Suspension` (E6) y a la suplencia real de `hierarchy` (E3)— sigue **pendiente** y
+  sujeto a autorización por etapas. El coordinador **no ejecuta** alto impacto por su cuenta.
+- **Detección periódica de bloqueos en el `schedule-reconciler`** (hoy la evaluación es bajo demanda): pendiente de
+  cableado operativo.
+- **Activación productiva** de los Incrementos 2–5 y el **pasaporte de misión encadenado** (decisión 6, solo opt-in
+  para sectores regulados): fuera de alcance de esta compuerta.

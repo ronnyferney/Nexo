@@ -289,6 +289,12 @@ model Workspace {
   /// gasto con un proveedor real (costo externo = 0). Solo lo cambia un humano ADMIN/OWNER (nunca un agente), auditado.
   modoPiloto                Boolean                    @default(false)
   modoPilotoDesde           DateTime?
+  /// Opt-in del gobierno de la continuidad del coordinador de misiones (ADR 0016 · Inc.3 · compuerta E-B). APAGADO por
+  /// defecto: mientras es `false`, el cableado del coordinador (seguimiento/bloqueos/escalamiento/supervisión/
+  /// continuidad/contradicciones) NO produce ningún efecto ni registra eventos (integración gated, no operativa). Su
+  /// activación es la HABILITACIÓN OPERATIVA por etapas, que decide el patrocinador; el coordinador nunca autoaprueba,
+  /// ni amplía permisos/presupuesto, ni ejecuta alto impacto: toda acción irreversible sigue exigiendo humano (E6).
+  coordinadorGobiernoActivo Boolean                    @default(false)
   createdAt                 DateTime                   @default(now())
   updatedAt                 DateTime                   @updatedAt
   memberships               Membership[]
@@ -344,6 +350,7 @@ model Workspace {
   misiones                  MisionTransversal[]
   misionParticipantes       MisionParticipante[]
   misionVinculos            MisionVinculo[]
+  misionEventos             MisionEvento[]
   organizacionPerfiles      OrganizacionPerfil[]
   contactoPerfiles          ContactoPerfil[]
   memoriasOperativas        MemoriaOperativa[]
@@ -2375,6 +2382,7 @@ model MisionTransversal {
   validTo             DateTime?
   participantes       MisionParticipante[]
   vinculos            MisionVinculo[]
+  eventos             MisionEvento[]
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
 
@@ -2424,6 +2432,58 @@ model MisionVinculo {
   @@index([workspaceId, misionId])
   @@index([workspaceId, objetivoId])
   @@index([workspaceId, tareaId])
+}
+
+/// Tipo de hecho de coordinación en la línea de tiempo de una misión (ADR 0016 · Inc.3). Cada valor es una capacidad de
+/// LECTURA/CORRELACIÓN/NOTIFICACIÓN del coordinador o una solicitud de decisión humana; NINGUNO ejecuta por sí mismo una
+/// acción de alto impacto (eso exige aprobación humana E6). Append-only; alimenta el `AuditLog` (E13).
+enum TipoMisionEvento {
+  SEGUIMIENTO               // consolidación del estado de compromisos (clasificarCompromiso)
+  BLOQUEO_DETECTADO         // correlación de incumplimientos/dependencias/contradicciones (clasificarBloqueo)
+  ESCALAMIENTO              // elevación a un responsable humano al agotarse la autoridad del coordinador
+  SUPERVISION               // observación de metadatos de desempeño de agentes participantes (no concede acceso)
+  DECISION_HUMANA_SOLICITADA // solicitud explícita de decisión humana (bandeja E6); el sistema solo detiene y pide
+  CONTINUIDAD               // suplencia/reemplazo del coordinador al suspenderlo (E3/E6); el trabajo autorizado sigue
+  CONTRADICCION             // órdenes contradictorias sin regla inequívoca → detener y escalar (QA10)
+}
+
+/// Actor que origina un `MisionEvento`. `SISTEMA` = detección automática (reconciliador); `AGENTE` = el coordinador u
+/// otro empleado digital; `HUMANO` = una persona. La no-autoaprobación (QA13) exige que lo irreversible lo decida un
+/// `HUMANO` distinto del solicitante (lógica pura en `mission.governance.ts`).
+enum ActorMisionEvento {
+  HUMANO
+  AGENTE
+  SISTEMA
+}
+
+/// Línea de tiempo auditable de la coordinación de una misión (ADR 0016 · Inc.3 · compuerta E-B). Entidad DELGADA,
+/// opcional y APPEND-ONLY: registra seguimiento de compromisos, bloqueos detectados, escalamientos, observaciones de
+/// supervisión, solicitudes de decisión humana, continuidad y contradicciones. `payload` es JSON SANEADO (metadatos; sin
+/// datos sensibles ni secretos; referencias a Incumplimiento/Excepcion/Aprobacion por id) y lleva `schemaVersion` para
+/// lectura tolerante a versiones + upcasting (decisión 7 del patrocinador). Estos eventos SOLO se escriben con el opt-in
+/// `Workspace.coordinadorGobiernoActivo = true` (compuerta E-B): con el flag APAGADO el coordinador no produce ningún
+/// hecho. Observar/escalar NO concede acceso (ADR 0007); lo irreversible exige decisión humana (E6).
+model MisionEvento {
+  id             String            @id @default(cuid())
+  workspaceId    String
+  workspace      Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  misionId       String
+  mision         MisionTransversal @relation(fields: [misionId], references: [id], onDelete: Cascade)
+  tipo           TipoMisionEvento
+  actorTipo      ActorMisionEvento
+  /// Id del actor (agente coordinador, usuario o `null` para el sistema). Referencia blanda; nombrarlo no concede acceso.
+  actorId        String?
+  /// Metadatos saneados del hecho + `schemaVersion`. Nunca contenido de datos de clientes ni secretos.
+  payload        Json              @default("{}")
+  /// ¿El hecho exige decisión humana (bandeja E6)? El coordinador solo detiene y solicita; nunca decide lo irreversible.
+  requiereDecision Boolean         @default(false)
+  /// Quién resolvió la decisión humana (humano) y cuándo; null mientras sigue pendiente.
+  resueltoPor    String?
+  resueltoAt     DateTime?
+  createdAt      DateTime          @default(now())
+
+  @@index([workspaceId, misionId, tipo])
+  @@index([workspaceId, requiereDecision])
 }
 
 // --- Gobierno de acciones (E6 · ADR 0013 D1-D4) ---

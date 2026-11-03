@@ -62,6 +62,21 @@ export const AUDIT_ACTIONS = {
   MISION_AUTORIZADA: 'MISION_AUTORIZADA',
   MISION_DETENIDA: 'MISION_DETENIDA',
   MISION_CANCELADA: 'MISION_CANCELADA',
+  /// Gobierno de la CONTINUIDAD del coordinador de una misión (ADR 0016 · Inc.3 · compuerta E-B). Se registran SOLO con
+  /// el opt-in `Workspace.coordinadorGobiernoActivo = true` (integración gated; con el flag apagado no hay efecto ni
+  /// evento). El coordinador PROPONE/OBSERVA y SOLICITA decisión humana: nunca autoaprueba, ni amplía permisos/
+  /// presupuesto, ni ejecuta alto impacto (QA13). Target: la `MisionTransversal`; metadata: metadatos saneados (sin
+  /// datos sensibles ni secretos). SEGUIMIENTO/BLOQUEO/SUPERVISION son lectura/correlación; ESCALAMIENTO/
+  /// DECISION_SOLICITADA/CONTRADICCION detienen y piden humano (QA10); CONTINUIDAD = suplencia al suspender (QA14);
+  /// AUTOAPROBACION_BLOQUEADA = intento del coordinador de aprobar su propia acción, bloqueado y auditado (QA13).
+  MISION_COORDINADOR_SEGUIMIENTO: 'MISION_COORDINADOR_SEGUIMIENTO',
+  MISION_COORDINADOR_BLOQUEO: 'MISION_COORDINADOR_BLOQUEO',
+  MISION_COORDINADOR_ESCALAMIENTO: 'MISION_COORDINADOR_ESCALAMIENTO',
+  MISION_COORDINADOR_SUPERVISION: 'MISION_COORDINADOR_SUPERVISION',
+  MISION_COORDINADOR_DECISION_SOLICITADA: 'MISION_COORDINADOR_DECISION_SOLICITADA',
+  MISION_COORDINADOR_CONTINUIDAD: 'MISION_COORDINADOR_CONTINUIDAD',
+  MISION_COORDINADOR_CONTRADICCION: 'MISION_COORDINADOR_CONTRADICCION',
+  MISION_COORDINADOR_AUTOAPROBACION_BLOQUEADA: 'MISION_COORDINADOR_AUTOAPROBACION_BLOQUEADA',
   /// Gobierno de la memoria operativa por proceso (ADR 0018 · Inc.3). La memoria es CONTEXTO, no concede permisos y no
   /// altera la versión del agente (ADR 0004). Actor humano (EDITOR+), target la `MemoriaOperativa` y, en metadata, el
   /// proceso y el estado previo/nuevo. CONFIRMADA: un hecho pasa de PROPUESTO a CONFIRMADO tras revisión. DESCARTADA: un
