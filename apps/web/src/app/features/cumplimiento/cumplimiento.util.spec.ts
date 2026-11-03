@@ -5,13 +5,17 @@ import {
   draftAInput,
   draftDeRegla,
   esObligatoria,
+  estadoVigencia,
+  estaVigente,
   filtrarReglas,
+  formatVigenciaFecha,
   hayFiltrosActivos,
   nuevoDraft,
   parseEnum,
   reglaValidacionResumen,
   valoresDistintos,
   validarDraft,
+  vigenciaTexto,
   EMPTY_FILTROS,
 } from './cumplimiento.util';
 
@@ -29,6 +33,8 @@ function regla(parcial: Partial<ReglaCumplimiento> = {}): ReglaCumplimiento {
     controlProteccion: null,
     descripcion: null,
     activa: false,
+    vigenciaDesde: null,
+    vigenciaHasta: null,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     ...parcial,
@@ -110,5 +116,71 @@ describe('cumplimiento.util', () => {
     expect(reglaValidacionResumen(regla())).toBe('Obligatorio');
     expect(reglaValidacionResumen(regla({ reglaValidacion: { requerido: false, min: 2 } }))).toContain('Opcional');
     expect(reglaValidacionResumen(regla({ reglaValidacion: { enum: ['a'] } }))).toContain('enum');
+  });
+
+  describe('vigencia', () => {
+    const ahora = Date.parse('2026-06-15T12:00:00.000Z');
+
+    it('estadoVigencia: sin límites rige siempre', () => {
+      expect(estadoVigencia(regla(), ahora)).toBe('siempre');
+      expect(estaVigente(regla(), ahora)).toBe(true);
+    });
+
+    it('estadoVigencia: dentro de la ventana es vigente', () => {
+      const r = regla({ vigenciaDesde: '2026-01-01', vigenciaHasta: '2026-12-31' });
+      expect(estadoVigencia(r, ahora)).toBe('vigente');
+      expect(estaVigente(r, ahora)).toBe(true);
+    });
+
+    it('estadoVigencia: antes del inicio es pendiente', () => {
+      const r = regla({ vigenciaDesde: '2026-07-01' });
+      expect(estadoVigencia(r, ahora)).toBe('pendiente');
+      expect(estaVigente(r, ahora)).toBe(false);
+    });
+
+    it('estadoVigencia: después del fin es expirada (hasta inclusive el día)', () => {
+      const r = regla({ vigenciaHasta: '2026-05-31' });
+      expect(estadoVigencia(r, ahora)).toBe('expirada');
+      // Un instante dentro del último día (fecha sin hora) sigue vigente.
+      const fin = regla({ vigenciaHasta: '2026-06-15' });
+      expect(estadoVigencia(fin, ahora)).toBe('vigente');
+    });
+
+    it('vigenciaTexto es legible según los límites presentes', () => {
+      expect(vigenciaTexto(regla())).toContain('Sin límite');
+      expect(vigenciaTexto(regla({ vigenciaDesde: '2026-01-01' }))).toBe('Desde 01/01/2026');
+      expect(vigenciaTexto(regla({ vigenciaHasta: '2026-12-31' }))).toBe('Hasta 31/12/2026');
+      expect(vigenciaTexto(regla({ vigenciaDesde: '2026-01-01', vigenciaHasta: '2026-12-31' }))).toBe(
+        '01/01/2026 – 31/12/2026',
+      );
+    });
+
+    it('formatVigenciaFecha normaliza fechas con y sin hora', () => {
+      expect(formatVigenciaFecha(null)).toBe('');
+      expect(formatVigenciaFecha('2026-03-09')).toBe('09/03/2026');
+      expect(formatVigenciaFecha('2026-03-09T10:00:00.000Z')).toBe('09/03/2026');
+    });
+
+    it('validarDraft detecta vigencia incoherente (desde > hasta)', () => {
+      expect(
+        validarDraft({ ...nuevoDraft(), campoClave: 'x', vigenciaDesde: '2026-12-31', vigenciaHasta: '2026-01-01' }),
+      ).toContain('vigencia');
+      expect(
+        validarDraft({ ...nuevoDraft(), campoClave: 'x', vigenciaDesde: '2026-01-01', vigenciaHasta: '2026-12-31' }),
+      ).toBeNull();
+    });
+
+    it('draftAInput envía null cuando la vigencia está vacía y la fecha cuando se indica', () => {
+      expect(draftAInput({ ...nuevoDraft(), campoClave: 'x' }).vigenciaDesde).toBeNull();
+      const input = draftAInput({ ...nuevoDraft(), campoClave: 'x', vigenciaDesde: '2026-01-01' });
+      expect(input.vigenciaDesde).toBe('2026-01-01');
+      expect(input.vigenciaHasta).toBeNull();
+    });
+
+    it('draftDeRegla recupera la vigencia como valor de input date', () => {
+      const d = draftDeRegla(regla({ vigenciaDesde: '2026-01-01T00:00:00.000Z', vigenciaHasta: null }));
+      expect(d.vigenciaDesde).toBe('2026-01-01');
+      expect(d.vigenciaHasta).toBe('');
+    });
   });
 });

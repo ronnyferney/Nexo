@@ -46,6 +46,10 @@ export interface ReglaCumplimiento {
   controlProteccion: string | null;
   descripcion: string | null;
   activa: boolean;
+  /** Inicio de la ventana de vigencia (ISO 8601). `null` = sin límite inferior. */
+  vigenciaDesde: string | null;
+  /** Fin de la ventana de vigencia (ISO 8601). `null` = sin límite superior. */
+  vigenciaHasta: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -62,6 +66,10 @@ export interface CreateReglaCumplimientoInput {
   controlProteccion?: string | null;
   descripcion?: string | null;
   activa?: boolean;
+  /** Inicio de la vigencia (ISO 8601). `null` limpia el campo en un PATCH. */
+  vigenciaDesde?: string | null;
+  /** Fin de la vigencia (ISO 8601). `null` limpia el campo en un PATCH. */
+  vigenciaHasta?: string | null;
 }
 
 /** Cuerpo para actualizar una regla (PATCH parcial). */
@@ -73,6 +81,8 @@ export interface ContextoCumplimiento {
   sector?: string;
   proceso?: string;
   nivelRiesgo?: NivelRiesgo;
+  /** Fecha de evaluación de la vigencia (ISO 8601). Omitir = ahora. */
+  fechaEvaluacion?: string;
 }
 
 /** Regla ya resuelta para un `campoClave` (la más específica que ganó), con su puntuación de especificidad. */

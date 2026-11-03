@@ -50,6 +50,7 @@ export class ComplianceApi {
     if (ctx.sector) params['sector'] = ctx.sector;
     if (ctx.proceso) params['proceso'] = ctx.proceso;
     if (ctx.nivelRiesgo) params['nivelRiesgo'] = ctx.nivelRiesgo;
+    if (ctx.fechaEvaluacion) params['fechaEvaluacion'] = ctx.fechaEvaluacion;
     if (incluirInactivas) params['incluirInactivas'] = 'true';
     return this.get<ReglaResuelta[]>('/compliance/resolve', params);
   };

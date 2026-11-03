@@ -26,6 +26,8 @@ import {
   draftDeRegla,
   EMPTY_FILTROS,
   esObligatoria,
+  estadoVigencia,
+  estadoVigenciaLabel,
   filtrarReglas,
   hayFiltrosActivos,
   nivelRiesgoLabel,
@@ -34,6 +36,8 @@ import {
   tipoDatoLabel,
   validarDraft,
   valoresDistintos,
+  vigenciaTexto,
+  type EstadoVigencia,
   type ReglaDraft,
   type ReglaFiltros,
 } from './cumplimiento.util';
@@ -168,13 +172,26 @@ import {
 
             <fieldset class="fs">
               <legend>Vigencia</legend>
-              <div class="callout warning">
-                <nx-icon name="clock" [size]="16" />
-                <span>El contrato actual del backend no expone fechas de vigencia (inicio/fin) para las reglas. La
-                obligatoriedad se gobierna hoy con el estado <strong>activa/inactiva</strong>. Administrar rangos de
-                vigencia requiere una <strong>extensión aditiva del backend</strong> (campos de vigencia en el modelo y el
-                contrato); no se simula desde la web.</span>
+              <p class="muted small" style="margin:0">
+                Ventana de fechas en que la regla rige. Es <strong>independiente</strong> del estado activa/inactiva: una
+                regla puede estar activa pero fuera de vigencia (no se aplicaría) o viceversa. Deje un campo vacío para no
+                poner límite por ese lado.
+              </p>
+              <div class="grid grid-2">
+                <div class="field"><label for="c-vdesde">Vigente desde</label>
+                  <input id="c-vdesde" class="input" type="date" [(ngModel)]="d.vigenciaDesde" />
+                  <span class="hint">Vacío = sin límite inferior.</span></div>
+                <div class="field"><label for="c-vhasta">Vigente hasta</label>
+                  <input id="c-vhasta" class="input" type="date" [(ngModel)]="d.vigenciaHasta"
+                    [attr.min]="d.vigenciaDesde || null" />
+                  <span class="hint">Vacío = sin límite superior.</span></div>
               </div>
+              @if (vigenciaIncoherente(d)) {
+                <div class="callout warning" role="alert">
+                  <nx-icon name="alert" [size]="16" />
+                  <span>La fecha «desde» es posterior a la fecha «hasta». Corríjala antes de guardar.</span>
+                </div>
+              }
             </fieldset>
 
             <fieldset class="fs">
@@ -249,6 +266,7 @@ import {
                     <th scope="col">Campo clave</th>
                     <th scope="col">Tipo</th>
                     <th scope="col">Alcance</th>
+                    <th scope="col">Vigencia</th>
                     <th scope="col">Validación</th>
                     <th scope="col">Protección</th>
                     <th scope="col"></th>
@@ -270,6 +288,29 @@ import {
                       </td>
                       <td class="small nowrap">{{ tipoLabel(r.tipoDato) }}</td>
                       <td class="small">{{ alcance(r) }}</td>
+                      <td class="small">
+                        <div>{{ vigencia(r) }}</div>
+                        @switch (vigenciaEstado(r)) {
+                          @case ('siempre') {
+                            <span class="badge" title="Sin límite de fechas">Sin límite</span>
+                          }
+                          @case ('vigente') {
+                            <span class="badge success" title="Dentro de la ventana de vigencia hoy">
+                              <nx-icon name="checkCircle" [size]="13" />Vigente hoy</span>
+                          }
+                          @case ('pendiente') {
+                            <span class="badge" title="La vigencia empieza en el futuro">
+                              <nx-icon name="clock" [size]="13" />Aún no vigente</span>
+                          }
+                          @case ('expirada') {
+                            <span class="badge danger" title="La ventana de vigencia ya terminó">
+                              <nx-icon name="xCircle" [size]="13" />Fuera de vigencia</span>
+                          }
+                        }
+                        @if (r.activa && !estaDentroVigencia(r)) {
+                          <div class="muted xsmall">Activa pero fuera de vigencia: hoy no se aplica.</div>
+                        }
+                      </td>
                       <td class="small">
                         @if (obligatoria(r)) { <span class="badge warning">Obligatorio</span> }
                         @else { <span class="badge">Opcional</span> }
@@ -410,8 +451,26 @@ export class CumplimientoPage implements OnInit {
   readonly tipoLabel = tipoDatoLabel;
   readonly obligatoria = esObligatoria;
   readonly validacion = reglaValidacionResumen;
+  readonly vigencia = vigenciaTexto;
+  readonly vigenciaLabel = estadoVigenciaLabel;
   readonly accion = actionLabel;
   readonly dt = formatDateTime;
+
+  vigenciaEstado(r: ReglaCumplimiento): EstadoVigencia {
+    return estadoVigencia(r);
+  }
+
+  estaDentroVigencia(r: ReglaCumplimiento): boolean {
+    const e = estadoVigencia(r);
+    return e === 'siempre' || e === 'vigente';
+  }
+
+  /** Coherencia en cliente: «desde» no puede ser posterior a «hasta» (solo cuando ambos están presentes). */
+  vigenciaIncoherente(d: ReglaDraft): boolean {
+    const desde = d.vigenciaDesde?.trim();
+    const hasta = d.vigenciaHasta?.trim();
+    return !!(desde && hasta && desde > hasta);
+  }
 
   ngOnInit() {
     if (!this.isAdmin()) {

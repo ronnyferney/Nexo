@@ -53,6 +53,92 @@ export function esObligatoria(r: Pick<ReglaCumplimiento, 'reglaValidacion'>): bo
   return r.reglaValidacion?.requerido !== false;
 }
 
+/**
+ * Estado de la ventana de VIGENCIA de una regla respecto a un instante (independiente de activa/inactiva):
+ * - `siempre`: sin límites de vigencia (rige en cualquier fecha);
+ * - `vigente`: el instante cae dentro de la ventana;
+ * - `pendiente`: la ventana empieza en el futuro (aún no entra en vigor);
+ * - `expirada`: la ventana ya terminó.
+ */
+export type EstadoVigencia = 'siempre' | 'vigente' | 'pendiente' | 'expirada';
+
+/** Milisegundos del inicio de vigencia (comienzo del instante indicado). */
+function inicioMs(iso: string): number {
+  return Date.parse(iso);
+}
+
+/** Milisegundos del fin de vigencia; una fecha sin hora (`YYYY-MM-DD`) es inclusiva hasta el final de ese día. */
+function finMs(iso: string): number {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return Date.parse(iso) + 86_400_000 - 1;
+  return Date.parse(iso);
+}
+
+/** Calcula el estado de vigencia de una regla en un instante dado (por defecto, ahora). */
+export function estadoVigencia(
+  r: Pick<ReglaCumplimiento, 'vigenciaDesde' | 'vigenciaHasta'>,
+  ahora: number = Date.now(),
+): EstadoVigencia {
+  const desde = r.vigenciaDesde ?? null;
+  const hasta = r.vigenciaHasta ?? null;
+  if (!desde && !hasta) return 'siempre';
+  if (desde) {
+    const ini = inicioMs(desde);
+    if (!Number.isNaN(ini) && ahora < ini) return 'pendiente';
+  }
+  if (hasta) {
+    const fin = finMs(hasta);
+    if (!Number.isNaN(fin) && ahora > fin) return 'expirada';
+  }
+  return 'vigente';
+}
+
+/** ¿La regla está dentro de su ventana de vigencia en el instante dado? (`siempre` y `vigente` son true). */
+export function estaVigente(
+  r: Pick<ReglaCumplimiento, 'vigenciaDesde' | 'vigenciaHasta'>,
+  ahora: number = Date.now(),
+): boolean {
+  const e = estadoVigencia(r, ahora);
+  return e === 'siempre' || e === 'vigente';
+}
+
+/** Etiqueta corta del estado de vigencia para los indicadores de la UI. */
+export function estadoVigenciaLabel(e: EstadoVigencia): string {
+  switch (e) {
+    case 'siempre':
+      return 'Sin límite';
+    case 'vigente':
+      return 'Vigente hoy';
+    case 'pendiente':
+      return 'Aún no vigente';
+    case 'expirada':
+      return 'Fuera de vigencia';
+  }
+}
+
+/** Formatea una fecha ISO (con o sin hora) a `dd/mm/aaaa` de forma determinista. */
+export function formatVigenciaFecha(iso: string | null): string {
+  if (!iso) return '';
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
+}
+
+/** Texto legible de la ventana de vigencia de una regla. */
+export function vigenciaTexto(r: Pick<ReglaCumplimiento, 'vigenciaDesde' | 'vigenciaHasta'>): string {
+  const desde = r.vigenciaDesde ?? null;
+  const hasta = r.vigenciaHasta ?? null;
+  if (!desde && !hasta) return 'Sin límite (rige siempre)';
+  if (desde && !hasta) return `Desde ${formatVigenciaFecha(desde)}`;
+  if (!desde && hasta) return `Hasta ${formatVigenciaFecha(hasta)}`;
+  return `${formatVigenciaFecha(desde)} – ${formatVigenciaFecha(hasta)}`;
+}
+
+/** Normaliza el valor de un control `<input type="date">` (ISO con o sin hora) a `YYYY-MM-DD` para el formulario. */
+export function fechaADateInput(iso: string | null): string {
+  if (!iso) return '';
+  const m = /^\d{4}-\d{2}-\d{2}/.exec(iso);
+  return m ? m[0] : '';
+}
+
 /** Filtros del listado, enlazados a los controles. Cadenas vacías = sin filtro. */
 export interface ReglaFiltros {
   jurisdiccion: string;
@@ -127,6 +213,9 @@ export interface ReglaDraft {
   controlProteccion: string;
   descripcion: string;
   activa: boolean;
+  /** Vigencia (valores de `<input type="date">`, `YYYY-MM-DD`). Vacío = sin límite. */
+  vigenciaDesde: string;
+  vigenciaHasta: string;
   // Regla de validación declarativa (desglosada en controles guiados).
   requerido: boolean;
   patron: string;
@@ -151,6 +240,8 @@ export function nuevoDraft(): ReglaDraft {
     controlProteccion: '',
     descripcion: '',
     activa: false,
+    vigenciaDesde: '',
+    vigenciaHasta: '',
     requerido: true,
     patron: '',
     min: null,
@@ -175,6 +266,8 @@ export function draftDeRegla(r: ReglaCumplimiento): ReglaDraft {
     controlProteccion: r.controlProteccion ?? '',
     descripcion: r.descripcion ?? '',
     activa: r.activa,
+    vigenciaDesde: fechaADateInput(r.vigenciaDesde),
+    vigenciaHasta: fechaADateInput(r.vigenciaHasta),
     requerido: v.requerido !== false,
     patron: v.patron ?? '',
     min: v.min ?? null,
@@ -221,6 +314,9 @@ export function draftAInput(d: ReglaDraft): CreateReglaCumplimientoInput {
     controlProteccion: d.controlProteccion.trim() || null,
     descripcion: d.descripcion.trim() || null,
     activa: d.activa,
+    // Vacío = sin límite; enviar `null` limpia el campo en un PATCH.
+    vigenciaDesde: d.vigenciaDesde.trim() || null,
+    vigenciaHasta: d.vigenciaHasta.trim() || null,
   };
 }
 
@@ -240,6 +336,14 @@ export function validarDraft(d: ReglaDraft): string | null {
   }
   if (d.longitudMin !== null && d.longitudMax !== null && Number(d.longitudMin) > Number(d.longitudMax)) {
     return 'La longitud mínima no puede ser mayor que la máxima.';
+  }
+  const desde = d.vigenciaDesde.trim();
+  const hasta = d.vigenciaHasta.trim();
+  if (desde && hasta) {
+    const ini = Date.parse(desde);
+    const fin = Date.parse(hasta);
+    if (Number.isNaN(ini) || Number.isNaN(fin)) return 'Las fechas de vigencia no son válidas.';
+    if (ini > fin) return 'La vigencia «desde» no puede ser posterior a la vigencia «hasta».';
   }
   return null;
 }
