@@ -74,6 +74,13 @@ export const AUDIT_ACTIONS = {
   /// permanente); se registra el alcance (unidad/agente), el periodo, el motivo, el rol y la vigencia. IMPACTO: registro
   /// de validación de impacto que habilita la degradación de una bolsa no crítica. MODO_PILOTO: activar/desactivar el
   /// preset de piloto US$ 0 (solo proveedor mock), que un agente no puede desactivar.
+  /// Gobierno de la matriz de cumplimiento configurable (P1.3 · ADR 0020). Alta/cambio/eliminación de una
+  /// `ReglaCumplimiento`. Lo opera SIEMPRE un humano ADMIN/OWNER (nunca un agente). Actor humano, target la regla y,
+  /// en metadata, el alcance y los valores anterior/nuevo (incluida la bandera `activa`: activar una regla la convierte
+  /// en exigible, cambio sensible que Cumplimiento/el patrocinador deben poder auditar). No afirma conformidad normativa.
+  REGLA_CUMPLIMIENTO_CREADA: 'REGLA_CUMPLIMIENTO_CREADA',
+  REGLA_CUMPLIMIENTO_MODIFICADA: 'REGLA_CUMPLIMIENTO_MODIFICADA',
+  REGLA_CUMPLIMIENTO_ELIMINADA: 'REGLA_CUMPLIMIENTO_ELIMINADA',
   PRESUPUESTO_OVERRIDE_CONCEDIDO: 'PRESUPUESTO_OVERRIDE_CONCEDIDO',
   PRESUPUESTO_OVERRIDE_REVOCADO: 'PRESUPUESTO_OVERRIDE_REVOCADO',
   PRESUPUESTO_IMPACTO_VALIDADO: 'PRESUPUESTO_IMPACTO_VALIDADO',

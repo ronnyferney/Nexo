@@ -1,52 +1,102 @@
-# Matriz de campos candidatos del Pasaporte — Cumplimiento
+# Matriz de cumplimiento — propuesta de campos para aprobación (v2)
 
-> **Propósito:** preparar una **matriz de campos adicionales candidatos** para el Pasaporte de resultado, organizada por jurisdicción, sector y caso de uso, para que Cumplimiento la valide.
-> **Estado:** **preparación.** Este documento **no** afirma conformidad con ninguna norma, **no** registra aprobación y **no** compromete plazos. Todos los campos son candidatos **ilustrativos** y quedan **pendientes de validación de Cumplimiento**.
+> **Propósito:** presentar, para la **aprobación definitiva del patrocinador**, los **campos obligatorios**, las
+> **reglas de validación** y los **controles de protección de datos** que la **matriz de cumplimiento configurable**
+> (motor P1.3 · **ADR 0020**) podría exigir, organizados por **jurisdicción / sector económico / proceso / nivel de
+> riesgo**.
+> **Estado:** **propuesta — pendiente de aprobación del patrocinador.** El **motor ya está construido** (reglas
+> configurables + resolución + validación **asesora, no bloqueante**), pero **todas las reglas nacen INACTIVAS**: no se
+> exige ningún campo hasta que un ADMIN las active **después** de que el patrocinador apruebe este conjunto. Este
+> documento **no** afirma conformidad con ninguna norma, **no** registra aprobación y **no** compromete plazos.
 
-## 1. Punto de partida
+## 1. Qué cambió respecto de la v1
 
-El **Pasaporte base** definido en **ADR 0014** continúa vigente y operativo: cada resultado verificable lleva su hoja de vida (quién lo produjo, con qué herramientas, qué aprobaciones hubo, cuánto costó, quién lo verificó, hash y ancla de auditoría). Lo que aquí se prepara son **campos adicionales** que podrían incorporarse según la jurisdicción, el sector o el caso de uso.
+La v1 era una lista de **campos candidatos** para el Pasaporte (ADR 0014), sin motor. Ahora existe un **motor
+configurable y multisectorial** (ADR 0020): cada requisito se expresa como una fila `ReglaCumplimiento` con un
+**alcance** (jurisdicción/sector/proceso/riesgo; cualquiera vacío = **comodín**, aplica a todos), un **campo
+obligatorio** (`campoClave` + `tipoDato`), una **regla de validación** declarativa opcional y un **control de
+protección de datos** aplicable. Esta v2 **propone el contenido** de esas filas para su aprobación.
 
-Esta matriz **no** afirma que Nexo cumpla ninguna norma. La **conformidad sectorial queda pendiente de validación de Cumplimiento**. Los campos listados son candidatos para su estudio, no requisitos confirmados.
+Guardarraíl (decisiones del patrocinador §4): **NEXO es multisectorial**. Los sectores de abajo (financiero/cobranza,
+salud, retail) son **ejemplos ilustrativos** para mostrar la generalidad del motor; **no** atan el motor a ninguno y
+**no** son una lista cerrada. Añadir una jurisdicción/sector/proceso nuevo es **crear filas**, no tocar código.
 
-## 2. Cómo leer la matriz
+## 2. Cómo se lee cada regla propuesta
 
-- **Campo candidato:** nombre tentativo del dato adicional que el Pasaporte podría incluir.
-- **Jurisdicción/sector/caso de uso:** contexto en el que el campo podría ser pertinente.
-- **Motivo:** por qué podría hacer falta (hipótesis a validar, no afirmación).
-- **Fuente normativa:** norma concreta si se conoce; en caso contrario, "pendiente".
-- **Estado:** siempre "ILUSTRATIVO — pendiente de validación de Cumplimiento" hasta que Cumplimiento se pronuncie.
+- **Alcance:** jurisdicción / sector / proceso / nivel de riesgo. Vacío = **todos** (comodín). «La más específica
+  **suma**»: al resolver un contexto se acumulan todos los campos aplicables; si dos reglas chocan en un mismo campo,
+  gana la de alcance más específico.
+- **campoClave / tipoDato:** identificador del dato (en inglés) y su forma (TEXTO, NUMERO, BOOLEANO, FECHA, LISTA,
+  OBJETO). El tipo describe **forma**, no semántica sectorial.
+- **reglaValidacion (declarativa):** `{ requerido, patron, min, max, enum, longitudMin, longitudMax }`. Sin código
+  ejecutable; el evaluador la interpreta de forma acotada.
+- **controlProteccion:** control de protección de datos aplicable (texto/clave, p. ej. `minimización`,
+  `consentimiento`, `seudonimización`). Se **declara**; la ejecución real de retención/enmascarado vive en
+  `data-protection` (ADR 0008).
 
-Los ejemplos están marcados como **ILUSTRATIVOS**. No deben interpretarse como una lista cerrada ni como un compromiso de implementación.
+## 3. Campos transversales propuestos (comodín: aplican a todo sector/jurisdicción)
 
-## 3. Matriz de campos candidatos (ejemplos ilustrativos)
-
-| Campo candidato | Jurisdicción / sector / caso de uso | Motivo (hipótesis a validar) | Fuente normativa | Estado |
+| campoClave | tipoDato | reglaValidacion (propuesta) | controlProteccion | Motivo (hipótesis a validar) |
 |---|---|---|---|---|
-| `retencionSectorialFinanciera` | Sector financiero | Posible obligación de conservar ciertos resultados por un plazo prolongado. | pendiente | ILUSTRATIVO — pendiente de validación de Cumplimiento |
-| `identificadorFiscal` | Transversal / facturación | Trazar un resultado a un contribuyente o documento tributario. | pendiente | ILUSTRATIVO — pendiente de validación de Cumplimiento |
-| `consentimientoDatosPersonales` | Datos personales / atención al cliente | Dejar constancia de la base y el momento del consentimiento del titular. | pendiente | ILUSTRATIVO — pendiente de validación de Cumplimiento |
-| `baseLegalTratamiento` | Datos personales | Registrar la base legal invocada para el tratamiento asociado al resultado. | pendiente | ILUSTRATIVO — pendiente de validación de Cumplimiento |
-| `clasificacionDatos` | Transversal / seguridad | Marcar la sensibilidad del contenido (público, interno, confidencial, reservado). | pendiente | ILUSTRATIVO — pendiente de validación de Cumplimiento |
-| `jurisdiccionAplicable` | Multi-país | Indicar bajo qué marco se produjo y debe interpretarse el resultado. | pendiente | ILUSTRATIVO — pendiente de validación de Cumplimiento |
-| `selloTiempoTercero` | Evidencia / probatorio | Posible sellado de tiempo por un tercero de confianza (ligado a consulta de Jurídica). | pendiente | ILUSTRATIVO — pendiente de validación de Cumplimiento |
-| `politicaEliminacion` | Datos personales / retención | Documentar la regla de eliminación aplicada o pendiente. | pendiente | ILUSTRATIVO — pendiente de validación de Cumplimiento |
-| `supervisionHumanaRegistrada` | Sectores regulados / decisiones automatizadas | Dejar constancia de la intervención humana en resultados con impacto. | pendiente | ILUSTRATIVO — pendiente de validación de Cumplimiento |
+| `clasificacionDatos` | TEXTO | `{ enum: ['publico','interno','confidencial','reservado'] }` | `minimización` | Marcar la sensibilidad del contenido del resultado. |
+| `jurisdiccionAplicable` | TEXTO | `{ requerido: true }` | — | Bajo qué marco se produjo y debe interpretarse el resultado. |
+| `baseLegalTratamiento` | TEXTO | `{ requerido: true }` | `base-legal` | Base legal invocada para el tratamiento asociado. |
+| `supervisionHumanaRegistrada` | BOOLEANO | `{ requerido: true }` | `supervisión-humana` | Constancia de intervención humana en decisiones con impacto. |
 
-## 4. Qué pedimos a Cumplimiento
+## 4. Ejemplos por sector (ILUSTRATIVOS — generalidad del motor)
 
-1. Revisar cada campo candidato y marcarlo como: **requerido**, **opcional**, **no aplica** o **requiere más estudio**.
-2. Completar la columna **Fuente normativa** donde hoy dice "pendiente".
-3. Añadir campos que falten por jurisdicción, sector o caso de uso de interés.
-4. Priorizar los campos requeridos para una futura incorporación al Pasaporte (sin que esta priorización constituya compromiso de fecha).
+### 4.1 Financiero / proceso «cobranza»
 
-## 5. Lo que esta matriz NO hace
+| Alcance | campoClave | tipoDato | reglaValidacion (propuesta) | controlProteccion |
+|---|---|---|---|---|
+| sector=financiero | `identificadorFiscal` | TEXTO | `{ requerido: true, patron: '^[0-9]{10,13}$' }` | `seudonimización` |
+| sector=financiero · proceso=cobranza | `consentimientoContacto` | BOOLEANO | `{ requerido: true }` | `consentimiento` |
+| sector=financiero · proceso=cobranza | `horarioContactoPermitido` | BOOLEANO | `{ requerido: true }` | — |
+| sector=financiero · proceso=cobranza · riesgo=ALTO | `revisionHumanaPrevia` | BOOLEANO | `{ requerido: true }` | `supervisión-humana` |
+| sector=financiero | `retencionEvidenciaDias` | NUMERO | `{ min: 365, max: 3650 }` | `retención` |
 
-- No afirma cumplimiento de ninguna norma ni certifica conformidad sectorial.
-- No convierte un campo candidato en requisito hasta que Cumplimiento lo valide.
-- No inventa fuentes normativas: donde no se conocen, dice "pendiente".
-- No registra aprobaciones ni plazos.
+### 4.2 Salud
+
+| Alcance | campoClave | tipoDato | reglaValidacion (propuesta) | controlProteccion |
+|---|---|---|---|---|
+| sector=salud | `consentimientoDatosPersonales` | BOOLEANO | `{ requerido: true }` | `consentimiento` |
+| sector=salud | `categoriaDatoSensible` | TEXTO | `{ enum: ['salud','genetico','biometrico'] }` | `datos-sensibles` |
+| sector=salud · proceso=onboarding | `baseLegalTratamiento` | TEXTO | `{ requerido: true }` | `base-legal` |
+| sector=salud · riesgo=ALTO | `evaluacionImpactoRealizada` | BOOLEANO | `{ requerido: true }` | `evaluación-impacto` |
+
+### 4.3 Retail
+
+| Alcance | campoClave | tipoDato | reglaValidacion (propuesta) | controlProteccion |
+|---|---|---|---|---|
+| sector=retail | `clasificacionDatos` | TEXTO | `{ enum: ['publico','interno','confidencial'] }` | `minimización` |
+| sector=retail · proceso=marketing | `consentimientoMarketing` | BOOLEANO | `{ requerido: true }` | `consentimiento` |
+| sector=retail · proceso=marketing | `canalContacto` | TEXTO | `{ enum: ['correo','whatsapp','sms'] }` | — |
+| sector=retail | `politicaEliminacion` | TEXTO | `{ requerido: true }` | `eliminación-segura` |
+
+## 5. Ejemplo de resolución (cómo «suma» la matriz)
+
+Contexto `sector=financiero, proceso=cobranza, riesgo=ALTO` resuelve la **unión** de: los transversales (§3) + los de
+`sector=financiero` + los de `financiero·cobranza` + el de `financiero·cobranza·ALTO`. Un contexto `sector=retail` no ve
+nada de financiero/salud: solo transversales + retail.
+
+## 6. Qué pedimos al patrocinador (aprobación 3b)
+
+1. **Aprobar / ajustar** los campos, tipos, reglas y controles de §3–§4 (o un subconjunto) como **conjunto inicial**.
+2. Indicar **por cada regla** si debe nacer **activa** tras la aprobación o permanecer en estudio.
+3. Confirmar **jurisdicciones** concretas a cubrir primero (hoy el alcance `jurisdiccion` es texto libre, sin taxonomía
+   impuesta).
+4. Confirmar que, por ahora, la evaluación sigue siendo **asesora (no bloqueante)**; el **modo bloqueante** (ADR 0020
+   Inc.3) requeriría una **autorización de activación productiva** aparte.
+
+## 7. Lo que esta propuesta NO hace
+
+- No activa ninguna regla: todas nacen **inactivas**; nada se exige hasta la aprobación del patrocinador + activación por
+  un ADMIN.
+- No afirma conformidad con ninguna norma ni certifica conformidad sectorial.
+- No bloquea la emisión/aceptación de resultados (la validación es **asesora**).
+- No ata el motor a ningún sector: los ejemplos son ilustrativos y reemplazables por configuración.
 
 ---
 
-**Estado del documento:** preparación — todos los campos **ILUSTRATIVOS, pendientes de validación de Cumplimiento.** El Pasaporte base (ADR 0014) continúa.
+**Estado del documento:** propuesta para **aprobación definitiva del patrocinador**. El motor (ADR 0020) y el Pasaporte
+base (ADR 0014) continúan; las reglas permanecen **inactivas** hasta que el patrocinador apruebe este conjunto.

@@ -350,6 +350,7 @@ model Workspace {
   agentBudgets              AgentBudget[]
   budgetOverrides           BudgetOverride[]
   politicasRetencion        PoliticaRetencion[]
+  reglasCumplimiento        ReglaCumplimiento[]
 }
 
 /// Catálogo de cargos (RF03): perfil reutilizable del empleado digital con propósito, funciones, entregables,
@@ -3227,4 +3228,57 @@ model MemoriaOperativa {
 
   @@index([workspaceId])
   @@index([workspaceId, procesoClave])
+}
+
+/// Tipo de dato de un campo obligatorio de la matriz de cumplimiento (P1.3 · ADR 0020). Genérico y MULTISECTORIAL:
+/// describe la FORMA del dato (texto, número, booleano, fecha, lista, objeto), nunca su semántica sectorial. El
+/// evaluador asesor lo usa para una verificación de forma básica (presencia y tipo). No declara conformidad normativa.
+enum TipoDatoCumplimiento {
+  TEXTO
+  NUMERO
+  BOOLEANO
+  FECHA
+  LISTA
+  OBJETO
+}
+
+/// Regla de una matriz de cumplimiento CONFIGURABLE y MULTISECTORIAL (P1.3 · ADR 0020). Cada fila declara, para un
+/// ALCANCE —jurisdicción / sector / proceso / nivel de riesgo, cualquiera en null = comodín (aplica a todos)—, UN
+/// campo obligatorio (`campoClave` + `tipoDato`), una regla de validación declarativa opcional (`reglaValidacion`,
+/// JSON sin código ejecutable) y el control de protección de datos aplicable (`controlProteccion`). NO existe lógica
+/// de ningún sector en el código: todo es DATO configurable por workspace (sin `if (sector === ...)`). Las reglas
+/// NACEN INACTIVAS (`activa = false`) y la validación es ASESORA (no bloqueante) hasta que un ADMIN las active y el
+/// patrocinador apruebe el conjunto definitivo. Multi-tenant: toda consulta filtra por `workspaceId`. No afirma
+/// cumplimiento de ninguna norma: son controles técnicos configurables.
+model ReglaCumplimiento {
+  id                String               @id @default(cuid())
+  workspaceId       String
+  workspace         Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// Jurisdicción a la que aplica (texto libre, p. ej. "EC", "CO", "UE"); null = todas (comodín).
+  jurisdiccion      String?
+  /// Sector económico al que aplica (texto libre, p. ej. "financiero", "salud", "retail"); null = todos (comodín).
+  sector            String?
+  /// Proceso al que aplica (texto libre, p. ej. "cobranza", "onboarding"); null = todos (comodín).
+  proceso           String?
+  /// Nivel de riesgo al que aplica; null = todos (comodín). Reusa el enum genérico de riesgo (no es específico de sector).
+  nivelRiesgo       NivelRiesgo?
+  /// Clave del campo obligatorio (identificador en inglés, p. ej. "baseLegalTratamiento").
+  campoClave        String
+  /// Tipo de dato esperado del campo (forma, no semántica sectorial).
+  tipoDato          TipoDatoCumplimiento
+  /// Regla de validación declarativa opcional (JSON: { requerido, patron, min, max, enum, longitudMin, longitudMax }).
+  /// Sin código ejecutable: el evaluador la interpreta de forma acotada.
+  reglaValidacion   Json?
+  /// Control de protección de datos aplicable (texto/clave libre, p. ej. "minimización", "consentimiento"); null = ninguno.
+  controlProteccion String?
+  /// Descripción legible del requisito (para la consola y la propuesta de campos al patrocinador).
+  descripcion       String?
+  /// Las reglas NACEN INACTIVAS: no exigen nada hasta que un ADMIN las active y el patrocinador apruebe el conjunto.
+  activa            Boolean              @default(false)
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@index([workspaceId])
+  @@index([workspaceId, activa])
+  @@index([workspaceId, jurisdiccion, sector, proceso, nivelRiesgo])
 }

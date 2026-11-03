@@ -37,6 +37,7 @@ import { HierarchyModule } from './modules/hierarchy/hierarchy.module';
 import { LlmModule } from './modules/llm/llm.module';
 import { KnowledgeModule } from './modules/knowledge/knowledge.module';
 import { CollaborationModule } from './modules/collaboration/collaboration.module';
+import { ComplianceModule } from './modules/compliance/compliance.module';
 import { CommunityModule } from './modules/community/community.module';
 import { MessagingModule } from './modules/messaging/messaging.module';
 import { MissionsModule } from './modules/missions/missions.module';
@@ -112,6 +113,7 @@ import { WorkspacesModule } from './modules/workspaces/workspaces.module';
     TrainingModule,
     WorkflowsModule,
     ResultsModule,
+    ComplianceModule,
     ConsolasModule,
     MessagingModule,
     MissionsModule,
