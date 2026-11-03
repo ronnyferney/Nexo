@@ -110,6 +110,21 @@ Materialización: estas 4 reglas se cargan como **configuración de datos por wo
 `workspaceId`; nada hardcodeado por empresa), con `activa = true` y modo asesor. No se registra conformidad con ninguna
 norma; son controles técnicos configurables.
 
+**Cómo se ejecuta (OPT-IN, no corre al arranque):**
+
+```bash
+cd apps/api
+npm run compliance:seed -- --workspace=<workspaceId>   # un workspace concreto
+npm run compliance:seed -- --all                       # todos los workspaces existentes
+# producción: node dist/modules/compliance/compliance-seed.cli.js --workspace=<id>
+```
+
+La definición de las reglas vive en `src/modules/compliance/compliance-seed.service.ts`
+(`REGLAS_TRANSVERSALES_CO`, `JURISDICCION_INICIAL='CO'`). El seed hace **UPSERT** por la tupla de alcance
+(`workspaceId, campoClave, jurisdiccion, sector, proceso, nivelRiesgo`): crea las que falten, actualiza las que
+difieran y deja intactas las ya correctas. Correrlo varias veces **no duplica**. Ampliar a otra jurisdicción
+(p. ej. `EC`) o volver el alcance comodín es **crear/editar filas** (o añadir definiciones), sin tocar el motor.
+
 ## 7. Lo que esta propuesta NO hace
 
 - No activa ninguna regla: todas nacen **inactivas**; nada se exige hasta la aprobación del patrocinador + activación por

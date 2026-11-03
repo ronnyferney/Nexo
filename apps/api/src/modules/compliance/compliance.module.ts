@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ComplianceSeedService } from './compliance-seed.service';
 import { CumplimientoController, ReglasCumplimientoController } from './compliance.controller';
 import { ReglasCumplimientoService } from './reglas-cumplimiento.service';
 
@@ -10,7 +11,7 @@ import { ReglasCumplimientoService } from './reglas-cumplimiento.service';
  */
 @Module({
   controllers: [ReglasCumplimientoController, CumplimientoController],
-  providers: [ReglasCumplimientoService],
-  exports: [ReglasCumplimientoService],
+  providers: [ReglasCumplimientoService, ComplianceSeedService],
+  exports: [ReglasCumplimientoService, ComplianceSeedService],
 })
 export class ComplianceModule {}
