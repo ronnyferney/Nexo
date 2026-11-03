@@ -21,6 +21,7 @@
     "auth:reset-link": "ts-node --transpile-only src/modules/auth/auth-reset-link.cli.ts",
     "crypto:rotate": "ts-node --transpile-only src/common/crypto/crypto-rotate.cli.ts",
     "compliance:seed": "ts-node --transpile-only src/modules/compliance/compliance-seed.cli.ts",
+    "compliance:seed:prod": "node dist/modules/compliance/compliance-seed.cli.js",
     "postinstall": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",

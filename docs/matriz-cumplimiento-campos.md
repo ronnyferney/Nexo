@@ -114,10 +114,22 @@ norma; son controles técnicos configurables.
 
 ```bash
 cd apps/api
+# Desarrollo (usa ts-node; lee apps/api/.env):
 npm run compliance:seed -- --workspace=<workspaceId>   # un workspace concreto
 npm run compliance:seed -- --all                       # todos los workspaces existentes
-# producción: node dist/modules/compliance/compliance-seed.cli.js --workspace=<id>
+
+# Producción (imagen Docker, sin ts-node): script dedicado que ejecuta el CLI ya compilado por `nest build`
+# (dist/modules/compliance/compliance-seed.cli.js). Las variables llegan por entorno (DATABASE_URL), no por .env.
+npm run compliance:seed:prod -- --workspace=<workspaceId>
+npm run compliance:seed:prod -- --all
+# Equivalente directo dentro del contenedor:
+#   node dist/modules/compliance/compliance-seed.cli.js --workspace=<workspaceId>
 ```
+
+> Indique **exactamente uno** de `--workspace=<id>` o `--all`; el CLI aborta si recibe ambos o ninguno. Correr el seed
+> varias veces es seguro: no duplica ni altera reglas ya correctas (ver garantías de idempotencia más abajo). Verificado
+> contra PostgreSQL real (1.ª corrida crea las 21 reglas del workspace; 2.ª corrida reporta `0 creadas, 0 actualizadas,
+> 21 sin cambios`), con 17 reglas CO activas (modo asesor) y 4 transversales EC inactivas.
 
 La definición de las reglas vive en `src/modules/compliance/compliance-seed.service.ts`
 (`REGLAS_TRANSVERSALES_CO`, `JURISDICCION_INICIAL='CO'`). El seed hace **UPSERT** por la tupla de alcance

@@ -5,8 +5,9 @@ import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { ComplianceSeedService, type ResumenSeedWorkspace } from './compliance-seed.service';
 
 /**
- * `npm run compliance:seed -- --workspace=<id>` (o `--all` para todos los workspaces; en la imagen de producción:
- * `node dist/modules/compliance/compliance-seed.cli.js`): siembra de forma IDEMPOTENTE la configuración inicial de la
+ * `npm run compliance:seed -- --workspace=<id>` (o `--all` para todos los workspaces; en la imagen de producción, donde
+ * no hay `ts-node`, use el script dedicado `npm run compliance:seed:prod -- --workspace=<id>`, que invoca el CLI ya
+ * compilado por `nest build` en `dist/modules/compliance/compliance-seed.cli.js`): siembra de forma IDEMPOTENTE la
  * matriz de cumplimiento aprobada por el patrocinador (doc `matriz-cumplimiento-campos.md` §6-bis · autorización
  * 2026-11-03): transversales CO, cobranza CO, salud CO y retail CO ACTIVAS (modo ASESOR, no bloqueante); transversales
  * EC PREPARADAS pero INACTIVAS (activación productiva condicionada a revisión jurídica).
