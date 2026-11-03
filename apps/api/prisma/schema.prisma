@@ -349,6 +349,7 @@ model Workspace {
   memoriasOperativas        MemoriaOperativa[]
   agentBudgets              AgentBudget[]
   budgetOverrides           BudgetOverride[]
+  politicasRetencion        PoliticaRetencion[]
 }
 
 /// Catálogo de cargos (RF03): perfil reutilizable del empleado digital con propósito, funciones, entregables,
@@ -3066,6 +3067,10 @@ model GrabacionConfig {
   guardarEvidencia      Boolean  @default(false)
   /// Exige autorización (cuando corresponda) antes de grabar. ON por defecto (postura conservadora).
   requiereAutorizacion  Boolean  @default(true)
+  /// Gate jurídico (P0.2): hasta que Jurídica autorice la grabación real, NADA se graba aunque las banderas de tipo
+  /// estén en ON. OFF por defecto. Solo lo cambia un humano ADMIN/OWNER (nunca un agente), auditado. Mientras sea
+  /// false, todo intento de grabar/guardar se rechaza (`puedeGuardar` devuelve false).
+  grabacionAutorizadaJuridicamente Boolean @default(false)
   /// Finalidad declarada del tratamiento. Opcional; texto libre, sin declarar cumplimiento normativo.
   finalidad             String?
   /// Plazo de conservación en días. null = pendiente de política (NO es un plazo por defecto ni legal).
@@ -3079,6 +3084,54 @@ model GrabacionConfig {
 
   @@unique([workspaceId, empresaId])
   @@index([workspaceId])
+}
+
+// --- Políticas de retención/privacidad diferenciadas (P0.2 · decisión Jurídica) ---
+
+/// Canal al que puede acotarse una política de retención (P0.2). Enum propio del dominio de políticas para no acoplar
+/// con `CanalTipo` (canales externos); incluye CHAT (conversaciones con agentes), que no es un canal externo.
+enum CanalRetencion {
+  CORREO
+  WHATSAPP
+  VOZ
+  CHAT
+}
+
+/// Tipo de información que una política de retención puede diferenciar (P0.2). ORDINARIA = conversaciones ordinarias
+/// (retención preliminar 180 d); EVIDENCIA = material conservado como evidencia/trazabilidad; SENSIBLE = datos con
+/// mayor protección. No declara base legal ni valor probatorio: son controles técnicos configurables.
+enum TipoInformacion {
+  ORDINARIA
+  EVIDENCIA
+  SENSIBLE
+}
+
+/// Política de retención/privacidad diferenciada por organización (workspace), canal y tipo de información (P0.2 ·
+/// decisión Jurídica). Extiende de forma ADITIVA la retención por workspace (`Workspace.conversationRetentionDays`,
+/// 180 d por defecto): la política más específica aplicable gana; si no hay ninguna, rige la del workspace. `canal` o
+/// `tipoInformacion` en null = alcance comodín (aplica a todos). `retencionDias = null` = sin plazo propio (hereda del
+/// workspace). No declara cumplimiento normativo ni valor probatorio. Multi-tenant: toda consulta filtra por
+/// `workspaceId`. La unicidad de alcance (una fila por combinación) la garantiza el servicio (Postgres trata los NULL
+/// como distintos en índices únicos).
+model PoliticaRetencion {
+  id                      String           @id @default(cuid())
+  workspaceId             String
+  workspace               Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  /// Canal al que aplica; null = todos los canales.
+  canal                   CanalRetencion?
+  /// Tipo de información al que aplica; null = todos los tipos.
+  tipoInformacion         TipoInformacion?
+  /// Plazo de conservación en días; null = sin plazo propio (hereda la retención del workspace).
+  retencionDias           Int?
+  /// Habilita la eliminación segura al vencer el plazo (control técnico declarado, no ejecuta borrado aquí).
+  eliminacionSegura       Boolean          @default(false)
+  /// Marca que el tratamiento de este alcance requiere consentimiento (control declarado, no lo verifica el motor).
+  consentimientoRequerido Boolean          @default(false)
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+
+  @@index([workspaceId])
+  @@index([workspaceId, canal, tipoInformacion])
 }
 
 /// Estado de un hecho de la memoria operativa (ADR 0018). Un hecho nace PROPUESTO y requiere revisión humana para

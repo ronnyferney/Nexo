@@ -62,6 +62,10 @@ export class GrabacionConfigService {
       guardarResumen: dto.guardarResumen ?? previa?.guardarResumen ?? false,
       guardarEvidencia: dto.guardarEvidencia ?? previa?.guardarEvidencia ?? false,
       requiereAutorizacion: dto.requiereAutorizacion ?? previa?.requiereAutorizacion ?? true,
+      // Gate jurídico (P0.2): OFF por defecto; solo un ADMIN/OWNER (en el controlador) puede activarlo. Hasta entonces
+      // nada se graba aunque las banderas de tipo estén en ON. El cambio queda auditado con las banderas anterior/nuevo.
+      grabacionAutorizadaJuridicamente:
+        dto.grabacionAutorizadaJuridicamente ?? previa?.grabacionAutorizadaJuridicamente ?? false,
       finalidad: dto.finalidad ?? previa?.finalidad ?? null,
       retencionDias,
       accesoRoles: dto.accesoRoles ?? previa?.accesoRoles ?? [],
@@ -125,6 +129,7 @@ export class GrabacionConfigService {
       guardarTranscripcion: c.guardarTranscripcion,
       guardarResumen: c.guardarResumen,
       guardarEvidencia: c.guardarEvidencia,
+      grabacionAutorizadaJuridicamente: c.grabacionAutorizadaJuridicamente,
       retencionDias: c.retencionDias,
       eliminacionAutomatica: c.eliminacionAutomatica,
     };

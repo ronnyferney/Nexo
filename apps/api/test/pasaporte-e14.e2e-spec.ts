@@ -25,6 +25,13 @@ interface ExportResult {
   documentoRef: Record<string, unknown>;
   documentHash: string;
   ancla: { auditSeq: number; auditEntryId: string; auditHash: string | null };
+  garantias: {
+    integridad: { documentHash: string; algoritmo: string };
+    autenticidad: { emitidoPorUserId: string | null; actorType: string | null; firmaCadena: string | null };
+    trazabilidad: { auditSeq: number; auditEntryId: string; prevHash: string | null; hash: string | null };
+    valorProbatorio: string;
+    leyenda: string;
+  };
   instrucciones: { algoritmo: string; descripcion: string };
 }
 
@@ -149,6 +156,17 @@ describe('Pasaporte de resultado E14 (e2e)', () => {
     // El cuerpo solo expone referencias + hashes (ids/hashes), nunca contenidos sensibles.
     expect(ex.documentoRef).toHaveProperty('validaciones');
     expect(ex.documentoRef).toHaveProperty('totales');
+
+    // Garantías explícitas (P0.2): integridad (hash), autenticidad (autor + firma de cadena), trazabilidad (ancla) y
+    // la leyenda SIN presumir valor probatorio.
+    expect(ex.garantias.integridad.documentHash).toBe(p.documentHash);
+    expect(ex.garantias.integridad.algoritmo).toContain('sha256');
+    expect(ex.garantias.autenticidad.emitidoPorUserId).toBe(owner.userId);
+    expect(ex.garantias.autenticidad.firmaCadena).toBe(ex.ancla.auditHash);
+    expect(ex.garantias.trazabilidad.auditSeq).toBe(p.auditSeq);
+    expect(ex.garantias.trazabilidad.auditEntryId).toBe(p.auditEntryId);
+    expect(ex.garantias.valorProbatorio).toBe('SIN_VALOR_PROBATORIO_PRESUMIDO');
+    expect(ex.garantias.leyenda).toMatch(/no presume valor probatorio/i);
   });
 
   it('verify DETECTA la alteración de una referencia subyacente (p. ej. el veredicto de una validación)', async () => {

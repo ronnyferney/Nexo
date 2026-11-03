@@ -73,13 +73,14 @@ describe('Protección de datos · DataGuard y retención de conversaciones (ADR 
   });
 
   describe('Política del workspace', () => {
-    it('por defecto enmascara (ADR 0008) y las credenciales se bloquean siempre', async () => {
+    it('por defecto enmascara (ADR 0008) y aplica la retención preliminar de 180 d (P0.2)', async () => {
       const res = await policy(owner).expect(200);
       expect(res.body).toMatchObject({
         dataGuardMode: 'mask',
-        conversationRetentionDays: null,
+        conversationRetentionDays: 180,
         isDefault: true,
         credentials: 'BLOCK',
+        platformDefaultRetentionDays: 180,
       });
     });
 

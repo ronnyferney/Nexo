@@ -6,9 +6,10 @@ import {
 } from './grabacion-config.evaluacion';
 
 /**
- * Especificación de la regla PURA de retención (ADR 0015 D3/D4 · decisión Jurídica D7). Verifica los invariantes NO
- * negociables: OFF por defecto, `retencionDias = null` como "pendiente de política" (no un plazo por defecto) y que la
- * eliminación automática solo aplica con plazo definido. Sin plazos legales ni valor probatorio implícitos.
+ * Especificación de la regla PURA de retención (ADR 0015 D3/D4 · decisión Jurídica D7 · P0.2). Verifica los invariantes
+ * NO negociables: OFF por defecto, gate jurídico (sin autorización de Jurídica nada se graba aunque la bandera esté en
+ * ON), `retencionDias = null` como "pendiente de política" (no un plazo por defecto) y que la eliminación automática
+ * solo aplica con plazo definido. Sin plazos legales ni valor probatorio implícitos.
  */
 describe('evaluarRetencion (grabación de voz)', () => {
   const TIPOS: TipoDatoGrabacion[] = ['AUDIO', 'TRANSCRIPCION', 'RESUMEN', 'EVIDENCIA'];
@@ -25,11 +26,28 @@ describe('evaluarRetencion (grabación de voz)', () => {
     }
   });
 
+  it('bandera en ON pero SIN autorización jurídica ⇒ BLOQUEADO_JURIDICA, no permitido (gate P0.2)', () => {
+    const config: GrabacionFlags = {
+      ...GRABACION_OFF,
+      grabarAudio: true,
+      guardarTranscripcion: true,
+      grabacionAutorizadaJuridicamente: false, // gate OFF
+      retencionDias: 30,
+    };
+    for (const tipo of ['AUDIO', 'TRANSCRIPCION'] as const) {
+      const r = evaluarRetencion(config, tipo);
+      expect(r.permitido).toBe(false);
+      expect(r.estado).toBe('BLOQUEADO_JURIDICA');
+      expect(r.retencionDias).toBeNull();
+    }
+  });
+
   it('activar la bandera con retencionDias null ⇒ permitido pero PENDIENTE_POLITICA (no inventa plazo)', () => {
     const config: GrabacionFlags = {
       ...GRABACION_OFF,
       grabarAudio: true,
       guardarTranscripcion: true,
+      grabacionAutorizadaJuridicamente: true, // gate jurídico habilitado
       retencionDias: null,
       eliminacionAutomatica: true, // ignorado sin plazo definido
     };
@@ -50,6 +68,7 @@ describe('evaluarRetencion (grabación de voz)', () => {
     const config: GrabacionFlags = {
       ...GRABACION_OFF,
       guardarEvidencia: true,
+      grabacionAutorizadaJuridicamente: true,
       retencionDias: 30,
       eliminacionAutomatica: true,
     };
@@ -64,6 +83,7 @@ describe('evaluarRetencion (grabación de voz)', () => {
     const config: GrabacionFlags = {
       ...GRABACION_OFF,
       guardarResumen: true,
+      grabacionAutorizadaJuridicamente: true,
       retencionDias: 90,
     };
     expect(evaluarRetencion(config, 'RESUMEN').permitido).toBe(true);

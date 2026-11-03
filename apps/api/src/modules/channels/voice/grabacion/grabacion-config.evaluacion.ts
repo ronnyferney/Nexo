@@ -4,6 +4,8 @@
  *
  * Principios (NO negociables):
  * - TODO OFF/null por defecto: sin configuración explícita, nada se graba ni se retiene.
+ * - GATE JURÍDICO (P0.2): hasta que Jurídica autorice (`grabacionAutorizadaJuridicamente = true`), NADA se graba aunque
+ *   la bandera de tipo esté en ON; el estado es `BLOQUEADO_JURIDICA` y `permitido = false`.
  * - `retencionDias = null` significa "pendiente de política", NUNCA un plazo por defecto ni legal: no se inventan plazos.
  * - No se declara cumplimiento normativo ni valor probatorio automático: solo se expresan controles técnicos.
  * - Esta capa NO ejecuta borrados productivos; solo describe qué estaría permitido guardar y por cuánto.
@@ -18,6 +20,8 @@ export interface GrabacionFlags {
   guardarTranscripcion: boolean;
   guardarResumen: boolean;
   guardarEvidencia: boolean;
+  /** Gate jurídico (P0.2): sin autorización explícita de Jurídica, NADA se graba aunque las banderas estén en ON. */
+  grabacionAutorizadaJuridicamente: boolean;
   retencionDias: number | null;
   eliminacionAutomatica: boolean;
 }
@@ -26,6 +30,8 @@ export interface GrabacionFlags {
 export type EstadoRetencion =
   /** La captura de ese tipo de dato está desactivada (OFF por defecto): no se guarda nada. */
   | 'DESACTIVADO'
+  /** La bandera está en ON pero falta la autorización jurídica (P0.2): grabación bloqueada hasta validación. */
+  | 'BLOQUEADO_JURIDICA'
   /** La captura está activada pero sin plazo definido (`retencionDias = null`): pendiente de política, no productivo. */
   | 'PENDIENTE_POLITICA'
   /** La captura está activada y hay un plazo de conservación definido explícitamente. */
@@ -49,6 +55,7 @@ export const GRABACION_OFF: GrabacionFlags = {
   guardarTranscripcion: false,
   guardarResumen: false,
   guardarEvidencia: false,
+  grabacionAutorizadaJuridicamente: false,
   retencionDias: null,
   eliminacionAutomatica: false,
 };
@@ -79,6 +86,17 @@ export function evaluarRetencion(
   const permitido = banderaDe(c, tipoDato);
   if (!permitido) {
     return { tipoDato, permitido: false, estado: 'DESACTIVADO', retencionDias: null, eliminacionAutomatica: false };
+  }
+  // Gate jurídico (P0.2): con la bandera en ON pero sin autorización de Jurídica, la grabación queda BLOQUEADA. Nada se
+  // graba/guarda hasta que un ADMIN/OWNER active `grabacionAutorizadaJuridicamente` (auditado).
+  if (!c.grabacionAutorizadaJuridicamente) {
+    return {
+      tipoDato,
+      permitido: false,
+      estado: 'BLOQUEADO_JURIDICA',
+      retencionDias: null,
+      eliminacionAutomatica: false,
+    };
   }
   // null = pendiente de política: NO se inventa un plazo. La eliminación automática solo aplica con plazo definido.
   if (c.retencionDias === null || c.retencionDias === undefined) {

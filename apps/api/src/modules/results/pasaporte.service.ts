@@ -173,10 +173,20 @@ export class PasaporteService {
   /**
    * Exporta el cuerpo canónico + ancla + instrucciones para que un tercero recompute el `documentHash` SIN acceso a los
    * datos sensibles (solo ve referencias y hashes). Legible por `VIEWER`+ con alcance al recurso.
+   *
+   * El export declara explícitamente sus GARANTÍAS técnicas (P0.2 · decisión Jurídica): integridad (hash determinista),
+   * autenticidad (autor + firma de la cadena de auditoría) y trazabilidad (referencia de cadena: seq/entrada/encadenado).
+   * NO presume valor probatorio: incluye la leyenda `SIN_VALOR_PROBATORIO_PRESUMIDO` para no afirmar valor ante terceros.
    */
   async export(workspaceId: string, id: string) {
     const pasaporte = await this.get(workspaceId, id);
     const entry = await this.prisma.auditLog.findFirst({ where: { id: pasaporte.auditEntryId, workspaceId } });
+    const ancla = {
+      auditSeq: pasaporte.auditSeq,
+      auditEntryId: pasaporte.auditEntryId,
+      auditHash: entry?.hash ?? null,
+      prevHash: entry?.prevHash ?? null,
+    };
     return {
       pasaporte: {
         id: pasaporte.id,
@@ -188,11 +198,33 @@ export class PasaporteService {
       },
       documentoRef: pasaporte.documentoRef,
       documentHash: pasaporte.documentHash,
-      ancla: {
-        auditSeq: pasaporte.auditSeq,
-        auditEntryId: pasaporte.auditEntryId,
-        auditHash: entry?.hash ?? null,
-        prevHash: entry?.prevHash ?? null,
+      ancla,
+      // Garantías técnicas explícitas, SIN presumir valor probatorio (P0.2).
+      garantias: {
+        /** Integridad: el contenido referenciado no cambió desde la emisión (hash determinista verificable). */
+        integridad: {
+          documentHash: pasaporte.documentHash,
+          algoritmo: 'sha256(canonicalize(documentoRef))',
+        },
+        /** Autenticidad: quién lo emitió y la firma de la cadena inmutable que lo respalda. */
+        autenticidad: {
+          emitidoPorUserId: pasaporte.emitidoPorUserId,
+          actorType: entry?.actorType ?? null,
+          firmaCadena: ancla.auditHash,
+        },
+        /** Trazabilidad: referencia de la cadena de auditoría (posición y encadenado por hash). */
+        trazabilidad: {
+          auditSeq: ancla.auditSeq,
+          auditEntryId: ancla.auditEntryId,
+          prevHash: ancla.prevHash,
+          hash: ancla.auditHash,
+        },
+        /** No se presume valor probatorio: la validez ante terceros/autoridades corresponde a Jurídica (consulta b). */
+        valorProbatorio: 'SIN_VALOR_PROBATORIO_PRESUMIDO' as const,
+        leyenda:
+          'Esta exportación acredita integridad, autenticidad y trazabilidad técnicas (hash determinista + ancla en la ' +
+          'cadena de auditoría inmutable), pero NO presume valor probatorio ante terceros ni autoridades: su eventual ' +
+          'validez como evidencia la define Jurídica.',
       },
       instrucciones: {
         algoritmo: 'sha256(canonicalize(documentoRef)) === documentHash',

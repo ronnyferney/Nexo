@@ -47,8 +47,14 @@ export const AUDIT_ACTIONS = {
   /// auditar quién abrió la salida a internet, por categoría).
   PARAMETROS_EJECUCION_MODIFICADOS: 'PARAMETROS_EJECUCION_MODIFICADOS',
   /// Cambio de los controles configurables de grabación/retención de una empresa (E14 · ADR 0015 D3/D4). Actor humano,
-  /// empresa y, en metadata, las banderas anterior/nuevo (cambio sensible que Jurídica debe poder auditar).
+  /// empresa y, en metadata, las banderas anterior/nuevo (cambio sensible que Jurídica debe poder auditar). Incluye el
+  /// gate jurídico `grabacionAutorizadaJuridicamente` (P0.2): activarlo habilita la grabación real (solo ADMIN/OWNER).
   GRABACION_CONFIG_MODIFICADA: 'GRABACION_CONFIG_MODIFICADA',
+  /// Alta/cambio/eliminación de una política de retención diferenciada por org/canal/tipo (P0.2 · decisión Jurídica).
+  /// Lo opera SIEMPRE un humano ADMIN/OWNER (nunca un agente). Actor humano, target la `PoliticaRetencion` y, en
+  /// metadata, el alcance y los valores anterior/nuevo (cambio sensible que Jurídica debe poder auditar).
+  POLITICA_RETENCION_MODIFICADA: 'POLITICA_RETENCION_MODIFICADA',
+  POLITICA_RETENCION_ELIMINADA: 'POLITICA_RETENCION_ELIMINADA',
   /// Ciclo de vida de una misión transversal (E3 · ADR 0016). Crear/autorizar/detener/cancelar lo hace SIEMPRE un
   /// humano (nunca un agente): el actor es `USER`, el target la `MisionTransversal` y, en metadata, el detalle
   /// (coordinador, dueño, motivo, estado previo/nuevo). Coordinar/vincular/participar NO concede acceso (ADR 0007).

@@ -104,6 +104,9 @@ export interface AppConfig {
  * Modelo del Copilot: `COPILOT_PROVIDER`/`COPILOT_MODEL` (por defecto `anthropic`/`claude-opus-5-5`). Sin
  * `ANTHROPIC_API_KEY` (o con un proveedor que no sea de sistema) se usa `mock`/`mock-echo` para desarrollo.
  */
+/** Retención preliminar por defecto de conversaciones ordinarias (P0.2 · decisión Jurídica), en días. */
+export const DEFAULT_CONVERSATION_RETENTION_DAYS = 180;
+
 /** Entero >= 1 o `null` si la variable no está definida o no es válida. */
 export function positiveOrNull(raw: string | undefined): number | null {
   const n = parseInt(raw ?? '', 10);
@@ -301,7 +304,10 @@ export default (): AppConfig => ({
     retentionDays: Math.max(parseInt(process.env.EXECUTIONS_RETENTION_DAYS ?? '30', 10) || 30, 1),
   },
   conversations: {
-    retentionDays: positiveOrNull(process.env.CONVERSATIONS_RETENTION_DAYS),
+    // Retención preliminar de 180 días para conversaciones ordinarias (P0.2 · decisión Jurídica): si no se fija
+    // `CONVERSATIONS_RETENTION_DAYS`, rige este valor por defecto. Un workspace puede fijar el suyo (incluido null =
+    // sin límite) y las políticas diferenciadas (`PoliticaRetencion`) lo refinan por canal/tipo de información.
+    retentionDays: positiveOrNull(process.env.CONVERSATIONS_RETENTION_DAYS) ?? DEFAULT_CONVERSATION_RETENTION_DAYS,
   },
   copilot: {
     ...copilotModelFrom(process.env),

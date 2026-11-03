@@ -44,6 +44,15 @@ export class PutGrabacionConfigDto {
   @IsBoolean()
   requiereAutorizacion?: boolean;
 
+  @ApiPropertyOptional({
+    description:
+      'Gate jurídico (P0.2): hasta activarlo, NADA se graba aunque las banderas de tipo estén en ON. Solo ADMIN/OWNER',
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  grabacionAutorizadaJuridicamente?: boolean;
+
   @ApiPropertyOptional({ description: 'Finalidad declarada del tratamiento (texto libre, sin declarar cumplimiento)' })
   @IsOptional()
   @IsString()

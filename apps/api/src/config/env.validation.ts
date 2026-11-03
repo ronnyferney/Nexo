@@ -28,7 +28,7 @@ const schema = z.object({
   EXECUTIONS_RETENTION_DAYS: z.coerce.number().int().min(1, 'EXECUTIONS_RETENTION_DAYS debe ser al menos 1').optional(),
   CONVERSATIONS_RETENTION_DAYS: z
     .string()
-    .regex(/^(\d+)?$/, 'CONVERSATIONS_RETENTION_DAYS debe ser un número de días (vacío = sin límite)')
+    .regex(/^(\d+)?$/, 'CONVERSATIONS_RETENTION_DAYS debe ser un número de días (vacío = 180 d por defecto)')
     .optional(),
   TRUST_PROXY: z
     .string()
