@@ -1,12 +1,16 @@
 import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService, errorMessage } from '../../core/api.service';
+import { AuthService } from '../../core/auth.service';
 import type { BudgetInput, BudgetPeriod, BudgetPolicy, BudgetRow, ProviderInfo } from '../../core/models';
 import { ToastService } from '../../core/toast.service';
 import { budgetLevel, PERIOD_LABELS, POLICY_HELP, POLICY_LABELS, TIER_LABELS, treeOrder } from '../../shared/budget';
 import { IconComponent } from '../../shared/icon.component';
 import { ProgressBarComponent } from '../../shared/progress-bar.component';
 import { NumberPipe, UsdPipe } from '../../shared/usd.pipe';
+import { AgentBudgetsComponent } from './budgets/agent-budgets.component';
+import { BudgetOverridesComponent } from './budgets/budget-overrides.component';
+import { PilotToggleComponent } from './budgets/pilot-toggle.component';
 
 interface BudgetDraft {
   orgUnitId: string;
@@ -18,19 +22,33 @@ interface BudgetDraft {
   thresholds: string;
   downgradeProviderId: string;
   downgradeModel: string;
+  critico: boolean;
 }
 
-const DEFAULT_THRESHOLDS = [50, 80, 100];
+/** Umbrales de alerta por defecto (P0.1): 80 / 90 / 100 %. */
+const DEFAULT_THRESHOLDS = [80, 90, 100];
 
 @Component({
   selector: 'nx-admin-budgets',
-  imports: [FormsModule, IconComponent, ProgressBarComponent, UsdPipe, NumberPipe],
+  imports: [
+    FormsModule,
+    IconComponent,
+    ProgressBarComponent,
+    UsdPipe,
+    NumberPipe,
+    PilotToggleComponent,
+    BudgetOverridesComponent,
+    AgentBudgetsComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './budgets.page.html',
 })
 export class BudgetsPage implements OnInit {
   private readonly api = inject(ApiService);
+  private readonly auth = inject(AuthService);
   private readonly toast = inject(ToastService);
+
+  readonly isAdmin = this.auth.isAdmin;
 
   readonly periods: BudgetPeriod[] = ['MONTHLY', 'QUARTERLY', 'YEARLY'];
   readonly policies: BudgetPolicy[] = ['BLOCK', 'DOWNGRADE', 'ALERT_ONLY'];
@@ -81,7 +99,24 @@ export class BudgetsPage implements OnInit {
       thresholds: (b?.alertThresholds?.length ? b.alertThresholds : DEFAULT_THRESHOLDS).join(', '),
       downgradeProviderId: b?.downgradeProviderId ?? '',
       downgradeModel: b?.downgradeModel ?? '',
+      critico: b?.critico ?? true,
     });
+  }
+
+  /** Registra la validación de impacto de la degradación (P1.1c): habilita degradar en procesos NO críticos. */
+  async validarImpacto(r: BudgetRow) {
+    const nota = prompt(
+      `Registrar validación de impacto de la degradación de "${r.orgUnitName}".\n` +
+        'Describa la evidencia/alcance (opcional). La degradación solo se habilita si el proceso es NO crítico.',
+    );
+    if (nota === null) return;
+    try {
+      await this.api.validarImpactoBudget(r.orgUnitId, nota.trim() ? { nota: nota.trim() } : {});
+      this.toast.success('Validación de impacto registrada');
+      await this.load();
+    } catch (e) {
+      this.toast.error(errorMessage(e));
+    }
   }
 
   modelsFor(providerId: string) {
@@ -114,6 +149,7 @@ export class BudgetsPage implements OnInit {
       limitUsd: Number(d.limitUsd),
       policy: d.policy,
       alertThresholds: this.parseThresholds(d.thresholds) ?? DEFAULT_THRESHOLDS,
+      critico: d.critico,
       ...(d.policy === 'DOWNGRADE' && d.downgradeProviderId && d.downgradeModel
         ? { downgradeProviderId: d.downgradeProviderId, downgradeModel: d.downgradeModel }
         : {}),

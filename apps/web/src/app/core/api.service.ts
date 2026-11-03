@@ -15,10 +15,23 @@ import type {
   ApiKeyCreateInput,
   ApiKeyCreated,
   AgentStreamEvent,
+  AgentBudgetInput,
+  AgentBudgetRow,
   BudgetAlert,
   BudgetInput,
+  BudgetOverride,
+  BudgetOverrideInput,
   BudgetRow,
   BuildInfo,
+  GrabacionConfig,
+  GrabacionConfigInput,
+  PilotConfig,
+  ResolvedRetention,
+  RetentionChannel,
+  RetentionInfoType,
+  RetentionPolicy,
+  RetentionPolicyInput,
+  ValidarImpactoInput,
   Cargo,
   CargoInput,
   Connector,
@@ -224,8 +237,40 @@ export class ApiService {
 
   // Administración: presupuestos
   budgets = () => this.get<BudgetRow[]>('/admin/budgets');
-  setBudget = (orgUnitId: string, data: BudgetInput) => this.put(`/admin/budgets/${orgUnitId}`, data);
+  setBudget = (orgUnitId: string, data: BudgetInput) => this.put<BudgetRow>(`/admin/budgets/${orgUnitId}`, data);
   deleteBudget = (orgUnitId: string) => this.delete(`/admin/budgets/${orgUnitId}`);
+  /** Registra la validación de impacto de la degradación de una unidad (P1.1c; habilita degradar si es no crítica). */
+  validarImpactoBudget = (orgUnitId: string, data: ValidarImpactoInput = {}) =>
+    this.post<BudgetRow>(`/admin/budgets/${orgUnitId}/impacto`, data);
+
+  // Administración: bolsas por agente (P0.1 nivel agente)
+  agentBudgets = () => this.get<AgentBudgetRow[]>('/admin/agent-budgets');
+  setAgentBudget = (agentId: string, data: AgentBudgetInput) =>
+    this.put<AgentBudgetRow>(`/admin/agent-budgets/${agentId}`, data);
+  deleteAgentBudget = (agentId: string) => this.delete(`/admin/agent-budgets/${agentId}`);
+
+  // Administración: autorizaciones expresas de gasto (override gobernado, P0.1 · solo ADMIN)
+  budgetOverrides = (vigentes = false) =>
+    this.get<BudgetOverride[]>('/admin/budgets/overrides', vigentes ? { vigentes: 'true' } : undefined);
+  grantBudgetOverride = (data: BudgetOverrideInput) => this.post<BudgetOverride>('/admin/budgets/overrides', data);
+  revokeBudgetOverride = (id: string) => this.delete<BudgetOverride>(`/admin/budgets/overrides/${id}`);
+
+  // Administración: preset de piloto US$ 0 (P0.1b · solo permite el proveedor mock)
+  pilot = () => this.get<PilotConfig>('/admin/budgets/pilot');
+  setPilot = (modoPiloto: boolean) => this.put<PilotConfig>('/admin/budgets/pilot', { modoPiloto });
+
+  // Administración: políticas de retención/privacidad (P0.2 · solo ADMIN)
+  retentionPolicies = () => this.get<RetentionPolicy[]>('/admin/data-protection/retention-policies');
+  resolveRetention = (params: { canal?: RetentionChannel; tipoInformacion?: RetentionInfoType } = {}) =>
+    this.get<ResolvedRetention>('/admin/data-protection/retention-policies/resolve', compact(params));
+  upsertRetentionPolicy = (data: RetentionPolicyInput) =>
+    this.put<RetentionPolicy>('/admin/data-protection/retention-policies', data);
+  deleteRetentionPolicy = (id: string) => this.delete(`/admin/data-protection/retention-policies/${id}`);
+
+  // Gate de grabación de voz por empresa (E14 · solo ADMIN para modificar)
+  grabacionConfig = (empresaId: string) => this.get<GrabacionConfig>('/grabacion-config', { empresaId });
+  setGrabacionConfig = (empresaId: string, data: GrabacionConfigInput) =>
+    this.put<GrabacionConfig>(`/grabacion-config/${empresaId}`, data);
 
   // Administración: consumo y alertas
   usageSummary = (params: { from?: string; to?: string; groupBy?: UsageGroupBy } = {}) =>

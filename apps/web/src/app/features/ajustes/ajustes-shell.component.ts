@@ -47,6 +47,8 @@ export const AJUSTES_GROUPS: readonly SettingGroup[] = [
     items: [
       { icon: 'settings', label: 'Ajustes generales', path: 'generales', scope: 'admin' },
       { icon: 'shield', label: 'Seguridad', path: 'seguridad', scope: 'admin' },
+      { icon: 'lock', label: 'Retención de datos', path: 'retencion', scope: 'admin' },
+      { icon: 'headset', label: 'Grabación de voz', path: 'grabacion', scope: 'admin' },
       { icon: 'lock', label: 'Auditoría', path: 'auditoria', scope: 'admin' },
     ],
   },

@@ -63,6 +63,15 @@
         }
       }
 
+      <div class="field">
+        <label class="choice" style="max-width:none">
+          <input type="checkbox" [(ngModel)]="d.critico" name="critico" />
+          <span><strong>Proceso crítico</strong><span class="muted small" style="display:block">Un proceso crítico
+            <strong>bloquea</strong> al llegar al tope y nunca degrada. Desmárquelo para poder habilitar la degradación
+            (requiere además registrar la validación de impacto).</span></span>
+        </label>
+      </div>
+
       <div class="row"><span class="spacer"></span>
         <button class="btn" (click)="draft.set(null)">Cancelar</button>
         <button class="btn primary" [disabled]="saving() || invalid(d)" (click)="save()"><nx-icon name="save" />{{ saving() ? 'Guardando…' : 'Guardar' }}</button></div>
@@ -112,11 +121,30 @@
                     @if (b.policy === 'DOWNGRADE' && b.downgradeModel) {
                       <div class="muted small">→ {{ providerLabel(b.downgradeProviderId) }} · <code>{{ b.downgradeModel }}</code></div>
                     }
-                    <div class="muted small">Alertas: {{ b.alertThresholds.join(', ') }} %</div>
+                    <div class="row" style="gap:4px; margin-top:4px">
+                      @if (b.critico) {
+                        <span class="badge danger" title="Proceso crítico: bloquea al tope y nunca degrada">Crítico</span>
+                      } @else {
+                        <span class="badge" title="Proceso no crítico">No crítico</span>
+                      }
+                      @if (n.item.overrideActive) {
+                        <span class="badge warning" title="Autorización expresa de gasto vigente para esta unidad">Override vigente</span>
+                      }
+                      @if (b.policy === 'DOWNGRADE') {
+                        <span class="badge" [class.info]="b.degradacionHabilitada" [class.danger]="!b.degradacionHabilitada"
+                          [title]="b.degradacionHabilitada ? 'Degradación habilitada (no crítico + impacto validado)' : 'Degradación NO habilitada: marque el proceso como no crítico y registre la validación de impacto'">
+                          {{ b.degradacionHabilitada ? 'Degradación habilitada' : 'Degradación pendiente' }}</span>
+                      }
+                    </div>
+                    <div class="muted small" style="margin-top:4px">Alertas: {{ b.alertThresholds.join(', ') }} %
+                      @if (b.impactoValidadoAt) { · impacto validado }</div>
                   } @else { <span class="muted">—</span> }
                 </td>
                 <td class="num nowrap">
                   <button class="btn sm" (click)="edit(n.item)"><nx-icon [name]="n.item.budget ? 'pencil' : 'plus'" [size]="14" />{{ n.item.budget ? 'Editar' : 'Definir' }}</button>
+                  @if (n.item.budget && n.item.budget.policy === 'DOWNGRADE' && !n.item.budget.critico) {
+                    <button class="btn ghost icon sm" title="Registrar validación de impacto" aria-label="Registrar validación de impacto" (click)="validarImpacto(n.item)"><nx-icon name="check" [size]="14" /></button>
+                  }
                   @if (n.item.budget) {
                     <button class="btn ghost icon sm danger" title="Quitar presupuesto" aria-label="Quitar presupuesto" (click)="remove(n.item)"><nx-icon name="trash" [size]="14" /></button>
                   }
@@ -129,5 +157,9 @@
         </table>
       </div>
     </div>
+
+    <nx-pilot-toggle [canEdit]="isAdmin()" />
+    <nx-budget-overrides [canEdit]="isAdmin()" [units]="rows()" />
+    <nx-agent-budgets [canEdit]="isAdmin()" />
   }
 </div>

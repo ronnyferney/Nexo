@@ -599,6 +599,12 @@ export interface BudgetConfig {
   alertThresholds: number[];
   downgradeProviderId: string | null;
   downgradeModel: string | null;
+  /** Proceso crítico (P1.1c): un crítico BLOQUEA al tope y nunca degrada. Por defecto `true`. */
+  critico: boolean;
+  /** Fecha de la validación de impacto de la degradación (P1.1c); `null` si no se ha registrado. */
+  impactoValidadoAt: string | null;
+  /** `true` si la degradación está habilitada: proceso no crítico (`critico=false`) y con impacto validado. */
+  degradacionHabilitada: boolean;
 }
 
 /** `GET /admin/budgets` — una fila por unidad. */
@@ -608,6 +614,8 @@ export interface BudgetRow {
   parentId: string | null;
   budget: BudgetConfig | null;
   periodKey: string | null;
+  /** `true` si una autorización expresa de gasto (override) está vigente para la unidad en el periodo. */
+  overrideActive: boolean;
   spentUsd: number;
   pct: number | null;
 }
@@ -619,6 +627,145 @@ export interface BudgetInput {
   alertThresholds?: number[];
   downgradeProviderId?: string;
   downgradeModel?: string;
+  /** Proceso crítico (default true): un crítico bloquea al tope, no degrada (P1.1c). */
+  critico?: boolean;
+}
+
+/** `GET /admin/agent-budgets` — bolsa de presupuesto por agente (P0.1 nivel agente). */
+export interface AgentBudgetRow {
+  agentId: string;
+  agentName: string;
+  period: BudgetPeriod;
+  periodKey: string;
+  limitUsd: number;
+  policy: BudgetPolicy;
+  alertThresholds: number[];
+  downgradeProviderId: string | null;
+  downgradeModel: string | null;
+  critico: boolean;
+  impactoValidadoAt: string | null;
+  spentUsd: number;
+  pct: number;
+}
+
+/** Cuerpo de `PUT /admin/agent-budgets/:agentId` (mismos campos que la bolsa de unidad). */
+export type AgentBudgetInput = BudgetInput;
+
+/** Autorización expresa de gasto por encima del tope (override gobernado, P0.1). Alcance: una unidad O un agente. */
+export interface BudgetOverride {
+  id: string;
+  orgUnitId: string | null;
+  agentId: string | null;
+  periodKey: string;
+  motivo: string;
+  limitExtraUsd: number | null;
+  grantedByUserId: string | null;
+  grantedByRole: Role;
+  expiresAt: string;
+  revokedAt: string | null;
+  /** `true` si no está revocada y aún no ha vencido. */
+  vigente: boolean;
+  createdAt: string;
+}
+
+/** Cuerpo de `POST /admin/budgets/overrides`: indique exactamente un alcance (orgUnitId O agentId). */
+export interface BudgetOverrideInput {
+  orgUnitId?: string;
+  agentId?: string;
+  motivo: string;
+  /** Vigencia ISO 8601 (debe ser futura). */
+  expiresAt: string;
+  /** Tope adicional de gasto en USD sobre el límite. */
+  limitExtraUsd?: number;
+}
+
+/** `GET/PUT /admin/budgets/pilot` — preset de piloto US$ 0 (P0.1b). */
+export interface PilotConfig {
+  modoPiloto: boolean;
+  /** Fecha desde la que está activo; `null` si no lo está. */
+  desde: string | null;
+}
+
+/** Cuerpo de `POST /admin/budgets/:orgUnitId/impacto` (P1.1c). */
+export interface ValidarImpactoInput {
+  nota?: string;
+}
+
+// ===== Políticas de retención/privacidad (P0.2 · decisión Jurídica) =====
+
+export type RetentionChannel = 'CORREO' | 'WHATSAPP' | 'VOZ' | 'CHAT';
+export type RetentionInfoType = 'ORDINARIA' | 'EVIDENCIA' | 'SENSIBLE';
+export type RetentionOrigin = 'POLITICA' | 'WORKSPACE';
+
+/** `GET /admin/data-protection/retention-policies` — una fila por alcance (canal + tipo). */
+export interface RetentionPolicy {
+  id: string;
+  workspaceId: string;
+  /** Canal al que aplica; `null` = todos los canales (comodín). */
+  canal: RetentionChannel | null;
+  /** Tipo de información al que aplica; `null` = todos los tipos (comodín). */
+  tipoInformacion: RetentionInfoType | null;
+  /** Plazo de conservación en días; `null` = hereda la retención del workspace. */
+  retencionDias: number | null;
+  eliminacionSegura: boolean;
+  consentimientoRequerido: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Cuerpo de `PUT /admin/data-protection/retention-policies` (upsert por alcance). */
+export interface RetentionPolicyInput {
+  canal?: RetentionChannel | null;
+  tipoInformacion?: RetentionInfoType | null;
+  retencionDias?: number | null;
+  eliminacionSegura?: boolean;
+  consentimientoRequerido?: boolean;
+}
+
+/** `GET .../retention-policies/resolve` — política resuelta de un alcance (la más específica aplicable). */
+export interface ResolvedRetention {
+  retencionDias: number | null;
+  origen: RetentionOrigin;
+  eliminacionSegura: boolean;
+  consentimientoRequerido: boolean;
+  politicaAplicada: { canal: RetentionChannel | null; tipoInformacion: RetentionInfoType | null } | null;
+}
+
+// ===== Gate de grabación de voz (E14 · ADR 0015 · decisión Jurídica D7) =====
+
+/** `GET /grabacion-config` — configuración (o vista OFF por defecto) de grabación de una empresa. */
+export interface GrabacionConfig {
+  /** `null` cuando aún no hay fila persistida (rigen los valores OFF por defecto). */
+  id: string | null;
+  workspaceId: string;
+  empresaId: string;
+  grabarAudio: boolean;
+  guardarTranscripcion: boolean;
+  guardarResumen: boolean;
+  guardarEvidencia: boolean;
+  /** Gate jurídico (P0.2): hasta activarlo NADA se graba aunque las banderas de tipo estén en ON. */
+  grabacionAutorizadaJuridicamente: boolean;
+  requiereAutorizacion: boolean;
+  finalidad: string | null;
+  retencionDias: number | null;
+  accesoRoles: string[];
+  eliminacionAutomatica: boolean;
+  /** `false` = no hay configuración persistida (vista OFF por defecto). */
+  configurado?: boolean;
+}
+
+/** Cuerpo de `PUT /grabacion-config/:empresaId` (todos los campos opcionales; parcial sobre lo previo). */
+export interface GrabacionConfigInput {
+  grabarAudio?: boolean;
+  guardarTranscripcion?: boolean;
+  guardarResumen?: boolean;
+  guardarEvidencia?: boolean;
+  grabacionAutorizadaJuridicamente?: boolean;
+  requiereAutorizacion?: boolean;
+  finalidad?: string;
+  retencionDias?: number | null;
+  accesoRoles?: string[];
+  eliminacionAutomatica?: boolean;
 }
 
 export interface UsageGroup {
