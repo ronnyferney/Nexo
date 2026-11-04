@@ -25,13 +25,13 @@ son la base del resto. Lo que NEXO **ya tiene** se marca para reutilizar y reduc
 | **E3 · Jerarquía de dirección digital** | ✅ | Niveles (empleado→líder→jefe→director→gerente→superempleado), autoridad, delegación, supervisión y reemplazo | RF32, RF33, RF34, RF39, RF40 | P0 | Construye |
 | **E4 · Trabajo por resultados** | ✅ | Objetivos, tareas y entregables, contrato de resultado, verificación/aceptación, incumplimientos | RF07, RF08, RF29, RF30, RF31 | P0 | Construye |
 | **E5 · Colaboración y comunicación** | ✅ | Flujos con contratos, **continuidad de tarea (handoff entre agentes/grupos)**, control de delegación, protocolo de mensajes entre agentes, coordinación transversal | RF09, RF10, RF35, RF36 | P0 | Modifica + Construye |
-| **E14 · Canales de comunicación externa** | ⏳ | Correo, **llamadas telefónicas con agentes conversacionales al 100 %**, mensajería **WhatsApp** — como canales de los empleados digitales, bajo política y aprobación | RF16, RF17, RF35 (ext.) | P0 | Reutiliza (correo) + Construye (voz, WhatsApp) |
+| **E14 · Canales de comunicación externa** | ✅ (sandbox) | Correo, **llamadas telefónicas con agentes conversacionales al 100 %**, mensajería **WhatsApp** — como canales de los empleados digitales, bajo política y aprobación. Construido en modo prueba; **activación productiva = (B)**, espera autorización/gasto | RF16, RF17, RF35 (ext.) | P0 | Reutiliza (correo) + Construye (voz, WhatsApp) |
 | **E6 · Gobierno de acciones** | ✅ | Motor de políticas, bandeja de aprobaciones (hash/invalidación/doble), suspensión de emergencia | RF11, RF12, RF13 | P0 | Construye |
 | **E7 · Durabilidad avanzada** | ✅ | Idempotencia, deduplicación de eventos, reintentos/conciliación, bandeja de excepciones | RF17, RF18, RF20, RF21 | P0 | Modifica + Construye |
-| **E8 · Conocimiento y herramientas** | 🟡 | Conocimiento empresarial, memoria controlada, conectores **REST/SOAP(web service)/GraphQL/MCP**, pasarela, **acceso a internet** y **RPA** como capacidades del agente | RF14, RF15, RF16, RF17 | P0 | Reutiliza + Modifica + Construye |
+| **E8 · Conocimiento y herramientas** | ✅ | Conocimiento empresarial, memoria controlada, conectores **REST/SOAP(web service)/GraphQL/MCP**, pasarela, **acceso a internet** y **RPA** como capacidades del agente. E8-2 candado en runtime + web del parámetro construidos; **RPA = expansión (no P0)** | RF14, RF15, RF16, RF17 | P0 | Reutiliza + Modifica + Construye |
 | **E9 · Costos e imputación** | ✅ | Control de costos, presupuestos con reserva/conciliación, imputación por empresa/línea/área/centro de costo, servicios compartidos | RF25, RF26, RF44, RF45 | P0 | Modifica |
 | **E10 · Indicadores y evaluación** | ✅ | KPIs de resultado (cumplimiento, calidad, tiempo de ciclo, costo por resultado, beneficio validado), evaluaciones, mejora continua | RF27, RF28, RF30-métricas | P0/P1 | Reutiliza + Construye |
-| **E11 · Comunidad interna** | 🟡 | Red social corporativa privada: perfiles, muro, grupos, publicaciones tipificadas, moderación, aprendizajes validados | RF37, RF38 | P0 | Construye |
+| **E11 · Comunidad interna** | ✅ | Red social corporativa privada: perfiles, muro, grupos, publicaciones tipificadas, moderación, aprendizajes validados. Muro backend + web construidos; **moderación avanzada = refinamiento menor** | RF37, RF38 | P0 | Construye |
 | **E12 · Consolas y experiencia** | ✅ | Inicio gerencial, Mi trabajo, Aprobaciones, Organización/organigrama, consolas por negocio/área/sede, chat, accesibilidad | RF23, RF24, RF47 | P0 | Modifica + Construye |
 | **E13 · Plataforma (RNF)** | ✅ | Disponibilidad, rendimiento, DR, observabilidad correlacionada, auditoría inmutable, exportación, retención | RNF01-09 | P0/P1 | Modifica + Construye |
 
@@ -293,3 +293,22 @@ está cerrado, y se agregaron tres capacidades nuevas autorizadas por el patroci
   Agent Hub Inc.4 (distribución entre organizaciones), cifrado de campo de PII y purga por retención en perfiles.
 - **Housekeeping:** recrear la BD de **desarrollo** para eliminar una migración fantasma (no afecta la rama ni el
   despliegue; todas las migraciones del programa son aditivas y respetan el índice GIN de `KnowledgeChunk`).
+
+## Nota de cierre (2026-11-04)
+
+Tras la **auditoría de cierre de épicas/HU/puertas QA** (`docs/auditoria-cierre-epicas-2026-11-04.md`, verificada contra
+el código real, no de memoria), el **mapa de épicas** de este documento se alinea con el estado ya construido: **E8**,
+**E11** y **E14** pasan de 🟡/⏳ a ✅ (E14 ✅ **sandbox**). El programa queda **al 100% de lo construible**.
+
+- **Lo construido (olas A–F + fixes de cierre):** las 14 épicas (E1–E14) tienen módulo backend, pantalla web y suite
+  e2e; **15/16 puertas QA** verificadas por e2e de API (71 suites, 846 `it()`). A ello se suman las capacidades de los
+  ADR 0017 (rendimiento/caching/scheduler), 0018 (memoria y perfiles), 0019 (Agent Hub), 0020 (**cumplimiento**: motor +
+  resolver + seed + **consola web** `features/cumplimiento`) y el ADR 0016 (**superempleado**: Inc.1 construido + la
+  **compuerta E-B integrada GATED**, con las **7 decisiones de producto ratificadas el 2026-11-03**).
+- **Único pendiente construible (categoría A):** endurecimiento de QA —una prueba e2e dedicada de resistencia a
+  **inyección** (QA02) y recorridos de navegador para pantallas nuevas— más esta alineación documental. No es
+  construcción de funcionalidad.
+- **Lo demás es (B) — no construcción:** espera **activación / gasto / validación jurídica o sectorial**: activación
+  productiva de correo/WhatsApp/voz (credenciales por bóveda), umbrales de Finanzas, política de Jurídica, validación
+  sectorial de Cumplimiento y modo bloqueante, habilitación operativa por etapas del coordinador (ADR 0016 Inc.2–5) y
+  el go/no-go del piloto de cobranza. **Construido ≠ activado productivamente.** Ver sección 7 de la auditoría.

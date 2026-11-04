@@ -2,8 +2,13 @@
 
 - **Estado:** Propuesto · **Incremento 1 ratificado por el patrocinador (2026-11-02)**; **Incrementos 2–5 autorizados
   para avanzar en diseño funcional, arquitectura y pruebas aisladas**, con **implementación operativa sujeta a revisión
-  por etapas**.
-- **Fecha:** 2026-10-26 (actualizado 2026-11-02)
+  por etapas**. · **7 decisiones de producto RATIFICADAS (2026-11-03)** (ubicación `missions`, rol/nivel, intra-empresa
+  por defecto, misión sin bolsa propia, `LOGRADA` la confirma el humano, pasaporte de misión, versionado JSON
+  `schemaVersion`; ver "Resolución del patrocinador (2026-11-03)") · **Compuerta E-B avanzada: Inc.2–5 INTEGRADOS en modo
+  GATED** por `Workspace.coordinadorGobiernoActivo` (**apagado por defecto, sin efecto productivo**); migración aditiva
+  `MisionEvento` aplicada y pruebas reales QA10/QA13/QA14 en verde (ver "Nota de cierre de la compuerta E-B (2026-11-03)").
+  La **habilitación operativa por etapas** sigue **diferida** a autorización del patrocinador.
+- **Fecha:** 2026-10-26 (actualizado 2026-11-02 y 2026-11-03)
 - **Responsables:** nexo-architect
 
 > **Decisión del patrocinador (2026-11-02).** Se **ratifica** la autorización del **Incremento 1**. Los **Incrementos

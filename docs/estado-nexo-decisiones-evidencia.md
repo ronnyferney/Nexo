@@ -4,6 +4,23 @@
 > mensaje**, lo **PROPUESTO** y lo **PENDIENTE**. Ninguna integración productiva, contratación o gasto se activa con base
 > en este documento; lo que requiere autorización se marca por separado (sección E).
 
+## Realineación de evidencia (2026-11-04) — reporte por punto
+
+Tras la **auditoría de cierre** (`docs/auditoria-cierre-epicas-2026-11-04.md`, verificada contra el código real), se
+corrigen los ítems que figuraban «PENDIENTE/PARCIAL» en la matriz §C pero que **ya están construidos**:
+
+- **WhatsApp y voz:** de PENDIENTE a **IMPLEMENTADO + SIMULADO (sandbox)** — adaptadores Meta/Twilio y contrato
+  `VoiceProvider` + simulado/stubs construidos y probados.
+- **Superempleado (ADR 0016):** de PARCIAL/PENDIENTE a **Inc.1 construido + Inc.2–5 integrados GATED** (flag apagado por
+  defecto); 7 decisiones de producto ratificadas (2026-11-03).
+- **Cumplimiento sectorial (ADR 0020):** motor + resolver + **consola web** construidos; catálogos CO **activos en modo
+  asesor**.
+
+**Matiz que se mantiene:** **construido ≠ activado productivamente.** La activación productiva (canales reales,
+credenciales por bóveda, gasto de voz), los umbrales de Finanzas, la política de Jurídica, la validación sectorial de
+Cumplimiento y el modo bloqueante, y la habilitación operativa por etapas del coordinador son **categoría (B)**: esperan
+autorización/gasto/validación, no construcción. Ver §E y la sección 6 de la auditoría.
+
 ## Actualización del patrocinador (2026-10-27) — reporte por punto
 
 Definiciones del mensaje del 2026-10-27 y su estado. Autorizaciones independientes: **construir / acceso / gasto /
@@ -60,7 +77,7 @@ Estados: **IMPLEMENTADO** (código) · **PROBADO** (unit/e2e) · **SIMULADO** (s
 | **Jerarquía digital** (línea de mando, sin ciclos, coherencia de nivel, no concede acceso) | IMPLEMENTADO + PROBADO | `modules/hierarchy/*`; e2e `hierarchy-e3`; web `features/organigrama` |
 | **Empresas / líneas de negocio / áreas / sedes / centros de costo** (dimensiones) | IMPLEMENTADO + PROBADO | `modules/governance/estructura` + `dimensiones`; e2e `estructura`, `dimensiones-d8`; web `features/admin/estructura` |
 | **Comunidad corporativa** (muro: novedades/apoyo/aprendizajes/compromisos) | IMPLEMENTADO + PROBADO (unit+e2e+E2E navegador) | `modules/community/*`; e2e `community-e11`; web `features/comunidad`; `e2e/comunidad.spec.ts` |
-| **Superempleado digital** (coordinación transversal de resultados) | **PARCIAL / PENDIENTE** | El nivel `SUPEREMPLEADO` existe en la jerarquía (`NivelJerarquico`); la **coordinación transversal automática** como capacidad distinta **no está construida**. Propuesto como incremento. |
+| **Superempleado digital** (coordinación transversal de resultados) | IMPLEMENTADO + PROBADO (Inc.1) · **Inc.2–5 INTEGRADOS GATED** | Inc.1 (misión transversal + participantes/vínculos + asignación/seguimiento) construido; Inc.2–5 **integrados en modo GATED** por `Workspace.coordinadorGobiernoActivo` (**apagado por defecto**, sin efecto productivo). Las **7 decisiones de producto quedaron ratificadas (2026-11-03)**. `modules/missions/*`; e2e `missions-governance-eb` (QA10/QA13/QA14), `demo-gerente-digital`; ADR 0016. **Habilitación operativa por etapas = (B)**, espera autorización del patrocinador. |
 | Gobierno (políticas, aprobaciones, doble aprobación, suspensión, acciones sensibles, riesgo) | IMPLEMENTADO + PROBADO | `modules/governance/actions/*`; e2e `governance-e6`, `governance-e6-acciones-sensibles` |
 | Auditoría inmutable encadenada por hash + visor | IMPLEMENTADO + PROBADO | `modules/audit/*`; e2e `audit-e13`; web `features/auditoria` |
 | Imputación de costos / indicadores / consola gerencial | IMPLEMENTADO + PROBADO | `modules/governance/imputacion`, `results/indicadores`, `consolas`; e2e `imputacion-e9`, `indicadores-e10`, `consolas-e12` |
@@ -69,8 +86,9 @@ Estados: **IMPLEMENTADO** (código) · **PROBADO** (unit/e2e) · **SIMULADO** (s
 | Cuadrillas (plantillas de equipo gobernadas, 100 % declarativas) | IMPLEMENTADO + PROBADO | `modules/crews/*`; e2e `crews-e11`; web `features/cuadrillas` |
 | Parámetros de ejecución (estación virtual + salida a internet) + gate en runtime | IMPLEMENTADO + PROBADO | `modules/execution-params/*`; e2e `parametros-ejecucion-e8`; gate en `agent-runtime` |
 | **Canales externos — correo (M365)** | IMPLEMENTADO + **SIMULADO** | `modules/channels/*` (adaptador m365 + simulado); e2e `channels-e14`. Envío real **inactivo sin credenciales**. |
-| **Canales externos — WhatsApp** | PENDIENTE (autorizado a construir en sandbox) | A construir: interfaz común + adaptador Meta + Twilio (sandbox). |
-| **Canales externos — voz** | PENDIENTE (autorizado diseño + pruebas sin gasto) | A construir: contrato `VoiceProvider` + simulado + stubs. |
+| **Canales externos — WhatsApp** | IMPLEMENTADO + **SIMULADO** (sandbox) | `modules/channels/adapters/whatsapp-*.adapter.ts` (Meta Cloud API + Twilio), interfaz común + webhooks; e2e `channels-e14*`. Activación real **inactiva sin credenciales** por diseño. Contratación/credenciales por empresa = (B). |
+| **Canales externos — voz** | IMPLEMENTADO + **SIMULADO** (sandbox) | `modules/channels/voice/*` (contrato `VoiceProvider` + adaptador simulado + stubs Connect/Google) + grabación; e2e `channels-voz-e14`. Servicios pagos/presupuesto de voz = (B). |
+| **Cumplimiento sectorial** (motor + resolver + consola web) | IMPLEMENTADO + PROBADO · **catálogos CO activos (asesor)** | `modules/compliance/*` (motor + resolver + seed), consola web `features/cumplimiento`; e2e `matriz-cumplimiento-p13`, `compliance-seed-p13` (ADR 0020). Catálogos CO transversales + cobranza **activos (modo asesor)**; salud/retail **sembrados asesor**; EC preparado. **Validación sectorial/jurisdiccional y modo bloqueante = (B)**. |
 
 ## D. Candado de internet — comparación para su decisión (requisito obligatorio ya incorporado)
 **Requisito obligatorio (decidido):** ningún agente elude la restricción por no tener estación. Las tres categorías
@@ -105,7 +123,7 @@ IA no son un toggle de usuario (siempre pasan por el runtime y su gobierno propi
 1. **Resuelto:** 2 bugs de reactividad de signals (crear estación virtual por UI; estado «sin guardar» de parámetros). Arreglados y cubiertos por E2E.
 2. **Prueba flaky:** un test de accesibilidad del diálogo de compartir falla ocasionalmente bajo contención (pasa aislado). No es regresión; mitigable subiendo el límite de alta de usuarios en pruebas.
 3. **Entorno de pruebas:** la API viva debe **recompilarse/reiniciarse** al añadir rutas nuevas para verlas (procedimiento documentado); no afecta al código.
-4. **Superempleado digital:** la coordinación transversal automática **no está construida** (ver §C).
+4. **Superempleado digital:** Inc.1 construido y los Inc.2–5 **integrados en modo GATED** (flag `coordinadorGobiernoActivo` apagado por defecto, sin efecto productivo); la **habilitación operativa por etapas** espera autorización (ver §C y ADR 0016).
 5. **Canales E14:** todo en **sandbox**; los envíos productivos están **inactivos** (sin credenciales) por diseño.
 6. **Chat con LLM real:** requiere `ANTHROPIC_API_KEY`; el entorno usa el proveedor mock determinista.
 7. **Firma del export de pasaporte:** hoy usa referencias + hashes + ancla de auditoría; **firma criptográfica** pendiente de gestión de claves.
