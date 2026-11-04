@@ -76,14 +76,73 @@ export async function createEmptyAgent(page: Page, name = 'Agente de prueba QA')
  * un defecto de la app (el guard de validación no recalcula al escribir; ver el reporte de QA). Devuelve el nombre.
  */
 export async function seedEstacionVirtual(page: Page, nombre: string): Promise<string> {
+  return (await apiPost<{ nombre: string }>(page, '/estaciones-virtuales', {
+    nombre,
+    proveedor: 'interna',
+    descripcion: 'Estación de pruebas E2E',
+  })).nombre;
+}
+
+/**
+ * Envoltura de una escritura autenticada a la API (cookie de sesión + doble envío CSRF por la cookie `nexo_csrf`).
+ * La usan los recorridos que necesitan SEMBRAR datos de dominio que no nacen por la propia UI de la pantalla bajo
+ * prueba (p. ej. una aprobación pendiente o una tarea) para poder verificar luego su visualización y un flujo real.
+ * No sustituye a la verificación por navegador: solo prepara el estado mínimo. Lanza si la API no responde 2xx.
+ */
+export async function apiPost<T>(page: Page, path: string, data: unknown = {}): Promise<T> {
   const cookies = await page.context().cookies();
   const csrf = cookies.find((c) => c.name === 'nexo_csrf')?.value ?? '';
-  const res = await page.request.post('/api/estaciones-virtuales', {
+  const res = await page.request.post(`/api${path}`, {
     headers: { 'X-CSRF-Token': csrf, 'content-type': 'application/json' },
-    data: { nombre, proveedor: 'interna', descripcion: 'Estación de pruebas E2E' },
+    data,
   });
-  expect(res.ok(), `No se pudo sembrar la estación (HTTP ${res.status()})`).toBeTruthy();
-  return nombre;
+  expect(res.ok(), `POST ${path} respondió HTTP ${res.status()}: ${await res.text()}`).toBeTruthy();
+  return (await res.json()) as T;
+}
+
+/** Lectura autenticada a la API (para resolver ids de semilla). */
+export async function apiGet<T>(page: Page, path: string): Promise<T> {
+  const res = await page.request.get(`/api${path}`);
+  expect(res.ok(), `GET ${path} respondió HTTP ${res.status()}: ${await res.text()}`).toBeTruthy();
+  return (await res.json()) as T;
+}
+
+/**
+ * Siembra una aprobación PENDIENTE: crea una política que EXIGE aprobación para un tipo de acción (con/sin
+ * autoaprobación) y solicita esa acción por la pasarela de gobierno, que entonces crea la aprobación. Devuelve el id
+ * de la aprobación. El tipo de acción se hace único por prueba para no colisionar con otras políticas del workspace.
+ */
+export async function seedAprobacionPendiente(
+  page: Page,
+  opts: { tipoAccion: string; proposito: string; allowSelfApproval?: boolean; requiredApprovals?: number; importe?: number; moneda?: string },
+): Promise<string> {
+  await apiPost(page, '/admin/policies', {
+    nombre: `Política ${opts.tipoAccion}`,
+    tipoAccion: opts.tipoAccion,
+    efecto: 'REQUIRE_APPROVAL',
+    requiredApprovals: opts.requiredApprovals ?? 1,
+    allowSelfApproval: opts.allowSelfApproval ?? false,
+    estado: 'ACTIVA',
+  });
+  const outcome = await apiPost<{ estado: string; aprobacionId?: string }>(page, '/actions', {
+    tipoAccion: opts.tipoAccion,
+    proposito: opts.proposito,
+    riesgo: 'ALTO',
+    importe: opts.importe,
+    moneda: opts.moneda,
+  });
+  expect(outcome.estado, `Se esperaba que la acción requiriera aprobación, pero fue ${outcome.estado}`).toBe(
+    'REQUIERE_APROBACION',
+  );
+  return outcome.aprobacionId!;
+}
+
+/** Siembra una tarea autorizada (E4) por la API y devuelve su id. */
+export async function seedTarea(
+  page: Page,
+  data: { titulo: string; descripcion?: string; criterioAceptacion?: string; prioridad?: number },
+): Promise<string> {
+  return (await apiPost<{ id: string }>(page, '/tareas', data)).id;
 }
 
 /**
